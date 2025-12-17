@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+option go_package = "github.com/nmxmxh/inos_v1/proto/v1;proto_v1";
+
+// One message type for everything
+message Packet {
+  bytes wasm = 1;     // Code to run
+  bytes input = 2;    // Data to process
+  bytes result = 3;   // Output (if returning)
+  int64 cost = 4;     // Credits to earn/spend
+}
