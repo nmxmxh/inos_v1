@@ -191,7 +191,11 @@ pub extern "C" fn science_init_with_sab() -> i32 {
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
             let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
-            let safe_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // Create TWO SafeSAB references:
+            // 1. Scoped view for module data
+            let module_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // 2. Global SAB for registry writes
+            let global_sab = sdk::sab::SafeSAB::new(val.clone());
 
             sdk::init_logging();
             info!("Science module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
@@ -227,7 +231,7 @@ pub extern "C" fn science_init_with_sab() -> i32 {
                 }
             };
 
-            register_science(&safe_sab);
+            register_science(&global_sab);
 
             return 1;
         }

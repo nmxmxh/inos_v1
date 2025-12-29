@@ -104,7 +104,8 @@ impl SafeSAB {
         let abs_offset = self.base_offset + offset;
         let view =
             crate::js_interop::create_i32_view(self.buffer.clone(), (abs_offset & !3) as u32, 1);
-        let _ = crate::js_interop::atomic_store(&view.into(), 0, 0);
+        // FIXED: Use atomic_load instead of atomic_store to avoid data corruption
+        let _ = crate::js_interop::atomic_load(&view.into(), 0);
     }
 
     /// Get raw inner buffer (use with caution)

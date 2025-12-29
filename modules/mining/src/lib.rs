@@ -186,6 +186,7 @@ pub struct ProductionPoW {
 /// Initialize mining module with SharedArrayBuffer from global scope
 #[no_mangle]
 pub extern "C" fn mining_init_with_sab() -> i32 {
+    sdk::js_interop::console_log("[mining] DEBUG: Init function called", 3);
     // Use stable ABI to get global object
     let global = sdk::js_interop::get_global();
     let sab_key = sdk::js_interop::create_string("__INOS_SAB__");
@@ -202,7 +203,11 @@ pub extern "C" fn mining_init_with_sab() -> i32 {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
 
-            let safe_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // Create TWO SafeSAB references:
+            // 1. Scoped view for module data
+            let module_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // 2. Global SAB for registry writes
+            let global_sab = sdk::sab::SafeSAB::new(val.clone());
 
             sdk::init_logging();
             info!("Mining module initialized with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
@@ -235,7 +240,7 @@ pub extern "C" fn mining_init_with_sab() -> i32 {
                 }
             };
 
-            register_mining(&safe_sab);
+            register_mining(&global_sab);
 
             return 1;
         }

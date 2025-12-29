@@ -77,8 +77,10 @@ pub fn init() {
 pub extern "C" fn ml_init_with_sab() -> i32 {
     // Use stable ABI to get global object
     let global = sdk::js_interop::get_global();
+    sdk::js_interop::console_log("[ml] Init: Global object retrieved", 3);
     let sab_key = sdk::js_interop::create_string("__INOS_SAB__");
     let sab_val = sdk::js_interop::reflect_get(&global, &sab_key);
+    sdk::js_interop::console_log("[ml] Init: SAB Value retrieved", 3);
 
     let offset_key = sdk::js_interop::create_string("__INOS_SAB_OFFSET__");
     let offset_val = sdk::js_interop::reflect_get(&global, &offset_key);
@@ -90,19 +92,33 @@ pub extern "C" fn ml_init_with_sab() -> i32 {
     let id_val = sdk::js_interop::reflect_get(&global, &id_key);
 
     if let (Ok(val), Ok(off), Ok(sz)) = (sab_val, offset_val, size_val) {
+        sdk::js_interop::console_log("[ml] Init: All values retrieved successfully", 3);
         if !val.is_undefined() && !val.is_null() {
+            sdk::js_interop::console_log("[ml] Init: SAB is defined and not null", 3);
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
             let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
-            let safe_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // Create TWO SafeSAB references:
+            // 1. Scoped view for module data
+            let module_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            // 2. Global SAB for registry writes
+            let global_sab = sdk::sab::SafeSAB::new(val.clone());
 
             // Set global identity context
             sdk::set_module_id(module_id);
 
             sdk::init_logging();
-            info!("ML module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
-                module_id, offset, size / 1024 / 1024);
+            sdk::js_interop::console_log("[ml] DEBUG: Logging initialized", 3);
+            sdk::js_interop::console_log(
+                &format!(
+                    "[ml] ML module init: ID={}, Offset=0x{:x}",
+                    module_id, offset
+                ),
+                1,
+            );
+            // info!("ML module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)",
+            //     module_id, offset, size / 1024 / 1024);
 
             // Helper to register simple modules
             let register_ml = |sab: &sdk::sab::SafeSAB| {
@@ -132,11 +148,15 @@ pub extern "C" fn ml_init_with_sab() -> i32 {
                 }
             };
 
-            register_ml(&safe_sab);
+            register_ml(&global_sab);
 
             // Success: Bridge found and identity set
             return 1;
+        } else {
+            sdk::js_interop::console_log("[ml] Init FAILED: SAB is undefined or null", 1);
         }
+    } else {
+        sdk::js_interop::console_log("[ml] Init FAILED: Could not retrieve global values", 1);
     }
     0
 }

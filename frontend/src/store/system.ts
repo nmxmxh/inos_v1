@@ -360,6 +360,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       };
 
       const loadModule = async (name: string) => {
+        let moduleCapabilities: string[] = [];
         console.log(`[SystemStore] Loading module: ${name}`);
         const response = await fetch(`/modules/${name}.wasm?t=${Date.now()}`);
         if (!response.ok) throw new Error(`Failed to load ${name}.wasm`);
@@ -380,14 +381,11 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
         // 0. Declare exports early to avoid TDZ in closures
         let exports: any;
-        const memoryProvider = { buffer: new ArrayBuffer(0) };
 
         // Helper to always get the current, non-detached memory buffer
         const getBuffer = () => {
-          if (exports?.memory?.buffer) {
-            return exports.memory.buffer;
-          }
-          return memoryProvider.buffer;
+          // Modules use imported memory (sharedMemory), not exports.memory
+          return sharedMemory.buffer;
         };
 
         // Define base stable imports
@@ -521,10 +519,28 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           ) => {
             const memoryBuffer = getBuffer();
             const targetBuffer = getObject(targetBufferIdx);
+            const globalSAB = (window as any).__INOS_SAB__;
+            console.log(
+              `[inos_copy_to_sab] targetOffset=0x${targetOffset.toString(16)}, len=${len}, targetBuffer type:`,
+              targetBuffer?.constructor?.name,
+              'Same as global?',
+              targetBuffer === globalSAB
+            );
             if (!memoryBuffer || !targetBuffer) return;
             const src = new Uint8Array(memoryBuffer, srcPtr, len);
             const dest = new Uint8Array(targetBuffer, targetOffset, len);
             dest.set(src);
+            console.log(
+              `[inos_copy_to_sab] Wrote ${len} bytes to offset 0x${targetOffset.toString(16)}`
+            );
+            // Verify write
+            const verify = new Uint8Array(globalSAB, targetOffset, Math.min(len, 64));
+            console.log(
+              `[inos_copy_to_sab] Verify first 64 bytes:`,
+              Array.from(verify)
+                .map(b => '0x' + b.toString(16).padStart(2, '0'))
+                .join(' ')
+            );
           },
 
           inos_copy_from_sab: (
@@ -785,36 +801,199 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         linker.env.memory = sharedMemory; // Same SAB as kernel
 
         // 6. Instantiate with dynamic linker
-        const result = await WebAssembly.instantiate(compiledModule, linker);
-        exports = result.exports as any;
+        try {
+          const result = await WebAssembly.instantiate(compiledModule, linker);
+          exports = result.exports as any;
+        } catch (error) {
+          console.error(`[SystemStore] ❌ WASM instantiation failed for ${name}:`, error);
+          console.error(`[SystemStore] Error details:`, {
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+          throw error;
+        }
 
         // Initialize module
         (window as any).__INOS_MODULE_ID__ = MODULE_IDS[name] || 0;
+        console.log(`[SystemStore] Looking for init function: ${name}_init_with_sab`);
         const initFn = exports[`${name}_init_with_sab`] || exports.init_with_sab;
+        console.log(`[SystemStore] Init function found:`, typeof initFn);
         if (typeof initFn === 'function') {
           const stats = heap.getStats();
           console.log(
             `[SystemStore] 🚀 Booting ${name} (Heap: ${stats.current}, Peak: ${stats.peak})`
           );
-          const success = initFn();
-          if (!success)
+          console.log(`[SystemStore] Calling ${name}_init_with_sab()...`);
+          console.log(`[SystemStore] Globals:`, {
+            SAB: typeof (window as any).__INOS_SAB__,
+            OFFSET: (window as any).__INOS_SAB_OFFSET__,
+            SIZE: (window as any).__INOS_SAB_SIZE__,
+            MODULE_ID: (window as any).__INOS_MODULE_ID__,
+          });
+          let success = 0;
+          try {
+            success = initFn();
+          } catch (error) {
+            console.error(`[SystemStore] ❌ Init threw exception for ${name}:`, error);
+            success = 0;
+          }
+          console.log(`[SystemStore] Init function returned:`, success);
+          if (!success) {
             console.warn(`[SystemStore] Module ${name} initialization reported failure`);
-          else
+          } else {
             console.log(`[SystemStore] ✅ Module ${name} initialized with ID ${MODULE_IDS[name]}`);
+
+            // Log capabilities after successful init
+            // Architecture: Hash-based registry with CRC32C (threads.md line 148)
+            try {
+              const sabBase = (window as any).__INOS_SAB__;
+              if (sabBase) {
+                const view = new DataView(sabBase);
+
+                // CRC32C hash (Castagnoli polynomial) - matches registry.rs:200-214
+                const crc32c = (str: string): number => {
+                  let crc = 0xffffffff;
+                  for (let i = 0; i < str.length; i++) {
+                    const byte = str.charCodeAt(i);
+                    crc ^= byte;
+                    for (let j = 0; j < 8; j++) {
+                      if (crc & 1) {
+                        crc = (crc >>> 1) ^ 0x82f63b78; // Castagnoli polynomial
+                      } else {
+                        crc >>>= 1;
+                      }
+                    }
+                  }
+                  return (crc ^ 0xffffffff) >>> 0;
+                };
+
+                const moduleHash = crc32c(name);
+                console.log(
+                  `[SystemStore] 📋 Scanning registry for ${name} (hash: 0x${moduleHash.toString(16)})`
+                );
+
+                // Scan registry (0x000100 - 0x001000, 64-byte entries, 60 inline capacity)
+                // CRITICAL: Registry is at ABSOLUTE offset 0x000100 in the SAB
+                // Modules write with global_sab (base_offset=0), so they write to absolute offsets
+                const OFFSET_MODULE_REGISTRY = 0x000100;
+                const MODULE_ENTRY_SIZE = 96; // Must match Rust: layout.rs line 28
+                const MAX_MODULES_INLINE = 60;
+
+                console.log(
+                  `[SystemStore]   Registry at absolute: 0x${OFFSET_MODULE_REGISTRY.toString(16)}`
+                );
+
+                let foundSlot = -1;
+
+                // Debug: Log first 10 slots and the claimed slot
+                console.log(`[SystemStore]   Debug: First 10 registry slots:`);
+                for (let i = 0; i < 10; i++) {
+                  const offset = OFFSET_MODULE_REGISTRY + i * MODULE_ENTRY_SIZE;
+                  const hash = view.getUint32(offset, true);
+                  if (hash !== 0) {
+                    console.log(`[SystemStore]     Slot ${i}: hash=0x${hash.toString(16)}`);
+                  }
+                }
+
+                // Also check the slot where module claims to be (from log message)
+                const claimedSlot = name === 'compute' ? 5 : name === 'science' ? 53 : -1;
+                if (claimedSlot >= 0) {
+                  const offset = OFFSET_MODULE_REGISTRY + claimedSlot * MODULE_ENTRY_SIZE;
+                  const hash = view.getUint32(offset, true);
+                  console.log(
+                    `[SystemStore]   Debug: Claimed slot ${claimedSlot}: hash=0x${hash.toString(16)}`
+                  );
+                }
+
+                for (let slot = 0; slot < MAX_MODULES_INLINE; slot++) {
+                  const offset = OFFSET_MODULE_REGISTRY + slot * MODULE_ENTRY_SIZE;
+                  // EnhancedModuleEntry: signature(8 bytes) + id_hash(4 bytes) at offset 8
+                  const entryHash = view.getUint32(offset + 8, true); // id_hash at byte 8
+
+                  if (entryHash === moduleHash) {
+                    foundSlot = slot;
+                    break;
+                  }
+                }
+
+                if (foundSlot >= 0) {
+                  const offset = OFFSET_MODULE_REGISTRY + foundSlot * MODULE_ENTRY_SIZE;
+                  console.log(
+                    `[SystemStore]   Found at slot ${foundSlot} (offset: 0x${offset.toString(16)})`
+                  );
+
+                  // Read entry structure - EnhancedModuleEntry field offsets:
+                  // Verified from binary dump: cap_table_offset at byte 56, cap_count at byte 60
+                  const capTableOffset = view.getUint32(offset + 56, true);
+                  const capCount = view.getUint16(offset + 60, true);
+
+                  console.log(
+                    `[SystemStore]   Cap table offset: 0x${capTableOffset.toString(16)}, count: ${capCount}`
+                  );
+
+                  // Read capabilities from the table
+                  const capabilities: string[] = [];
+                  if (capTableOffset > 0 && capCount > 0) {
+                    const globalSAB = (window as any).__INOS_SAB__;
+                    const CAP_ENTRY_SIZE = 36; // CapabilityEntry: id[32] + min_memory_mb[2] + flags[1] + reserved[1]
+                    console.log(
+                      `[SystemStore]   Reading ${capCount} capabilities from 0x${capTableOffset.toString(16)}`
+                    );
+                    for (let i = 0; i < capCount; i++) {
+                      // Memory barrier fixed - read from correct offset
+                      const capOffset = capTableOffset + i * CAP_ENTRY_SIZE;
+                      console.log(`[SystemStore]     Cap ${i}: offset=0x${capOffset.toString(16)}`);
+                      // Read capability name (32 bytes, null-terminated)
+                      const nameBytes = new Uint8Array(globalSAB, capOffset, 32);
+                      console.log(
+                        `[SystemStore]     Cap ${i}: hex:`,
+                        Array.from(nameBytes.slice(0, 16))
+                          .map(b => '0x' + b.toString(16).padStart(2, '0'))
+                          .join(' ')
+                      );
+                      console.log(
+                        `[SystemStore]     Cap ${i}: first 16 bytes:`,
+                        Array.from(nameBytes.slice(0, 16))
+                          .map(b => String.fromCharCode(b))
+                          .join('')
+                      );
+                      let nameLen = 0;
+                      while (nameLen < 32 && nameBytes[nameLen] !== 0) nameLen++;
+                      const capName = new TextDecoder().decode(nameBytes.slice(0, nameLen));
+                      console.log(`[SystemStore]     Cap ${i}: name="${capName}" (len=${nameLen})`);
+                      if (capName) capabilities.push(capName);
+                    }
+                    console.log(`[SystemStore]   Capabilities:`, capabilities);
+                    moduleCapabilities = capabilities; // Store for return
+                  }
+                } else {
+                  console.warn(
+                    `[SystemStore]   Module ${name} not found in registry (hash mismatch)`
+                  );
+                }
+              }
+            } catch (e) {
+              console.warn(`[SystemStore] Could not read capabilities:`, e);
+            }
+          }
+        } else {
+          console.error(`[SystemStore] Init function not found for ${name}!`);
         }
 
-        return exports;
+        return { exports, capabilities: moduleCapabilities };
       };
 
       // Load all modules in parallel
       const modules = ['compute', 'science', 'ml', 'mining', 'vault', 'drivers'];
       const loadedModules: Record<string, any> = {};
+      const moduleCapabilities: Record<string, string[]> = {}; // Store capabilities here
 
       // Load modules sequentially to avoid OOM/contention on shared memory
       for (const name of modules) {
         try {
-          const mod = await loadModule(name);
-          loadedModules[name] = mod;
+          const result = await loadModule(name);
+          loadedModules[name] = result.exports;
+          moduleCapabilities[name] = result.capabilities || [];
         } catch (err) {
           console.error(`[SystemStore] Critical failure loading ${name}:`, err);
           throw err;
@@ -829,7 +1008,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           ...Object.keys(loadedModules).reduce(
             (acc, name) => ({
               ...acc,
-              [name]: { id: name, active: true, capabilities: [] },
+              [name]: { id: name, active: true, capabilities: moduleCapabilities[name] || [] },
             }),
             {}
           ),
