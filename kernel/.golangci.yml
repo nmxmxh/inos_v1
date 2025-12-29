@@ -1,0 +1,34 @@
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+linters-settings:
+  govet:
+    # Disable unsafeptr check because WASM requires direct memory access via uintptr
+    disable:
+      - unsafeptr
+  staticcheck:
+    # Allow unsafe.Pointer conversions for WASM
+    checks: ["all", "-SA5000", "-SA4000"]
+
+issues:
+  exclude-rules:
+    - path: kernel/main.go
+      linters:
+        - govet
+        - staticcheck
+      text: "possible misuse of unsafe.Pointer"
+    - path: kernel/main.go
+      text: "possible misuse of reflect.SliceHeader"

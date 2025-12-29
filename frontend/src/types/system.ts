@@ -1,0 +1,121 @@
+// ========== SAB Memory Layout Constants ==========
+// Must match modules/sdk/src/layout.rs
+
+export const SAB_LAYOUT = {
+  // Module Registry
+  OFFSET_MODULE_REGISTRY: 0x000100,
+  SIZE_MODULE_REGISTRY: 0x001800,
+  MODULE_ENTRY_SIZE: 96,
+  MAX_MODULES_INLINE: 64,
+
+  // Arena
+  OFFSET_ARENA: 0x150000,
+
+  // Atomic Flags
+  OFFSET_ATOMIC_FLAGS: 0x000000,
+  IDX_SYSTEM_EPOCH: 7,
+  IDX_ARENA_ALLOCATOR: 8,
+} as const;
+
+// ========== Module Registry Entry (96 bytes) ==========
+// Matches EnhancedModuleEntry from modules/sdk/src/registry.rs
+
+export interface ModuleRegistryEntry {
+  // Header (32 bytes)
+  signature: bigint; // 0x494E4F5352454749 ("INOSREGI")
+  idHash: number; // CRC32C of module ID
+  versionMajor: number;
+  versionMinor: number;
+  versionPatch: number;
+  flags: number;
+
+  // Metadata (16 bytes)
+  timestamp: bigint;
+  dataOffset: number;
+  dataSize: number;
+
+  // Resource profile (8 bytes)
+  resourceFlags: number;
+  minMemoryMb: number;
+  minGpuMemoryMb: number;
+  minCpuCores: number;
+
+  // Cost model (8 bytes)
+  baseCost: number;
+  perMbCost: number;
+  perSecondCost: number;
+
+  // Dependency/capability pointers (24 bytes)
+  depTableOffset: number;
+  depCount: number;
+  maxVersionMajor: number;
+  minVersionMajor: number;
+  capTableOffset: number;
+  capCount: number;
+
+  // Module ID (12 bytes, null-terminated)
+  moduleId: string;
+
+  // Quick hash (4 bytes)
+  quickHash: number;
+}
+
+// ========== Capability Entry (36 bytes) ==========
+// Matches CapabilityEntry from modules/sdk/src/registry.rs
+
+export interface CapabilityEntry {
+  id: string; // 32 bytes, null-terminated
+  minMemoryMb: number;
+  flags: number;
+  requiresGpu: boolean;
+}
+
+// ========== Resource Flags ==========
+
+export const RESOURCE_FLAGS = {
+  CPU_INTENSIVE: 0b0001,
+  GPU_INTENSIVE: 0b0010,
+  MEMORY_INTENSIVE: 0b0100,
+  IO_INTENSIVE: 0b1000,
+  NETWORK_INTENSIVE: 0b10000,
+} as const;
+
+export const MODULE_FLAGS = {
+  HAS_EXTENDED_DATA: 0b0001,
+  IS_ACTIVE: 0b0010,
+  HAS_OVERFLOW: 0b0100,
+} as const;
+
+export const CAPABILITY_FLAGS = {
+  REQUIRES_GPU: 0b0001,
+} as const;
+
+// ========== Magic Constants ==========
+
+export const REGISTRY_SIGNATURE = 0x494e4f5352454749n; // "INOSREGI"
+
+// ========== Legacy Types (for backward compatibility) ==========
+
+export interface KernelStats {
+  nodes: number;
+  particles: number;
+  sector: number;
+  fps: number;
+}
+
+export interface UnitState {
+  id: string;
+  active: boolean;
+  capabilities: string[];
+  config?: Record<string, any>;
+  // Enhanced with registry data
+  registryEntry?: ModuleRegistryEntry;
+}
+
+export interface KernelInstance {
+  memory: WebAssembly.Memory;
+  dispatch: (eventType: string, payload?: any) => void;
+  getStats: () => KernelStats;
+}
+
+export type SystemStatus = 'initializing' | 'booting' | 'ready' | 'error';

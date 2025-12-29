@@ -1,0 +1,48 @@
+[package]
+name = "science"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sdk = { path = "../sdk" }
+compute = { path = "../compute" }
+js-sys = "0.3"
+log = "0.4"
+
+capnp = { version = "0.19", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+nalgebra = { version = "0.32", features = ["serde-serialize", "macros", "rand"] }
+rapier3d = { version = "0.18", features = ["serde-serialize"] }
+# fenris = "0.0.33"
+# groan_rs = { version = "0.11", features = ["serde", "no-xdrfile"] }
+async-trait = "0.1"
+blake3 = { version = "1.5", features = ["traits-preview"] }
+hex = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Performance"] }
+bincode = "1.3"
+thiserror = "1.0"
+lazy_static = "1.4"
+parking_lot = "0.12"
+dashmap = "5.5"
+tokio = { version = "1.0", features = ["sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+rand = { version = "0.8", features = ["small_rng"] }
+futures = "0.3"
+tokio-util = { version = "0.7" }
+bytes = { version = "1.5", features = ["serde"] }
+getrandom = { version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+serde_with = "3.4"
+
+[build-dependencies]
+capnpc = "0.19"
+
+[features]
+default = ["capnp"]
+capnp = ["dep:capnp"]
+

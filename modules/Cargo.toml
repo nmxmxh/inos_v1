@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "sdk",
+    "compute",
+    "science",
+    "mining",
+    "storage",
+    "ml",
+    "drivers",
+]
+resolver = "2"

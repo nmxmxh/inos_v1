@@ -1,0 +1,28 @@
+[package]
+name = "mining"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sdk = { path = "../sdk" }
+log = "0.4"
+js-sys = "0.3"
+sha2 = "0.10"
+blake3 = "1.5"
+hex = "0.4"
+wgpu = { version = "22.1.0", features = ["webgpu"] }
+pollster = "0.4"
+bytemuck = { version = "1.16", features = ["derive"] }
+async-trait = "0.1"
+bitcoin_hashes = { version = "0.14", default-features = false }
+# Enable atomics for multithreading
+parking_lot = "0.12"
+k256 = { version = "0.13", features = ["ecdsa", "arithmetic"] }
+bech32 = "0.9"
+rand = { version = "0.8", default-features = false }
+rand_core = { version = "0.6", features = ["getrandom"] }
+getrandom = { version = "0.2", features = ["js"] }
+capnp = "0.19"

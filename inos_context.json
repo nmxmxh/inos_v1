@@ -1,0 +1,929 @@
+{
+  "project": "INOS (Internet-Native Operating System)",
+  "version": "1.9-production",
+  "philosophy": "SAB-Native, Zero-Copy, Epoch-Based Signaling, High-Performance Rust/Go WASM Hybrid.",
+  "investigation_protocol": {
+    "architectural_constraints": {
+      "non_negotiables": [
+        "SAB memory model must be preserved",
+        "Zero-copy boundaries cannot be broken without justification",
+        "Epoch-based signaling must remain consistent",
+        "P2P mesh must maintain eventual consistency",
+        "WASM module boundaries must respect ownership"
+      ],
+      "preferred_patterns": [
+        "Use existing supervisor patterns for fault tolerance",
+        "Follow StreamRPC conventions for service communication",
+        "Adhere to gossip protocol for state propagation",
+        "Use CRDT patterns for distributed state where applicable",
+        "Follow knowledge graph structure for metadata"
+      ]
+    },
+    "build_system_guidance": {
+      "frontend_integration": "make frontend-build (requires kernel/modules built)",
+      "full_system_build": "make all",
+      "kernel_check": "make kernel-test (Go tests) or make lint (Go vet)",
+      "module_check_all": "make modules-build (checks all)",
+      "module_check_one": "make check-module MODULE=\u003cname\u003e (e.g., make check-module MODULE=ml)",
+      "module_test_one": "make test-module MODULE=\u003cname\u003e",
+      "primary_tool": "make"
+    },
+    "core_principle": "Understand before modifying. The codebase is a living system with established patterns. Changes must respect architectural integrity.",
+    "deliverables": {
+      "before_changes": [
+        "Architecture reference showing affected area",
+        "Pattern matches from elsewhere in codebase",
+        "Root cause hypothesis with evidence",
+        "Impact analysis on related subsystems"
+      ],
+      "with_changes": [
+        "Minimal diff focusing only on root cause",
+        "Updated tests demonstrating fix",
+        "Brief comment linking to architectural pattern used"
+      ]
+    },
+    "mandatory_investigation_commands": [
+      "Before any edit: 'grep -r \"function_name\\|class_name\\|struct_name\" . --include=\"*.{go,rs,js,ts}\"'",
+      "Examine callers: 'grep -r \"\\.function_name\\|-\u003efunction_name\" .'",
+      "Check recent changes: 'git log -p --since=\"2 weeks ago\" -- path/to/file'",
+      "Find similar patterns: 'grep -B5 -A5 \"pattern_to_match\" relevant_files'",
+      "Verify imports/dependencies: 'grep -r \"import\\|use\\|require\" file.go | head -20'"
+    ],
+    "phase_1_context_immersion": {
+      "deliverable": "Brief architecture diagram (textual or mental) showing components and their interactions",
+      "goal": "Achieve deep understanding of the affected system area",
+      "required_actions": [
+        "Run 'find . -name \"*.go\" -o -name \"*.rs\" -o -name \"*.js\" -o -name \"*.ts\" | xargs grep -l \"\u003crelevant_terms\u003e\"' to locate related code",
+        "Create dependency map: trace imports/exports 3 levels deep",
+        "Identify the established architectural patterns in this subsystem",
+        "Document data flow: from source → transformations → destination",
+        "Note any SAB (SharedArrayBuffer) usage patterns or zero-copy boundaries",
+        "Review 'make help' output below to identify relevant build targets"
+      ]
+    },
+    "phase_2_pattern_recognition": {
+      "deliverable": "List of applicable patterns and their usage contexts",
+      "goal": "Identify how similar problems are solved elsewhere",
+      "required_actions": [
+        "Search for established patterns: 'grep -r \"TODO: pattern\" .' or 'grep -r \"FIXME: convention\" .'",
+        "Examine 2-3 similar functional areas for canonical implementations",
+        "Check for existing tests that demonstrate expected behavior",
+        "Look for configuration patterns in /config or /env directories",
+        "Review protocol schemas (.capnp files) for data structure constraints"
+      ]
+    },
+    "phase_3_root_cause_analysis": {
+      "goal": "Pinpoint exact failure location and mechanism",
+      "techniques": [
+        "Binary elimination: Bisect the code path to isolate failure segment",
+        "Data provenance: Trace specific data through transformations",
+        "Epoch analysis: Check signaling boundaries and synchronization points",
+        "Boundary inspection: Examine WASM/Rust/Go interop layers",
+        "Resource flow: Verify memory ownership and zero-copy handoffs"
+      ],
+      "validation_requirements": [
+        "Must identify the exact line or function where behavior diverges",
+        "Must verify hypothesis against 3+ test cases or examples",
+        "Must check for similar issues in git history: 'git log --grep=\"\u003crelated\u003e\"'",
+        "Must consider cross-service impact in P2P mesh context"
+      ]
+    },
+    "phase_4_architectural_alignment_check": {
+      "checklist": [
+        "Does this change maintain zero-copy principles?",
+        "Does it respect epoch-based signaling boundaries?",
+        "Does it align with SAB memory ownership model?",
+        "Will it affect P2P mesh gossip propagation?",
+        "Does it match existing Rust/Go/WASM interop patterns?",
+        "Are there similar fixes in the codebase to reference?",
+        "Does it avoid creating new files when existing ones suffice?"
+      ],
+      "goal": "Ensure solution respects system constraints",
+      "required_references": [
+        "Cite 2-3 existing examples of similar patterns",
+        "Reference protocol schema definitions if data structures change",
+        "Note any affected tests that need updating"
+      ]
+    },
+    "phase_5_solution_implementation": {
+      "goal": "Apply minimal, focused changes",
+      "principles": [
+        "Change only what's necessary to fix root cause",
+        "Preserve all existing interfaces unless absolutely required",
+        "Follow the established code style and naming conventions",
+        "Add or update tests to validate fix and prevent regression",
+        "Document why this specific change solves the problem"
+      ],
+      "verification_steps": [
+        "Run 'make test' to verify all components",
+        "Run 'make build' to verify compilation",
+        "Run existing test suite",
+        "Create minimal reproduction to verify fix",
+        "Check for side effects in related subsystems",
+        "Verify performance characteristics (zero-copy preserved)"
+      ]
+    }
+  },
+  "architecture": {
+    "Foundation": {
+      "components": {
+        "modules/sdk": {
+          "capabilities": [
+            "SAB Management",
+            "Epoch Signaling",
+            "Buddy Allocation",
+            "State Conflict Resolution",
+            "Zero-Copy IPC"
+          ],
+          "path": "modules/sdk"
+        }
+      },
+      "name": "Infrastructure SDK",
+      "philosophy": "Zero-Copy Primitives \u0026 SAB Management"
+    },
+    "Layer 1": {
+      "components": {},
+      "name": "Hybrid Host (Native)",
+      "technologies": [
+        "Nginx",
+        "Brotli",
+        "JavaScript (Web API Bridge)"
+      ]
+    },
+    "Layer 2": {
+      "components": {
+        "kernel/core/mesh": {
+          "capabilities": [
+            "P2P Mesh Networking",
+            "Mesh Mesh Coordination"
+          ],
+          "path": "kernel/core/mesh"
+        },
+        "kernel/threads": {
+          "capabilities": [
+            "Reactive Epoch Signaling",
+            "Generic Supervisor"
+          ],
+          "path": "kernel/threads"
+        },
+        "kernel/threads/intelligence/learning": {
+          "capabilities": [
+            "Intelligence Engine"
+          ],
+          "path": "kernel/threads/intelligence/learning"
+        },
+        "kernel/threads/intelligence/optimization": {
+          "capabilities": [
+            "Intelligence Engine"
+          ],
+          "path": "kernel/threads/intelligence/optimization"
+        },
+        "kernel/threads/intelligence/scheduling": {
+          "capabilities": [
+            "Intelligence Engine"
+          ],
+          "path": "kernel/threads/intelligence/scheduling"
+        },
+        "kernel/threads/intelligence/security": {
+          "capabilities": [
+            "Intelligence Engine"
+          ],
+          "path": "kernel/threads/intelligence/security"
+        },
+        "kernel/threads/supervisor/units": {
+          "capabilities": [
+            "Audio Supervisor",
+            "Crypto Supervisor",
+            "Data Supervisor",
+            "Driver Supervisor",
+            "Gpu Supervisor",
+            "Image Supervisor",
+            "Mining Supervisor",
+            "Ml Supervisor",
+            "Physics Supervisor",
+            "Science Supervisor",
+            "Storage Supervisor"
+          ],
+          "path": "kernel/threads/supervisor/units"
+        }
+      },
+      "name": "Kernel (WASM)",
+      "shared_bridge": {
+        "epoch": "unknown",
+        "inbox": "unknown",
+        "outbox": "unknown",
+        "source": "kernel/threads/unit_loader.go"
+      },
+      "technologies": [
+        "Go",
+        "WASM"
+      ]
+    },
+    "Layer 3": {
+      "components": {
+        "modules/compute": {
+          "capabilities": [
+            "Proof-of-Work / Hashing",
+            "Compression"
+          ],
+          "path": "modules/compute"
+        },
+        "modules/drivers": {
+          "capabilities": [],
+          "path": "modules/drivers"
+        },
+        "modules/mining": {
+          "capabilities": [
+            "GPU Acceleration",
+            "Proof-of-Work / Hashing"
+          ],
+          "path": "modules/mining"
+        },
+        "modules/ml": {
+          "capabilities": [
+            "GPU Acceleration",
+            "AI Inference",
+            "Proof-of-Work / Hashing"
+          ],
+          "path": "modules/ml"
+        },
+        "modules/science": {
+          "capabilities": [
+            "Physics Simulation",
+            "Proof-of-Work / Hashing"
+          ],
+          "path": "modules/science"
+        },
+        "modules/storage": {
+          "capabilities": [
+            "Proof-of-Work / Hashing"
+          ],
+          "path": "modules/storage"
+        }
+      },
+      "name": "Modules (WASM)",
+      "technologies": [
+        "Rust",
+        "JavaScript (React)"
+      ]
+    }
+  },
+  "modules": {
+    "modules/compute": {
+      "capabilities": [
+        "Proof-of-Work / Hashing",
+        "Compression"
+      ],
+      "path": "modules/compute",
+      "type": "Rust Module"
+    },
+    "modules/drivers": {
+      "capabilities": [],
+      "path": "modules/drivers",
+      "type": "Rust Module"
+    },
+    "modules/mining": {
+      "capabilities": [
+        "GPU Acceleration",
+        "Proof-of-Work / Hashing"
+      ],
+      "path": "modules/mining",
+      "type": "Rust Module"
+    },
+    "modules/ml": {
+      "capabilities": [
+        "GPU Acceleration",
+        "AI Inference",
+        "Proof-of-Work / Hashing"
+      ],
+      "path": "modules/ml",
+      "type": "Rust Module"
+    },
+    "modules/science": {
+      "capabilities": [
+        "Physics Simulation",
+        "Proof-of-Work / Hashing"
+      ],
+      "path": "modules/science",
+      "type": "Rust Module"
+    },
+    "modules/storage": {
+      "capabilities": [
+        "Proof-of-Work / Hashing"
+      ],
+      "path": "modules/storage",
+      "type": "Rust Module"
+    }
+  },
+  "units": {
+    "atomic": {
+      "capabilities": [
+        "load_gro",
+        "load_pdb",
+        "select",
+        "rmsd",
+        "center_of_mass",
+        "distance",
+        "serialize_gro",
+        "compute_energy",
+        "compute_forces",
+        "molecular_dynamics",
+        "optimize_geometry",
+        "compute_stress_tensor",
+        "map_to_continuum"
+      ],
+      "id": "atomic",
+      "implementation": "modules/science/src/matter/atomic.rs",
+      "name": "atomic",
+      "type": "Rust Unit"
+    },
+    "audio": {
+      "capabilities": [
+        "decode",
+        "decode_wav",
+        "encode_flac",
+        "encode_wav",
+        "fft",
+        "spectrogram",
+        "low_pass",
+        "resample",
+        "normalize",
+        "gain",
+        "mix",
+        "audio.encode",
+        "audio.decode",
+        "audio.fft",
+        "audio.filter",
+        "audio.resample"
+      ],
+      "controller": "Go Supervisor",
+      "id": "audio",
+      "implementation": "modules/compute/src/units/audio.rs",
+      "name": "audio",
+      "supervisor": "kernel/threads/supervisor/units/audio_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "continuum": {
+      "capabilities": [
+        "generate_mesh",
+        "assemble_stiffness",
+        "solve_linear",
+        "compute_strain",
+        "compute_stress",
+        "apply_quantum_forces",
+        "compute_homogenized_properties"
+      ],
+      "id": "continuum",
+      "implementation": "modules/science/src/matter/continuum.rs",
+      "name": "continuum",
+      "type": "Rust Unit"
+    },
+    "crypto": {
+      "capabilities": [
+        "sha256",
+        "sha512",
+        "blake3",
+        "hmac_sha256",
+        "hmac_sha512",
+        "aes256_gcm_encrypt",
+        "aes256_gcm_decrypt",
+        "chacha20_encrypt",
+        "chacha20_decrypt",
+        "ed25519_keygen",
+        "ed25519_sign",
+        "ed25519_verify",
+        "x25519_key_exchange",
+        "hkdf",
+        "argon2id",
+        "crypto.hash",
+        "crypto.sign",
+        "crypto.verify",
+        "crypto.encrypt",
+        "crypto.decrypt",
+        "crypto.keygen"
+      ],
+      "controller": "Go Supervisor",
+      "id": "crypto",
+      "implementation": "modules/compute/src/units/crypto.rs",
+      "name": "crypto",
+      "supervisor": "kernel/threads/supervisor/units/crypto_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "data": {
+      "capabilities": [
+        "parquet_read",
+        "parquet_write",
+        "csv_read",
+        "csv_write",
+        "json_read",
+        "json_write",
+        "select",
+        "head",
+        "tail",
+        "slice",
+        "sort",
+        "schema",
+        "sum",
+        "mean",
+        "min",
+        "max",
+        "count",
+        "cast",
+        "drop_nulls",
+        "row_number",
+        "rank",
+        "lag",
+        "lead",
+        "str_contains",
+        "str_replace",
+        "str_length",
+        "str_to_lowercase",
+        "str_to_uppercase",
+        "data.compress",
+        "data.decompress",
+        "data.parse",
+        "data.transform",
+        "data.validate"
+      ],
+      "controller": "Go Supervisor",
+      "id": "data",
+      "implementation": "modules/compute/src/units/data.rs",
+      "name": "data",
+      "supervisor": "kernel/threads/supervisor/units/data_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "engine": {
+      "capabilities": [
+        "echo",
+        "double"
+      ],
+      "id": "engine",
+      "implementation": "modules/compute/src/engine.rs",
+      "name": "engine",
+      "type": "Rust Unit"
+    },
+    "gpu": {
+      "capabilities": [
+        "transform_vertices",
+        "compute_normals",
+        "tangent_space",
+        "deferred_shading",
+        "forward_rendering",
+        "pbr_material",
+        "visibility_culling",
+        "lod_selection",
+        "instanced_rendering",
+        "mesh_shading",
+        "ray_tracing",
+        "path_tracing",
+        "particle_update",
+        "particle_forces",
+        "particle_collision",
+        "particle_spawning",
+        "particle_sorting",
+        "particle_billboards",
+        "particle_trails",
+        "particle_mesh",
+        "particle_nbody",
+        "tone_mapping",
+        "color_correction",
+        "bloom",
+        "chromatic_aberration",
+        "gaussian_blur",
+        "motion_blur",
+        "depth_of_field",
+        "sharpen",
+        "pixelation",
+        "edge_detection",
+        "cel_shading",
+        "halftone",
+        "ssao",
+        "ssr",
+        "temporal_aa",
+        "perlin_noise",
+        "simplex_noise",
+        "worley_noise",
+        "fractal_noise",
+        "heightmap_generation",
+        "erosion_simulation",
+        "vegetation_placement",
+        "procedural_texture",
+        "normal_map_generation",
+        "ao_map_generation",
+        "fluid_simulation",
+        "smoke_simulation",
+        "water_simulation",
+        "cloth_simulation",
+        "hair_simulation",
+        "reaction_diffusion",
+        "cellular_automata",
+        "sph_particles",
+        "phong_lighting",
+        "blinn_phong",
+        "pbr_lighting",
+        "subsurface_scattering",
+        "glass_shader",
+        "metal_shader",
+        "fabric_shader",
+        "water_shader",
+        "uv_mapping",
+        "parallax_mapping",
+        "displacement_mapping",
+        "execute_wgsl",
+        "gpu.compute",
+        "gpu.shader",
+        "gpu.render",
+        "gpu.tensor",
+        "gpu.cuda_proxy"
+      ],
+      "controller": "Go Supervisor",
+      "id": "gpu",
+      "implementation": "modules/compute/src/units/gpu.rs",
+      "name": "gpu",
+      "supervisor": "kernel/threads/supervisor/units/gpu_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "image": {
+      "capabilities": [
+        "resize",
+        "resize_exact",
+        "resize_to_fill",
+        "thumbnail",
+        "crop",
+        "rotate90",
+        "rotate180",
+        "rotate270",
+        "fliph",
+        "flipv",
+        "grayscale",
+        "invert",
+        "brighten",
+        "contrast",
+        "huerotate",
+        "blur",
+        "unsharpen",
+        "gaussian_blur",
+        "median_filter",
+        "sharpen",
+        "edge_detect",
+        "overlay",
+        "tile",
+        "adjust_levels",
+        "image.resize",
+        "image.filter",
+        "image.convert",
+        "image.crop",
+        "image.optimize"
+      ],
+      "controller": "Go Supervisor",
+      "id": "image",
+      "implementation": "modules/compute/src/units/image.rs",
+      "name": "image",
+      "supervisor": "kernel/threads/supervisor/units/image_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "inference": {
+      "capabilities": [
+        "load_model_p2p",
+        "store_model_chunks",
+        "shard_model",
+        "export_model",
+        "get_model_metadata",
+        "run_llm",
+        "run_vision",
+        "run_embedding",
+        "run_audio",
+        "quantize_int8",
+        "quantize_int4",
+        "dequantize"
+      ],
+      "id": "inference",
+      "implementation": "modules/ml/src/jobs/inference.rs",
+      "name": "inference",
+      "type": "Rust Unit"
+    },
+    "kinetic": {
+      "capabilities": [
+        "create_body",
+        "create_collider",
+        "step",
+        "cast_ray",
+        "add_force",
+        "add_impulse",
+        "get_state"
+      ],
+      "id": "kinetic",
+      "implementation": "modules/science/src/matter/kinetic.rs",
+      "name": "kinetic",
+      "type": "Rust Unit"
+    },
+    "layers": {
+      "capabilities": [
+        "linear",
+        "conv2d",
+        "max_pool2d",
+        "avg_pool2d",
+        "layer_norm",
+        "batch_norm",
+        "group_norm",
+        "attention",
+        "multi_head_attention",
+        "cross_attention",
+        "rope"
+      ],
+      "id": "layers",
+      "implementation": "modules/ml/src/jobs/layers.rs",
+      "name": "layers",
+      "type": "Rust Unit"
+    },
+    "math": {
+      "capabilities": [
+        "dot",
+        "cross",
+        "normalize",
+        "matrix_multiply",
+        "inverse",
+        "eigenvalues",
+        "svd",
+        "qr_decomposition",
+        "cholesky",
+        "solve_linear",
+        "tensor_product",
+        "partial_trace",
+        "expectation_value",
+        "commutator",
+        "matrix_exp",
+        "matrix_log",
+        "determinant",
+        "trace",
+        "condition_number",
+        "pseudoinverse",
+        "schur_decomposition",
+        "lyapunov_solve",
+        "riccati_solve"
+      ],
+      "id": "math",
+      "implementation": "modules/science/src/math.rs",
+      "name": "math",
+      "type": "Rust Unit"
+    },
+    "science": {
+      "capabilities": [
+        "atomic:select",
+        "atomic:rmsd",
+        "atomic:centerOfMass",
+        "atomic:distance",
+        "continuum:generateMesh",
+        "continuum:solveLinear",
+        "continuum:computeStress",
+        "kinetic:createBody",
+        "kinetic:step",
+        "kinetic:castRay",
+        "math:matrixMultiply",
+        "math:dotProduct",
+        "math:inverse",
+        "science.experiment",
+        "science.simulate",
+        "science.calculate",
+        "science.analyze",
+        "science.predict"
+      ],
+      "controller": "Go Supervisor",
+      "id": "science",
+      "implementation": "modules/science/src/lib.rs",
+      "name": "science",
+      "supervisor": "kernel/threads/supervisor/units/science_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "storage": {
+      "capabilities": [
+        "store_chunk",
+        "load_chunk",
+        "delete_chunk",
+        "query_index",
+        "rebuild_index",
+        "gc",
+        "write",
+        "read",
+        "delete",
+        "storage.cas",
+        "storage.compress",
+        "storage.replicate",
+        "storage.deduplicate",
+        "storage.verify",
+        "storage.encrypt"
+      ],
+      "controller": "Go Supervisor",
+      "id": "storage",
+      "implementation": "modules/compute/src/units/storage.rs",
+      "name": "storage",
+      "supervisor": "kernel/threads/supervisor/units/storage_supervisor.go",
+      "type": "Rust Unit"
+    },
+    "tensor": {
+      "capabilities": [
+        "tensor_add",
+        "tensor_sub",
+        "tensor_mul",
+        "tensor_div",
+        "tensor_matmul",
+        "tensor_transpose",
+        "tensor_reshape",
+        "tensor_sum",
+        "tensor_mean",
+        "tensor_max",
+        "tensor_min",
+        "tensor_softmax",
+        "tensor_relu",
+        "tensor_gelu"
+      ],
+      "id": "tensor",
+      "implementation": "modules/ml/src/jobs/tensor.rs",
+      "name": "tensor",
+      "type": "Rust Unit"
+    },
+    "training": {
+      "capabilities": [
+        "mse_loss",
+        "mae_loss",
+        "cross_entropy_loss",
+        "binary_cross_entropy",
+        "focal_loss",
+        "huber_loss",
+        "sgd_step",
+        "adam_step",
+        "adamw_step",
+        "rmsprop_step",
+        "adagrad_step",
+        "clip_gradients",
+        "gradient_accumulation",
+        "mixed_precision_step"
+      ],
+      "id": "training",
+      "implementation": "modules/ml/src/jobs/training.rs",
+      "name": "training",
+      "type": "Rust Unit"
+    }
+  },
+  "protocols": {
+    "protocols/schemas/base/v1": {
+      "layers": [],
+      "path": "protocols/schemas/base/v1",
+      "schemas": [
+        "base.capnp"
+      ]
+    },
+    "protocols/schemas/compute/v1": {
+      "layers": [
+        "Layer 3 (Modules)"
+      ],
+      "path": "protocols/schemas/compute/v1",
+      "schemas": [
+        "capsule.capnp"
+      ]
+    },
+    "protocols/schemas/economy/v1": {
+      "layers": [],
+      "path": "protocols/schemas/economy/v1",
+      "schemas": [
+        "ledger.capnp"
+      ]
+    },
+    "protocols/schemas/io/v1": {
+      "layers": [],
+      "path": "protocols/schemas/io/v1",
+      "schemas": [
+        "actor.capnp",
+        "sensor.capnp"
+      ]
+    },
+    "protocols/schemas/ml/v1": {
+      "layers": [
+        "Layer 3 (Modules)"
+      ],
+      "path": "protocols/schemas/ml/v1",
+      "schemas": [
+        "model.capnp"
+      ]
+    },
+    "protocols/schemas/p2p/v1": {
+      "layers": [
+        "P2P Mesh"
+      ],
+      "path": "protocols/schemas/p2p/v1",
+      "schemas": [
+        "gossip.capnp",
+        "mesh.capnp"
+      ]
+    },
+    "protocols/schemas/science/v1": {
+      "layers": [
+        "Layer 3 (Modules)"
+      ],
+      "path": "protocols/schemas/science/v1",
+      "schemas": [
+        "science.capnp"
+      ]
+    },
+    "protocols/schemas/system/v1": {
+      "layers": [
+        "Layer 2 (Kernel)"
+      ],
+      "path": "protocols/schemas/system/v1",
+      "schemas": [
+        "orchestration.capnp",
+        "syscall.capnp"
+      ]
+    }
+  },
+  "search_keywords": [
+    "SharedArrayBuffer",
+    "Zero-Copy",
+    "Epoch-Based Signaling",
+    "WASM",
+    "P2P Mesh",
+    "Gossip Protocol",
+    "Reputation Engine",
+    "Knowledge Graph",
+    "CRDT",
+    "StreamRPC",
+    "memory ownership",
+    "synchronization primitive",
+    "mesh coordination",
+    "capnp schema"
+  ],
+  "build_system": {
+    "file_path": "Makefile",
+    "notes": "Use 'make \u003ctarget\u003e' to execute. For modules, use 'make check-module MODULE=\u003cname\u003e'.",
+    "targets": {
+      "# WASM build parameters (CRITICAL": "Build target",
+      "@echo \"     Ubuntu": "",
+      "@echo \"     macOS": "     Ubuntu:  apt-get install binaryen brotli",
+      "@echo \"   Generated code will be in": "   Rust modules import generated code automatically",
+      "@echo \"   Location": "   Generated code will be in: modules/target/\u003cprofile\u003e/build/*/out/",
+      "@echo \"  1. Cap'n Proto compiler": "     macOS:   brew install capnp",
+      "@echo \"  2. WASM optimization tools (optional but recommended)": "     macOS:   brew install binaryen brotli",
+      "@echo \"  3. Rust toolchain with WASM target": "     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+      "@echo \"  Frontend": "Build target",
+      "@echo \"  Kernel": "  Modules: frontend/public/modules/*.wasm",
+      "@echo \"  Layer 1 (Host)": "  Layer 2 (Kernel):  Go WASM Orchestrator (kernel/)",
+      "@echo \"  Layer 2 (Kernel)": "  Layer 3 (Modules): Rust WASM Compute (modules/)",
+      "@echo \"  Layer 3 (Modules)": "",
+      "@echo \"  Modules": "  Frontend: frontend/dist/",
+      "@echo \"Architecture": "  Layer 1 (Host):    Nginx + JS Bridge (frontend/)",
+      "@echo \"Build All": "  all / build        - Build all components (kernel + modules + frontend)",
+      "@echo \"Docker": "  docker-build       - Build Docker images",
+      "@echo \"Frontend (Layer 1 - React + Vite)": "  frontend-install   - Install frontend dependencies",
+      "@echo \"Kernel (Layer 2 - Go WASM)": "  kernel-build       - Build kernel with optimization + compression",
+      "@echo \"Key Features": "  ✅ Multithreading support (SharedArrayBuffer + Web Workers)",
+      "@echo \"Modules (Layer 3 - Rust WASM)": "  modules-build      - Build all Rust modules with optimization",
+      "@echo \"Protocol Generation": "  proto              - Generate all protocol code (Go + Rust + TypeScript)",
+      "@echo \"Setup \u0026 Dependencies": "  setup              - Set up development environment (install tools + deps + proto)",
+      "@echo \"Testing \u0026 Quality": "  test               - Run all tests (kernel + modules)",
+      "@echo \"Utilities": "  clean              - Clean all build artifacts",
+      "@echo \"Version": "Build target",
+      "@echo \"⚠️  Note": "Build target",
+      "@echo \"⚠️  System dependencies required": "  1. Cap'n Proto compiler:",
+      "@echo \"✅ Context generated": "Build target",
+      "@echo \"✅ Kernel build complete": "Build target",
+      "@echo \"✅ Kernel build complete (Development)": "Build target",
+      "@echo \"📊 Build Summary": "  Kernel:  frontend/public/kernel.wasm",
+      "@echo \"🔍 Checking module": "✅ Module $(MODULE) checked",
+      "@echo \"🧪 Testing module": "✅ Module $(MODULE) tested",
+      "all": "✅ All components built successfully",
+      "build": "Build target",
+      "capnp compile -I$(CAPNP_PATH) -o ts": "✅ TypeScript protocol code generated in frontend/bridge/generated",
+      "check-module": "Usage: make check-module MODULE=ml",
+      "clean": "🧹 Cleaning build artifacts...",
+      "deploy": "🚀 Deploying INOS...",
+      "deploy-setup": "🚀 Setting up deployment environment...",
+      "deps": "📚 Installing dependencies...",
+      "docker-build": "🐳 Building Docker images...",
+      "docker-clean": "🧹 Cleaning Docker resources...",
+      "docker-down": "🛑 Stopping Docker containers...",
+      "docker-logs": "Build target",
+      "docker-up": "🚀 Starting Docker containers...",
+      "else echo \"❌ Error": "✅ Kernel build complete (Development): frontend/public/kernel.wasm",
+      "frontend-build": "🎨 Building frontend for production...",
+      "frontend-dev": "🎨 Starting frontend dev server...",
+      "frontend-install": "📦 Installing frontend dependencies...",
+      "gen-context": "📋 Generating Codebase Context Registry...",
+      "help": "INOS v1.9 - The Distributed Runtime Build System",
+      "install-tools": "📦 Installing required tools...",
+      "kernel-build": "🧠 Building INOS Kernel (Go WASM with multithreading)...",
+      "kernel-dev": "🧠 Building INOS Kernel (Development mode - with debug symbols)...",
+      "kernel-proto": "✅ Kernel protocols generated",
+      "kernel-test": "🧪 Running Kernel tests (native Go)...",
+      "lint": "🔍 Running linters...",
+      "modules-build": "💪 Building INOS Modules (Rust WASM)...",
+      "modules-test": "🧪 Running Modules tests...",
+      "proto": "✅ All protocol code generated",
+      "proto-go": "Build target",
+      "proto-rust": "🔧 Generating Rust code from Cap'n Proto schemas...",
+      "proto-ts": "🔧 Generating TypeScript code from Cap'n Proto schemas...",
+      "setup": "🚀 Setting up INOS development environment...",
+      "test": "✅ All tests complete",
+      "test-module": "Usage: make test-module MODULE=ml"
+    }
+  }
+}

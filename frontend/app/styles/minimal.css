@@ -1,0 +1,608 @@
+/* Minimal and Vibrant Styles */
+
+html,
+body {
+  overflow-x: hidden;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Inter Font */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterDisplay-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterDisplay-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+:root {
+  /* 
+   * THEME: Vibrant Midnight (Dark Mode Default)
+   * High-contrast, rich blacks, and vibrant functional colors.
+   */
+
+  /* 2.1 Neutral Foundation (Zinc/Slate inspired) */
+  --bg-app: #050505; /* True Black/Deepest Grey */
+  --bg-surface: #121212; /* Rich Black - Surface */
+  --bg-surface-alt: #1e1e1e; /* Lighter Surface */
+  --bg-surface-hover: #2a2a2a; /* Interaction state */
+  --bg-card: #0f0f0f; /* Card Background */
+
+  --text-primary: #ffffff; /* Pure White */
+  --text-secondary: #a1a1aa; /* Muted Silver - WCAG 3.01:1 on #050505 (10.6:1) */
+  --text-tertiary: #a1a1aa; /* Aligned with secondary for better visibility, relying on weight/size for hierarchy */
+
+  /* Borders - High Contrast but Thin */
+  --border-subtle: #27272a; /* Subtle Divider */
+  --border-focus: #52525b; /* Active/Focus State */
+  --border-highlight: #ffd700; /* Gold Highlight */
+
+  /* 2.2 Functional Colors (Vibrant) */
+  --color-brand: #ffd700; /* Electric Gold */
+  --color-brand-dim: rgba(255, 215, 0, 0.15); /* Gold Tint */
+
+  --color-income: #10b981; /* Emerald Green */
+  --color-income-dim: rgba(16, 185, 129, 0.15);
+
+  --color-expense: #ef4444; /* Vivid Red */
+  --color-expense-dim: rgba(239, 68, 68, 0.15);
+
+  --color-warning: #f59e0b; /* Amber */
+  --color-info: #3b82f6; /* Royal Blue */
+  --color-info-dim: rgba(59, 130, 246, 0.15);
+
+  /* 3.2 Typescale (Increased for readability) */
+  --font-display: 32px;
+  --font-h1: 24px;
+  --font-h2: 20px;
+  --font-body: 15px;
+  --font-data: 14px;
+  --font-caption: 13px; /* Bumped from 12px */
+  --font-tiny: 11px; /* Bumped from 10px */
+
+  /* Legacy Compat */
+  --bg-dark: var(--bg-app);
+  --bg-hover: var(--bg-surface-hover);
+  --border-color: var(--border-subtle);
+  --text-main: var(--text-primary);
+  --text-muted: var(--text-tertiary);
+  --primary: var(--color-brand);
+  --income: var(--color-income);
+  --expense: var(--color-expense);
+  --warning: var(--color-warning);
+
+  /* 3.3 Golden Ratio Spacing (base = 16px) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 40px;
+  --space-2xl: 64px;
+
+  /* 8. Z-Index Hierarchy */
+  --z-base: 1;
+  --z-float: 100;
+  --z-nav: 900;
+  --z-dropdown: 9999;
+  --z-overlay: 10000;
+  --z-tooltip: 10001;
+
+  /* Safe Area */
+  --safe-area-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: border-box;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  /* Removed global perspective to fix Portal fixed positioning issues */
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  scroll-behavior: smooth !important;
+  user-select: none;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.minimal-app {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0.2px; /* Slightly tighter for modern feel */
+  /* min-height fallback for mobile browsers */
+  min-height: calc(var(--vh, 1vh) * 100);
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow-y: scroll;
+  /* Removed transform-style: preserve-3d to fix fixed positioning contexts */
+}
+
+/* Ensure Portal Components sit correctly */
+#portal-root {
+  z-index: var(--z-overlay);
+  position: relative;
+}
+
+/* Scrollbar Styling */
+
+/* System-wide minimal scrollbar, always reserve 4px, cross-browser */
+html,
+body,
+.minimal-app,
+.minimal-main,
+[data-scrollable],
+.minimal-scroll {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+/* Chrome, Safari, Edge */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.minimal-app::-webkit-scrollbar,
+.minimal-main::-webkit-scrollbar,
+[data-scrollable]::-webkit-scrollbar,
+.minimal-scroll::-webkit-scrollbar {
+  width: 2px;
+  min-width: 2px;
+  max-width: 2px;
+  background: transparent;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+.minimal-app::-webkit-scrollbar-track,
+.minimal-main::-webkit-scrollbar-track,
+[data-scrollable]::-webkit-scrollbar-track,
+.minimal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+.minimal-app::-webkit-scrollbar-thumb,
+.minimal-main::-webkit-scrollbar-thumb,
+[data-scrollable]::-webkit-scrollbar-thumb,
+.minimal-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+  min-height: 12px;
+  border: 1px solid var(--bg-app);
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+.minimal-app::-webkit-scrollbar-thumb:hover,
+.minimal-main::-webkit-scrollbar-thumb:hover,
+[data-scrollable]::-webkit-scrollbar-thumb:hover,
+.minimal-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+}
+
+/* Always reserve scrollbar space, even if not overflowing (Chrome/Safari/Edge) */
+html,
+body,
+.minimal-app,
+.minimal-main,
+[data-scrollable],
+.minimal-scroll {
+  scrollbar-gutter: stable both-edges;
+}
+
+.minimal-header {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 12px 24px;
+  background: rgba(5, 5, 5, 0.8); /* Translucent */
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+}
+
+.minimal-nav {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.minimal-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid transparent; /* Invisible border for layout stability */
+  border-radius: 6px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+
+.minimal-link:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.minimal-link.active {
+  background: var(--bg-surface-hover);
+  color: var(--color-brand);
+  border-color: var(--border-subtle);
+}
+
+.minimal-main {
+  padding: 32px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+  flex: 1;
+  min-width: 0; /* Prevents flex item from overflowing */
+}
+
+.minimal-section {
+  margin-bottom: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px; /* Modern rounded corners */
+  padding: 24px;
+  background: var(--bg-card);
+}
+
+.minimal-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.minimal-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.6;
+}
+
+.minimal-metric-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -1px;
+}
+
+.minimal-button {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.minimal-button:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--text-secondary);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.minimal-button:active {
+  transform: translateY(0);
+}
+
+.minimal-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.minimal-button.primary {
+  background: var(--color-brand);
+  color: var(--bg-app); /* Contrast text on Gold */
+  border-color: var(--color-brand);
+}
+
+.minimal-button.primary:hover {
+  filter: brightness(1.1);
+  background: var(--color-brand); /* Keep solid */
+}
+
+.minimal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.minimal-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 24px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  position: relative;
+  overflow: hidden; /* Clean edges */
+}
+
+.minimal-card:hover {
+  border-color: var(--border-focus);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+  z-index: 5;
+}
+
+.minimal-card.active {
+  border: 1px solid var(--color-brand);
+  box-shadow:
+    0 0 0 1px var(--color-brand),
+    0 10px 30px rgba(255, 215, 0, 0.1);
+}
+
+.minimal-card-header {
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.minimal-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  line-height: 1.3;
+  letter-spacing: -0.3px;
+}
+
+.minimal-card-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  flex: 1;
+}
+
+.minimal-card-actions {
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  gap: 12px;
+}
+
+.minimal-code {
+  background: #000;
+  color: var(--color-income);
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.minimal-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  border-radius: 20px; /* Pill shape */
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.minimal-status.active {
+  background: var(--color-income-dim);
+  color: var(--color-income);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.minimal-status.inactive {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.minimal-status.loading {
+  background: var(--color-brand-dim);
+  color: var(--color-brand);
+  border-color: rgba(255, 215, 0, 0.2);
+}
+
+.minimal-input {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
+  transition: all 0.2s ease;
+}
+
+.minimal-input:focus {
+  outline: none;
+  border-color: var(--color-brand);
+  background: var(--bg-app);
+  box-shadow: 0 0 0 2px var(--color-brand-dim);
+}
+
+.minimal-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.minimal-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.minimal-table th,
+.minimal-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px;
+  text-align: left;
+}
+
+.minimal-table th {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 11px;
+}
+
+.minimal-table td {
+  color: var(--text-primary);
+}
+
+.minimal-table tr:hover td {
+  background: var(--bg-surface-hover);
+}
+
+.minimal-badge {
+  display: inline-flex;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.minimal-float {
+  /* Use subtle scale/shadow instead of Z-translate to avoid stacking issues */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Typography Constraints */
+.minimal-section-title-sm {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 600;
+  color: var(--color-brand); /* Accent branded headers */
+  margin-bottom: 16px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .minimal-main {
+    padding: 16px;
+    padding-bottom: calc(80px + var(--safe-area-bottom));
+  }
+
+  .minimal-app {
+    font-size: 14px;
+  }
+
+  .minimal-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .minimal-card {
+    padding: 20px;
+  }
+
+  .minimal-nav {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+}
+
+/* Performance HUD / Status Bar */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 12px 24px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-label {
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-value {
+  color: var(--color-brand);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.status-unit {
+  color: var(--text-secondary);
+}
+
+.status-separator {
+  width: 1px;
+  height: 12px;
+  background: var(--border-subtle);
+}

@@ -1,6 +1,12 @@
-# **INOS v1.8: The Distributed Runtime**
+# **INOS v2.0: The Distributed Runtime**
 
-> **Version:** 1.8 (Storage Economy) | **Status:** Specification | **Philosophy:** "Universal Context & Economic Storage"
+> **Source of Truth:** This document (`spec.md`) is the definitive architectural directive for INOS v2.0. All implementations (Kernel, SDK, Modules) MUST adhere to these requirements.
+
+> **Version:** 2.0 (Stabilized Core) | **Status:** 🚀 [PRODUCTION-READY] | **Philosophy:** "Universal Context & Economic Storage"
+
+> [!NOTE]
+> **Development Paradigm Shift**
+> INOS is built using **Post-AI Development Methodology**—where the bottleneck has shifted from "implementation effort" to "system directives." This is an **Intentional Architecture** manifested through amplified human intelligence, not an accidental architecture grown organically. The complexity is managed through AI-augmented reasoning, enabling what would traditionally require large teams to be orchestrated by focused architectural vision.
 
 ---
 
@@ -40,13 +46,42 @@ INOS is a hybrid distributed runtime that unifies high-performance native ingres
 
 *   **Implementation:** **Go** (WASM) - *The Threaded Kernel*
 *   **Role:** The Operating System Logic, Supervisor & Side-Effect Manager.
+*   **Status:** ✅ **FULLY IMPLEMENTED** (Core scheduler, SAB bridge, Mesh Coordinator active)
 *   **Responsibilities:**
-    *   **Intelligent Threads:**
-        *   **Watchers:** View the entire pipeline (from JS Input to Data Persistence).
-        *   **Adjusters:** detailed management of side-effects and performance tuning.
-        *   **Supervisors:** Orchestrating concurrent Rust workers.
     *   **Orchestration:** Managing Module lifecycles and Storage Policies.
     *   **Governance:** Policy enforcement using the Metadata DNA.
+    *   **Mesh Coordination:** Global state synchronization via Gossip & DHT.
+
+---
+
+## **3.5. Layer 2.5: The Reactive Mutation Layer**
+
+We replace traditional "Message Passing" (Queues) with **"Reactive Mutation"** (Shared State + Signals).
+
+### **3.5.1 The Paradigm: Mutate ➔ Signal ➔ React**
+In this architecture, components do not "talk" to each other; they update the shared reality and signal others to notice.
+
+*   **Mutate:** A component (e.g., Rust) writes data directly to the SharedArrayBuffer (SAB). Usage of the `Arena` at `0x0D0000` (updated for v2.0 layout).
+*   **Signal:** The component increments an Atomic Epoch Counter (e.g., `Epoch += 1`).
+*   **React:** The Kernel (watching epochs via `sdk::signal`) detects `Epoch > LastSeenEpoch`, reads the new state, and acts.
+
+> [!IMPORTANT]
+> **Implemented v2.0: Epoch-Based Signaling**
+> We have fully transitioned from binary flags to epoch counters. This enables:
+> - **Debouncing**: Multiple mutations can be batched into a single epoch.
+> - **Replay**: Historical epochs can be reconstructed for debugging.
+> - **Consistency**: All watchers see the same sequence of state transitions.
+> - **Atomic Wait**: Using `Atomics.wait()` for zero-CPU idling.
+
+### **3.5.2 Zero-Copy Pipelining**
+No data is ever copied between languages. We pass **Pointers**, not Payloads.
+
+`Network (WebRTC) ➔ SAB (Inbox) ➔ Rust (Decompress) ➔ SAB (Arena) ➔ JS (Render)`
+
+1.  **Network ➔ SAB:** Browser writes packet to `Inbox`.
+2.  **SAB ➔ Rust:** Rust reads `Inbox`, decompresses to `Arena`.
+3.  **Rust ➔ SAB:** Rust updates Manifest in `Metadata`. Signals Kernel.
+4.  **SAB ➔ JS:** JS reads `Arena` via pointer for rendering.
 
 ---
 
@@ -63,22 +98,26 @@ INOS is a hybrid distributed runtime that unifies high-performance native ingres
 
 ## **5. The Data Backbone (Memory & Filesystem)**
 
-We split data into **Episodic** (logs), **Semantic** (facts), and **Content** (files).
+We split data into **Structured** (IndexedDB), **Bulk** (OPFS), and **Distributed** (Mesh).
 
-### **5.1 Episodic Memory (ClickHouse)**
-*   **Content:** Telemetry, Logs, Event History.
-
-### **5.2 Semantic Memory (CockroachDB)**
-*   **Content:** Identity, Ledger, Permissions.
-*   **CAS Switchboard:** Maps `FileHash -> [NodeID_A, NodeID_B]`.
+### **5.1 Browser-Native Storage**
+*   **IndexedDB**: Structured data (identity, events, ledger, chunk index).
+*   **OPFS**: Bulk storage (event logs, content chunks, model layers).
+*   **P2P Mesh**: Distributed content and redundancy.
 
 ### **5.3 Distributed Object Store (The Storage Mesh)**
 *   **Philosophy:** "The Content *is* the Address."
+*   **Implementation:** `MeshCoordinator` (in Go) orchestrates DHT/Gossip.
 *   **Mechanism (Merkle DAGs):**
-    1.  **Chunking:** Files are split into 1MB chunks by Rust Modules.
-    2.  **Compression:** Chunks are **Brotli-compressed** before hashing. *Store Compressed, Stream Compressed.*
-    3.  **Hashing (BLAKE3):** Unique IDs are derived from the *compressed* content for verification.
+    1.  **Chunking:** Files are split into 1MB chunks by Rust Modules (implementing `ChunkLoader`).
+    2.  **Layered Compression (The Integrity Chain):**
+        *   **Pass 1 (Ingress):** Nginx applies Brotli-Fast for network transmission optimization.
+        *   **Pass 2 (Storage):** Rust modules apply Brotli-Max for storage density optimization.
+        *   **Stability Anchor:** `Hash = BLAKE3(Compressed-1)` ensures global deduplication regardless of storage-level compression variations.
+        *   **Result:** Network efficiency + storage efficiency + deterministic content addressing.
+    3.  **Hashing (BLAKE3):** Unique IDs are derived from the *ingress-compressed* content for verification.
     4.  **Distribution:** Chunks are scattered based on the **Storage Policy**.
+    5.  **Discovery:** Kademlia-based DHT for O(log n) lookup (see `kernel/core/mesh/dht.go`).
 
 #### **5.3.1 Storage Policy & Redundancy**
 *   **Replication Factor (RF):**
@@ -151,8 +190,7 @@ message Metadata {
 | :--- | :--- | :--- |
 | **Ingress** | Nginx + Brotli | Speed |
 | **UI** | React + Vite | Interaction |
-| **Logic** | Go (WASM) | Order |
-| **Compute** | Rust (WASM) | Power & Storage |
-| **Hot Storage** | Edge Nodes | Speed (CDN) |
-| **Cold Storage** | Vault Nodes | Capacity (Archive) |
-| **Context** | Metadata DNA | Truth |
+| **Kernel** | Go (WASM) | Logic & Orchestration |
+| **Compute** | Rust (WASM) | Heavy Lifting |
+| **Storage** | Rust (WASM) | Persistence & Integrity |
+| **Metadata** | Metadata DNA | Global Context |
