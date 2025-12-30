@@ -50,7 +50,10 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
                 use sdk::registry::*;
                 let id = "vault";
                 let mut builder = ModuleEntryBuilder::new(id).version(1, 0, 0);
-                builder = builder.capability("storage", false, 256); // 256MB allocated
+                builder = builder.capability("storage", false, 256);
+                builder = builder.capability("encryption", false, 256);
+                builder = builder.capability("compression", false, 256);
+                builder = builder.capability("ledger", false, 512);
 
                 match builder.build() {
                     Ok((mut entry, _, caps)) => {

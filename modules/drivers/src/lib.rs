@@ -55,6 +55,9 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
                 let mut builder = ModuleEntryBuilder::new(id).version(1, 0, 0);
                 builder = builder.capability("usb", false, 64);
                 builder = builder.capability("bluetooth", false, 64);
+                builder = builder.capability("sensor", false, 64);
+                builder = builder.capability("actor", false, 64);
+                builder = builder.capability("nexus", false, 128);
 
                 match builder.build() {
                     Ok((mut entry, _, caps)) => {

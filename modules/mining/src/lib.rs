@@ -219,6 +219,9 @@ pub extern "C" fn mining_init_with_sab() -> i32 {
                 let id = "mining";
                 let mut builder = ModuleEntryBuilder::new(id).version(1, 9, 0);
                 builder = builder.capability("pow_sha256", true, 128);
+                builder = builder.capability("difficulty", true, 64);
+                builder = builder.capability("pool", true, 64);
+                builder = builder.capability("stratum", true, 64);
 
                 match builder.build() {
                     Ok((mut entry, _, caps)) => {

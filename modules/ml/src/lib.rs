@@ -127,6 +127,9 @@ pub extern "C" fn ml_init_with_sab() -> i32 {
                 let mut builder = ModuleEntryBuilder::new(id).version(1, 0, 0);
                 builder = builder.capability("inference", true, 2048);
                 builder = builder.capability("training", true, 4096);
+                builder = builder.capability("tensor", true, 1024);
+                builder = builder.capability("layers", true, 1024);
+                builder = builder.capability("brain", true, 8192);
 
                 match builder.build() {
                     Ok((mut entry, _, caps)) => {

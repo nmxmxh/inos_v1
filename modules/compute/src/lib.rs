@@ -92,8 +92,13 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
 
     // Helper to register simple modules
     let register_simple = |id: &str, mem: u16, gpu: bool| {
-        let mut builder = ModuleEntryBuilder::new(id).version(1, 0, 0);
-        builder = builder.capability("standard", gpu, mem);
+        let mut builder = ModuleEntryBuilder::new(id).version(1, 4, 3);
+        builder = builder.capability("image", gpu, mem);
+        builder = builder.capability("video", gpu, mem);
+        builder = builder.capability("audio", gpu, mem);
+        builder = builder.capability("crypto", gpu, mem);
+        builder = builder.capability("data", gpu, mem);
+        builder = builder.capability("gpu_shader", gpu, 4096);
 
         match builder.build() {
             Ok((mut entry, _, caps)) => {

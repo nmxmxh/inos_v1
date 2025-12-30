@@ -1,5 +1,6 @@
 import { useSystemStore } from '../../src/store/system';
 import PerformanceHUD from './PerformanceHUD';
+import BirdCanvas from './BirdCanvas';
 
 export default function StoryView() {
   const { status, units } = useSystemStore();
@@ -41,83 +42,9 @@ export default function StoryView() {
               </p>
             </div>
 
-            {/* Visual Abstract Diagram */}
-            <div
-              className="minimal-card"
-              style={{
-                padding: '0',
-                minHeight: 'auto',
-                background: 'rgba(0,0,0,0.3)',
-                border: 'none',
-              }}
-            >
-              <div
-                style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}
-              >
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      background: '#ffd700',
-                      borderRadius: '8px',
-                      display: 'grid',
-                      placeItems: 'center',
-                      fontWeight: 'bold',
-                      color: '#000',
-                    }}
-                  >
-                    K
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold' }}>GO KERNEL</div>
-                    <div style={{ fontSize: '10px', color: '#888' }}>Orchestration & Ledger</div>
-                  </div>
-                </div>
-                <div
-                  style={{ height: '32px', borderLeft: '2px dashed #333', marginLeft: '19px' }}
-                />
-                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <div
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      background: '#3b82f6',
-                      borderRadius: '8px',
-                      display: 'grid',
-                      placeItems: 'center',
-                      fontWeight: 'bold',
-                      color: '#fff',
-                    }}
-                  >
-                    M
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold' }}>SHARED MEMORY (SAB)</div>
-                    <div style={{ fontSize: '10px', color: '#888' }}>Zero-Copy Bridge (16MB)</div>
-                  </div>
-                </div>
-                <div
-                  style={{ height: '32px', borderLeft: '2px dashed #333', marginLeft: '19px' }}
-                />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {['Compute', 'Science', 'ML', 'Mining'].map(m => (
-                    <div
-                      key={m}
-                      style={{
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        background: '#222',
-                        fontSize: '10px',
-                        border: '1px solid #333',
-                        color: '#888',
-                      }}
-                    >
-                      {m}
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {/* 3D Simulation Layer (GPU + Science + ML) */}
+            <div style={{ minHeight: '400px', gridColumn: 'span 1' }}>
+              <BirdCanvas />
             </div>
           </div>
         </section>

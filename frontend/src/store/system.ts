@@ -384,7 +384,11 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
         // Helper to always get the current, non-detached memory buffer
         const getBuffer = () => {
-          // Modules use imported memory (sharedMemory), not exports.memory
+          // If the module has its own memory (not importing kernel memory), use it
+          if (exports && exports.memory) {
+            return exports.memory.buffer;
+          }
+          // Fallback to sharedMemory (the SAB) for modules that DO import memory
           return sharedMemory.buffer;
         };
 
@@ -793,13 +797,6 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         linker.__wbindgen_placeholder__.__wbg_new_abda76e883ba8a5f = () => ({}); // Stack
         linker.__wbindgen_placeholder__.__wbg_new_16b304a2cfa7ff4a = () => ({}); // Error
 
-        // 5. Provide SharedArrayBuffer to module
-        // Modules are built with --import-memory and expect env.memory
-        if (!linker.env) {
-          linker.env = {};
-        }
-        linker.env.memory = sharedMemory; // Same SAB as kernel
-
         // 6. Instantiate with dynamic linker
         try {
           const result = await WebAssembly.instantiate(compiledModule, linker);
@@ -875,9 +872,12 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
                 // Scan registry (0x000100 - 0x001000, 64-byte entries, 60 inline capacity)
                 // CRITICAL: Registry is at ABSOLUTE offset 0x000100 in the SAB
                 // Modules write with global_sab (base_offset=0), so they write to absolute offsets
+                // Scan registry (0x000100 - 0x001900, 96-byte entries, 64 inline capacity)
+                // CRITICAL: Registry is at ABSOLUTE offset 0x000100 in the SAB
+                // Matches sdk/src/layout.rs
                 const OFFSET_MODULE_REGISTRY = 0x000100;
-                const MODULE_ENTRY_SIZE = 96; // Must match Rust: layout.rs line 28
-                const MAX_MODULES_INLINE = 60;
+                const MODULE_ENTRY_SIZE = 96;
+                const MAX_MODULES_INLINE = 64;
 
                 console.log(
                   `[SystemStore]   Registry at absolute: 0x${OFFSET_MODULE_REGISTRY.toString(16)}`
@@ -889,9 +889,12 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
                 console.log(`[SystemStore]   Debug: First 10 registry slots:`);
                 for (let i = 0; i < 10; i++) {
                   const offset = OFFSET_MODULE_REGISTRY + i * MODULE_ENTRY_SIZE;
-                  const hash = view.getUint32(offset, true);
-                  if (hash !== 0) {
-                    console.log(`[SystemStore]     Slot ${i}: hash=0x${hash.toString(16)}`);
+                  const magic = view.getUint32(offset, true);
+                  const hashAt8 = view.getUint32(offset + 8, true);
+                  if (magic !== 0) {
+                    console.log(
+                      `[SystemStore]     Slot ${i}: magic=0x${magic.toString(16)}, hashAt8=0x${hashAt8.toString(16)}`
+                    );
                   }
                 }
 
@@ -1014,6 +1017,21 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           ),
         },
       });
+
+      // 6. Start FPS tracking (PerformanceHUD metrics)
+      let lastTime = performance.now();
+      let frames = 0;
+      const trackFps = () => {
+        const now = performance.now();
+        frames++;
+        if (now > lastTime + 1000) {
+          get().updateStats({ fps: frames });
+          frames = 0;
+          lastTime = now;
+        }
+        requestAnimationFrame(trackFps);
+      };
+      trackFps();
 
       console.log('[SystemStore] ✅ INOS initialized successfully with all modules');
     } catch (error) {

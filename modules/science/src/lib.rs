@@ -210,6 +210,8 @@ pub extern "C" fn science_init_with_sab() -> i32 {
                 builder = builder.capability("atomic", false, 512);
                 builder = builder.capability("continuum", false, 512);
                 builder = builder.capability("kinetic", false, 512);
+                builder = builder.capability("math", false, 256);
+                builder = builder.capability("simulation", false, 1024);
 
                 match builder.build() {
                     Ok((mut entry, _, caps)) => {
