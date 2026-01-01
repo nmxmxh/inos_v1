@@ -93,11 +93,19 @@ pub const OFFSET_ARENA: usize = 0x150000;
 pub const OFFSET_ARENA_METADATA: usize = 0x150000;
 pub const SIZE_ARENA_METADATA: usize = 0x010000; // 64KB reserved for metadata
 
+/// Diagnostics Region (Heartbeats, Pulses, Health)
+pub const OFFSET_DIAGNOSTICS: usize = 0x150000;
+pub const SIZE_DIAGNOSTICS: usize = 0x001000; // 4KB
+
 /// Async Request/Response Queues (DeepSeek Spec)
 pub const OFFSET_ARENA_REQUEST_QUEUE: usize = 0x151000; // 0x150000 + 4KB
 pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = 0x152000; // 0x150000 + 8KB
 pub const ARENA_QUEUE_ENTRY_SIZE: usize = 64;
 pub const MAX_ARENA_REQUESTS: usize = 64;
+
+// ========== BIRD STATE (Arena Reserved) ==========
+pub const OFFSET_BIRD_STATE: usize = 0x160000; // Offset into SAB (Arena region)
+pub const SIZE_BIRD_STATE: usize = 0x001000; // 4KB for bird telemetry and state
 
 // ========== EPOCH INDEX ALLOCATION ==========
 
@@ -116,6 +124,7 @@ pub const IDX_ARENA_ALLOCATOR: u32 = 8; // Arena bump pointer (bytes used)
 pub const IDX_OUTBOX_MUTEX: u32 = 9; // Mutex for outbox synchronization
 pub const IDX_INBOX_MUTEX: u32 = 10; // Mutex for inbox synchronization
 pub const IDX_METRICS_EPOCH: u32 = 11;
+pub const IDX_BIRD_EPOCH: u32 = 12; // High-frequency bird state updates
 
 /// Dynamic supervisor pool (32-127)
 pub const SUPERVISOR_POOL_BASE: u32 = 32;

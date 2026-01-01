@@ -26,7 +26,16 @@ fn initialize_engine() -> ComputeEngine {
     engine
 }
 
-/// Initialize compute module with SharedArrayBuffer from global scope
+/// Standardized Memory Allocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn compute_alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Standardized Initialization with SharedArrayBuffer
 #[no_mangle]
 pub extern "C" fn compute_init_with_sab() -> i32 {
     // Use stable ABI to get global object
@@ -78,6 +87,297 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
         sdk::js_interop::console_log("[compute] Init FAILED: Could not retrieve global values", 1);
     }
     0 // failure
+}
+
+/// External poll entry point for JavaScript
+#[no_mangle]
+pub extern "C" fn compute_poll() {
+    // High-frequency reactor for Compute
+}
+
+/// N-body particle physics step
+/// Reads particles from SAB at 0x200000, applies forces, writes back
+#[no_mangle]
+pub extern "C" fn compute_nbody_step(particle_count: u32, dt: f32) -> i32 {
+    use sdk::js_interop;
+
+    // Get SAB
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => {
+            js_interop::console_log("[compute] compute_nbody_step: SAB not available", 1);
+            return 0;
+        }
+    };
+
+    let sab = sdk::sab::SafeSAB::new(sab_val);
+
+    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
+    const PARTICLE_SIZE: usize = 32; // 8 floats per particle
+    const G: f32 = 5.0;
+    const SOFTENING: f32 = 15.0;
+    const DAMPING: f32 = 1.0;
+
+    // Read all particles
+    let mut particles: Vec<[f32; 8]> = Vec::with_capacity(particle_count as usize);
+    for i in 0..particle_count as usize {
+        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+        let mut particle = [0.0f32; 8];
+        for j in 0..8 {
+            if let Ok(bytes) = sab.read(offset + j * 4, 4) {
+                particle[j] = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            }
+        }
+        particles.push(particle);
+    }
+
+    // Apply N-body forces
+    for i in 0..particle_count as usize {
+        let mut fx = 0.0f32;
+        let mut fy = 0.0f32;
+
+        let p1 = particles[i];
+        let mass1 = p1[6];
+
+        for j in 0..particle_count as usize {
+            if i == j {
+                continue;
+            }
+
+            let p2 = particles[j];
+            let dx = p2[0] - p1[0];
+            let dy = p2[1] - p1[1];
+            let dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
+            let inv_dist = 1.0 / dist_sq.sqrt();
+            let inv_dist_cube = inv_dist * inv_dist * inv_dist;
+
+            let force = G * mass1 * p2[6] * inv_dist_cube;
+            fx += dx * force;
+            fy += dy * force;
+        }
+
+        // Update velocity
+        let ax = fx / mass1;
+        let ay = fy / mass1;
+        particles[i][3] += ax * dt;
+        particles[i][4] += ay * dt;
+        particles[i][3] *= DAMPING;
+        particles[i][4] *= DAMPING;
+
+        // Update position
+        particles[i][0] += particles[i][3] * dt;
+        particles[i][1] += particles[i][4] * dt;
+    }
+
+    // Write back to SAB
+    for i in 0..particle_count as usize {
+        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+        for j in 0..8 {
+            let bytes = particles[i][j].to_le_bytes();
+            let _ = sab.write(offset + j * 4, &bytes);
+        }
+    }
+
+    // Increment system epoch
+    let flags_offset = 0;
+    let epoch_idx = 7; // IDX_SYSTEM_EPOCH
+    if let Ok(bytes) = sab.read(flags_offset + epoch_idx * 4, 4) {
+        let current = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let new_epoch = (current + 1).to_le_bytes();
+        let _ = sab.write(flags_offset + epoch_idx * 4, &new_epoch);
+    }
+
+    1 // success
+}
+
+/// Initialize enhanced N-body simulation with particle types and parameters
+/// Particle types: 0=normal, 1=star, 2=black hole, 3=dark matter
+#[no_mangle]
+pub extern "C" fn compute_init_nbody_enhanced(
+    particle_count: u32,
+    force_law: u32,
+    enable_collisions: u32,
+) -> i32 {
+    use sdk::js_interop;
+
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => {
+            js_interop::console_log("[compute] init_nbody_enhanced: SAB not available", 1);
+            return 0;
+        }
+    };
+
+    let sab = sdk::sab::SafeSAB::new(sab_val);
+
+    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
+    const PARTICLE_SIZE: usize = 88; // 64 bytes for enhanced particle (22 floats)
+    const PARAMS_OFFSET: usize = 0x300000;
+
+    js_interop::console_log(
+        &format!(
+            "[compute] Initializing enhanced N-body: {} particles, force_law={}, collisions={}",
+            particle_count, force_law, enable_collisions
+        ),
+        3,
+    );
+
+    // Initialize simulation parameters at 0x300000
+    let params = [
+        5.0f32, // G
+        0.016,  // dt
+        particle_count as f32,
+        15.0, // softening
+        force_law as f32,
+        0.5, // dark_matter_factor
+        0.0, // cosmic_expansion
+        enable_collisions as f32,
+        1.2,    // merge_threshold
+        0.3,    // restitution
+        1.0,    // tidal_forces
+        0.01,   // drag_coefficient
+        0.1,    // turbulence_strength
+        0.05,   // turbulence_scale
+        0.05,   // magnetic_strength
+        0.01,   // radiation_pressure
+        1000.0, // universe_radius
+        0.1,    // background_density
+        0.0,    // time (will be updated each frame)
+    ];
+
+    for (i, &param) in params.iter().enumerate() {
+        let bytes = param.to_le_bytes();
+        let _ = sab.write(PARAMS_OFFSET + i * 4, &bytes);
+    }
+
+    js_interop::console_log("[compute] Enhanced N-body initialized successfully", 3);
+    1
+}
+
+/// Enhanced N-body step with full particle structure (64 bytes per particle)
+/// Layout: position(12) + velocity(12) + acceleration(12) + mass(4) + radius(4) +
+///         color(16) + temperature(4) + luminosity(4) + type(4) + lifetime(4) + angular_vel(12)
+#[no_mangle]
+pub extern "C" fn compute_nbody_step_enhanced(particle_count: u32, dt: f32) -> i32 {
+    use sdk::js_interop;
+
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => return 0,
+    };
+
+    let sab = sdk::sab::SafeSAB::new(sab_val);
+
+    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
+    const PARTICLE_SIZE: usize = 88;
+    const PARAMS_OFFSET: usize = 0x300000;
+    const G: f32 = 5.0;
+    const SOFTENING: f32 = 15.0;
+    const DAMPING: f32 = 1.0;
+
+    // Read all particles (simplified structure for CPU fallback)
+    let mut particles: Vec<[f32; 22]> = Vec::with_capacity(particle_count as usize);
+    for i in 0..particle_count as usize {
+        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+        let mut particle = [0.0f32; 22];
+        for j in 0..22 {
+            if let Ok(bytes) = sab.read(offset + j * 4, 4) {
+                particle[j] = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            }
+        }
+        particles.push(particle);
+    }
+
+    // Apply N-body forces (same as before but with enhanced particle data)
+    for i in 0..particle_count as usize {
+        let mut fx = 0.0f32;
+        let mut fy = 0.0f32;
+
+        let p1 = particles[i];
+        let mass1 = p1[9]; // mass at index 9
+
+        for j in 0..particle_count as usize {
+            if i == j {
+                continue;
+            }
+
+            let p2 = particles[j];
+            let dx = p2[0] - p1[0]; // position x
+            let dy = p2[1] - p1[1]; // position y
+            let dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
+            let inv_dist = 1.0 / dist_sq.sqrt();
+            let inv_dist_cube = inv_dist * inv_dist * inv_dist;
+
+            let force = G * mass1 * p2[9] * inv_dist_cube;
+            fx += dx * force;
+            fy += dy * force;
+        }
+
+        // Update velocity
+        let ax = fx / mass1;
+        let ay = fy / mass1;
+        particles[i][3] += ax * dt; // velocity x
+        particles[i][4] += ay * dt; // velocity y
+        particles[i][3] *= DAMPING;
+        particles[i][4] *= DAMPING;
+
+        // Update position
+        particles[i][0] += particles[i][3] * dt;
+        particles[i][1] += particles[i][4] * dt;
+
+        // Update temperature from velocity (collisional heating)
+        let speed_sq = particles[i][3] * particles[i][3] + particles[i][4] * particles[i][4];
+        particles[i][14] = particles[i][14] * 0.9 + speed_sq * 0.01 * 0.1; // temperature at index 14
+    }
+
+    // Write back to SAB
+    for i in 0..particle_count as usize {
+        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+        for j in 0..22 {
+            let bytes = particles[i][j].to_le_bytes();
+            let _ = sab.write(offset + j * 4, &bytes);
+        }
+    }
+
+    // Increment system epoch
+    let flags_offset = 0;
+    let epoch_idx = 7;
+    if let Ok(bytes) = sab.read(flags_offset + epoch_idx * 4, 4) {
+        let current = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let new_epoch = (current + 1).to_le_bytes();
+        let _ = sab.write(flags_offset + epoch_idx * 4, &new_epoch);
+    }
+
+    1
+}
+
+/// Set simulation parameters at runtime
+#[no_mangle]
+pub extern "C" fn compute_set_sim_params(param_index: u32, value: f32) -> i32 {
+    use sdk::js_interop;
+
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => return 0,
+    };
+
+    let sab = sdk::sab::SafeSAB::new(sab_val);
+    const PARAMS_OFFSET: usize = 0x300000;
+
+    let offset = PARAMS_OFFSET + (param_index as usize) * 4;
+    let bytes = value.to_le_bytes();
+    match sab.write(offset, &bytes) {
+        Ok(_) => 1,
+        Err(_) => 0,
+    }
 }
 
 pub struct ComputeKernel {

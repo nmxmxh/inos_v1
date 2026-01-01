@@ -7,5 +7,6 @@ members = [
     "storage",
     "ml",
     "drivers",
+    "diagnostics",
 ]
 resolver = "2"

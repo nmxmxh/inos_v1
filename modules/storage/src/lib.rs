@@ -11,7 +11,16 @@ pub struct StorageEngine {
     encryption_key: Key,
 }
 
-/// Initialize storage module with SharedArrayBuffer from global scope
+/// Standardized Memory Allocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn vault_alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Standardized Initialization with SharedArrayBuffer
 #[no_mangle]
 pub extern "C" fn vault_init_with_sab() -> i32 {
     sdk::js_interop::console_log("[vault] DEBUG: Init function called", 3);
@@ -81,6 +90,12 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
         }
     }
     0
+}
+
+/// External poll entry point for JavaScript
+#[no_mangle]
+pub extern "C" fn vault_poll() {
+    // High-frequency reactor for Vault
 }
 
 impl StorageEngine {

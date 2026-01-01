@@ -15,7 +15,16 @@ pub struct Nexus {
     sensor_subscriber: SensorSubscriber,
 }
 
-/// Initialize drivers module with SharedArrayBuffer from global scope
+/// Standardized Memory Allocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn drivers_alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Standardized Initialization with SharedArrayBuffer
 #[no_mangle]
 pub extern "C" fn drivers_init_with_sab() -> i32 {
     sdk::js_interop::console_log("[drivers] DEBUG: Init function called", 3);
@@ -85,6 +94,12 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
         }
     }
     0
+}
+
+/// External poll entry point for JavaScript
+#[no_mangle]
+pub extern "C" fn drivers_poll() {
+    // High-frequency reactor for Drivers
 }
 
 impl Nexus {

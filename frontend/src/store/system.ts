@@ -195,6 +195,7 @@ export interface SystemStore {
   status: 'initializing' | 'booting' | 'ready' | 'error';
   kernel: any | null;
   units: Record<string, UnitState>;
+  moduleExports: Record<string, any>;
   stats: KernelStats;
   error: Error | null;
 
@@ -204,12 +205,15 @@ export interface SystemStore {
   updateStats: (stats: Partial<KernelStats>) => void;
   setError: (error: Error) => void;
   scanRegistry: (memory: WebAssembly.Memory) => void;
+  signalModule: (name: string) => void;
+  pollAll: () => void;
 }
 
 export const useSystemStore = create<SystemStore>((set, get) => ({
   status: 'initializing',
   kernel: null,
   units: {},
+  moduleExports: {},
   stats: {
     nodes: 1,
     particles: 1000,
@@ -262,7 +266,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       // JavaScript creates the SAB and provides it to both kernel and modules
       const sharedMemory = new WebAssembly.Memory({
         initial: 256, // 16MB (256 * 64KB pages)
-        maximum: 32768, // 2GB max (32768 * 64KB pages)
+        maximum: 1024, // 64MB max (1024 * 64KB pages)
         shared: true, // Enable SharedArrayBuffer
       });
 
@@ -357,6 +361,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         mining: 4,
         vault: 5,
         drivers: 6,
+        diagnostics: 7,
       };
 
       const loadModule = async (name: string) => {
@@ -474,6 +479,9 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           // Stable ABI: Time
           inos_get_now: () => {
             return Date.now();
+          },
+          inos_get_performance_now: () => {
+            return performance.now(); // High-resolution timer with microsecond precision
           },
 
           // Stable ABI: Atomics
@@ -987,27 +995,36 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       };
 
       // Load all modules in parallel
-      const modules = ['compute', 'science', 'ml', 'mining', 'vault', 'drivers'];
+      const modules = ['compute', 'science', 'ml', 'mining', 'vault', 'drivers', 'diagnostics'];
       const loadedModules: Record<string, any> = {};
       const moduleCapabilities: Record<string, string[]> = {}; // Store capabilities here
 
       // Load modules sequentially to avoid OOM/contention on shared memory
-      for (const name of modules) {
+      for (const _name of modules) {
         try {
-          const result = await loadModule(name);
-          loadedModules[name] = result.exports;
-          moduleCapabilities[name] = result.capabilities || [];
+          const result = await loadModule(_name);
+          loadedModules[_name] = result.exports;
+          moduleCapabilities[_name] = result.capabilities || [];
         } catch (err) {
-          console.error(`[SystemStore] Critical failure loading ${name}:`, err);
+          console.error(`[SystemStore] Critical failure loading ${_name}:`, err);
           throw err;
         }
       }
 
-      // 5. Update state
+      // 5. Expose modules globally for orchestrator access
+      (window as any).inosModules = loadedModules;
+      console.log('[SystemStore] ✅ Modules exposed globally:', Object.keys(loadedModules));
+
+      // 6. Update state
       set({
         status: 'ready',
+        moduleExports: loadedModules,
         units: {
-          kernel: { id: 'kernel', active: true, capabilities: ['orchestration', 'mesh', 'gossip'] },
+          kernel: {
+            id: 'kernel',
+            active: true,
+            capabilities: ['orchestration', 'mesh', 'gossip'],
+          },
           ...Object.keys(loadedModules).reduce(
             (acc, name) => ({
               ...acc,
@@ -1018,20 +1035,24 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         },
       });
 
-      // 6. Start FPS tracking (PerformanceHUD metrics)
+      // 6. Start Poll & FPS tracking
       let lastTime = performance.now();
       let frames = 0;
-      const trackFps = () => {
+      const loop = () => {
         const now = performance.now();
         frames++;
+
+        // High-frequency polling for modules (Chain of Mutators)
+        get().pollAll();
+
         if (now > lastTime + 1000) {
           get().updateStats({ fps: frames });
           frames = 0;
           lastTime = now;
         }
-        requestAnimationFrame(trackFps);
+        requestAnimationFrame(loop);
       };
-      trackFps();
+      loop();
 
       console.log('[SystemStore] ✅ INOS initialized successfully with all modules');
     } catch (error) {
@@ -1060,5 +1081,33 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
   setError: (error: Error) => {
     set({ status: 'error', error });
+  },
+
+  signalModule: (name: string) => {
+    const sab = (window as any).__INOS_SAB__;
+    if (!sab) return;
+
+    // Use WebAssembly.Memory to access Int32Array view of the flags
+    const flags = new Int32Array(sab, 0, 16);
+    // IDX_INBOX_DIRTY = 1
+    Atomics.add(flags, 1, 1);
+    // Atomic Notify wakes up the Rust module poll if it's waiting
+    Atomics.notify(flags, 1);
+  },
+
+  pollAll: () => {
+    const { moduleExports } = get();
+    // High-frequency cycle for reactive modules
+    for (const name in moduleExports) {
+      const exports = moduleExports[name];
+      if (exports && typeof exports.poll === 'function') {
+        try {
+          // Poll the module directly. Rust 'poll' should be non-blocking.
+          exports.poll();
+        } catch (e) {
+          console.error(`[SystemStore] Poll failed for ${name}:`, e);
+        }
+      }
+    }
   },
 }));

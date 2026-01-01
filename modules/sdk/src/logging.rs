@@ -28,9 +28,8 @@ impl log::Log for WebLogger {
 static LOGGER: WebLogger = WebLogger;
 
 pub fn init_logging() {
-    log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(LevelFilter::Info))
-        .expect("Failed to initialize logger");
+    // Idempotent: ignore error if logger is already set (common in multi-module WASM)
+    let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Info));
 
     // Set panic hook to report errors to JS console via stable ABI
     std::panic::set_hook(Box::new(|info| {

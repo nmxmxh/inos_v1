@@ -61,3 +61,16 @@ pub struct Telemetry {
     pub compute_time_ms: u64,
     pub cross_scale_calls: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[repr(C)]
+pub struct BirdState {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    pub orientation: [f32; 4],
+    pub flap_phase: f32,
+    pub energy: f32,
+    pub interaction_point: [f32; 3],
+    pub wing_flap_speed: f32,
+    pub padding: [f32; 4], // Align to 64 bytes
+}

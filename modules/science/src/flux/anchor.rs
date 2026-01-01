@@ -172,7 +172,7 @@ impl ConservationAnchor {
         outgoing: FluxProposal,
         epoch: u64,
     ) -> (FluxProposal, FluxProposal, Option<ConservationViolation>) {
-        let start_time = std::time::Instant::now();
+        let _start_time = sdk::js_interop::get_performance_now(); // High-resolution timer
         self.telemetry.checks_performed += 1;
 
         let net_flux = self.calculate_net_flux(&incoming, &outgoing);
@@ -180,10 +180,6 @@ impl ConservationAnchor {
 
         if violations.is_empty() {
             self.record_flux(incoming.clone(), outgoing.clone(), net_flux, None, epoch);
-
-            let duration = start_time.elapsed().as_nanos() as u64;
-            self.update_telemetry(duration, false, None);
-
             (incoming, outgoing, None)
         } else {
             self.telemetry.violations_found += 1;
@@ -217,9 +213,6 @@ impl ConservationAnchor {
             self.corrections_applied += 1;
             self.telemetry.energy_dissipated += correction.dissipation;
             self.telemetry.worst_violation = self.telemetry.worst_violation.max(worst_violation);
-
-            let duration = start_time.elapsed().as_nanos() as u64;
-            self.update_telemetry(duration, true, Some(worst_violation));
 
             (adjusted_in, adjusted_out, Some(violation))
         }
@@ -446,10 +439,7 @@ impl ConservationAnchor {
             net_flux,
             violation,
             correction: None,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
+            timestamp: sdk::js_interop::get_now() as f64 / 1000.0, // Unix epoch in seconds (f64)
             epoch,
         };
 
@@ -678,10 +668,7 @@ impl ConservationMesh {
     fn record_global_violation(&mut self, violation: ConservationViolation) {
         self.global_violations.push(GlobalViolation {
             violation,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs_f64(),
+            timestamp: sdk::js_interop::get_now() as f64 / 1000.0, // Unix epoch in seconds (f64)
             mesh_consensus: self.check_mesh_consensus(),
         });
     }

@@ -72,7 +72,16 @@ pub fn init() {
     info!("ML module initialized (with Cybernetic Brain)");
 }
 
-/// Initialize ML module with SharedArrayBuffer from global scope
+/// Standardized Memory Allocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn ml_alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// Standardized Initialization with SharedArrayBuffer
 #[no_mangle]
 pub extern "C" fn ml_init_with_sab() -> i32 {
     // Use stable ABI to get global object
@@ -162,6 +171,12 @@ pub extern "C" fn ml_init_with_sab() -> i32 {
         sdk::js_interop::console_log("[ml] Init FAILED: Could not retrieve global values", 1);
     }
     0
+}
+
+/// External poll entry point for JavaScript
+#[no_mangle]
+pub extern "C" fn ml_poll() {
+    // High-frequency reactor for ML
 }
 
 /// WASM exports for ML operations

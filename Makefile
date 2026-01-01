@@ -41,7 +41,7 @@ CARGO=cargo +nightly
 RUST_TARGET=wasm32-unknown-unknown
 # Enable shared memory with atomics - requires nightly + build-std
 RUST_BUILD_FLAGS=--target $(RUST_TARGET) --release -Z build-std=std,panic_abort
-RUSTFLAGS=-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=2147483648
+RUSTFLAGS=-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=16777216
 
 # Cap'n Proto parameters (consumer-relative outputs)
 CAPNP_PATH=protocols/schemas
@@ -200,12 +200,14 @@ modules-build: proto-rust
 	@cd modules && RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) build $(RUST_BUILD_FLAGS)
 	@echo "📦 Copying WASM modules to frontend..."
 	@mkdir -p frontend/public/modules
-	@for module in compute science ml mining vault drivers; do \
+	@for module in compute science ml mining vault drivers diagnostics; do \
 		if [ -f "modules/target/$(RUST_TARGET)/release/$$module.wasm" ]; then \
 			cp "modules/target/$(RUST_TARGET)/release/$$module.wasm" "frontend/public/modules/$$module.wasm"; \
 			echo "  ✅ Copied $$module.wasm"; \
 		fi \
 	done
+	@echo "🔍 Verifying architectural symbols..."
+	@node scripts/verify_symbols.js
 	@# Optimize each module
 	@if command -v $(WASM_OPT) > /dev/null 2>&1; then \
 		echo "⚡ Optimizing Rust modules..."; \

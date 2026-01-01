@@ -44,6 +44,10 @@ extern "C" {
     #[link_name = "inos_get_now"]
     fn get_now_raw() -> f64;
 
+    // Stable name: inos_get_performance_now (high-resolution timer)
+    #[link_name = "inos_get_performance_now"]
+    fn get_performance_now_raw() -> f64;
+
     // Stable name: inos_atomic_add
     #[link_name = "inos_atomic_add"]
     fn atomic_add_raw(typed_array: JsValue, index: u32, value: i32) -> i32;
@@ -163,6 +167,12 @@ pub fn as_f64(val: &JsValue) -> Option<f64> {
 /// Get current time in milliseconds since epoch using stable ABI
 pub fn get_now() -> u64 {
     unsafe { get_now_raw() as u64 }
+}
+
+/// Get high-resolution time in fractional milliseconds (microsecond precision)
+/// Uses performance.now() which is monotonic and high-resolution
+pub fn get_performance_now() -> f64 {
+    unsafe { get_performance_now_raw() }
 }
 
 /// Atomic add using stable ABI

@@ -209,7 +209,7 @@ pub struct ComputedProperties {
     pub prandtl_number: f32,
     pub mach_number_limit: f32,
     pub rayleigh_number: f32,
-    pub computed_at: std::time::Instant,
+    pub computed_at: f64, // High-resolution timestamp in ms (microsecond precision)
 }
 
 pub trait RegistryEventHandler: Send + Sync {
@@ -269,10 +269,7 @@ impl SimulationRegistry {
             version: 1,
             dependencies: Vec::new(),
             checksum: Self::calculate_checksum(&substance),
-            last_modified: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            last_modified: (sdk::js_interop::get_now() / 1000) as u64, // Convert ms to seconds
             creator: creator.to_string(),
         };
 
@@ -313,10 +310,7 @@ impl SimulationRegistry {
         entry.data = substance.clone();
         entry.version += 1;
         entry.checksum = Self::calculate_checksum(&substance);
-        entry.last_modified = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        entry.last_modified = (sdk::js_interop::get_now() / 1000) as u64; // Convert ms to seconds
         entry.creator = updater_name.to_string();
 
         // Clear cache for this substance
@@ -460,7 +454,9 @@ impl SimulationRegistry {
         // Check cache first
         if let Some(cached) = self.property_cache.get(substance_id) {
             // Refresh if stale (older than 1 minute)
-            if cached.computed_at.elapsed() < std::time::Duration::from_secs(60) {
+            let age_ms = sdk::js_interop::get_performance_now() - cached.computed_at;
+            if age_ms < 60_000.0 {
+                // 60 seconds in milliseconds
                 return Ok(cached.clone());
             }
         }
@@ -483,7 +479,7 @@ impl SimulationRegistry {
                 * (substance.boiling_point - substance.melting_point)
                 * substance.mass_density
                 / (1e-6 * 1e-3), // Simplified
-            computed_at: std::time::Instant::now(),
+            computed_at: sdk::js_interop::get_performance_now(),
         };
 
         self.property_cache
@@ -531,10 +527,7 @@ impl SimulationRegistry {
             version: 1,
             dependencies: Vec::new(),
             checksum: Self::calculate_checksum(&composite),
-            last_modified: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            last_modified: (sdk::js_interop::get_now() / 1000) as u64, // Convert ms to seconds
             creator: creator.to_string(),
         };
 
@@ -809,10 +802,7 @@ impl SimulationRegistry {
                 .read()
                 .map_err(|_| RegistryError::LockPoisoned)?
                 .clone(),
-            export_time: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            export_time: (sdk::js_interop::get_now() / 1000) as u64, // Convert ms to seconds
         };
 
         let json = serde_json::to_string_pretty(&export_data)?;

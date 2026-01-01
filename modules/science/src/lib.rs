@@ -170,7 +170,7 @@ pub extern "C" fn science_init_hooks() {
 
 /// Initialize science module with SharedArrayBuffer from global scope
 #[no_mangle]
-pub extern "C" fn science_init_with_sab() -> i32 {
+pub extern "C" fn science_init_with_sab(_buffer_ptr: *mut u8, _buffer_size: usize) -> i32 {
     // Use stable ABI to get global object
     let global = sdk::js_interop::get_global();
     let sab_key = sdk::js_interop::create_string("__INOS_SAB__");
@@ -201,44 +201,64 @@ pub extern "C" fn science_init_with_sab() -> i32 {
             info!("Science module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
                 module_id, offset, size / 1024 / 1024);
 
-            // Helper to register simple modules
-            let register_science = |sab: &sdk::sab::SafeSAB| {
-                use sdk::registry::*;
-                let id = "science";
-                let mut builder = ModuleEntryBuilder::new(id).version(1, 9, 0);
-                // Register capabilities with scales
-                builder = builder.capability("atomic", false, 512);
-                builder = builder.capability("continuum", false, 512);
-                builder = builder.capability("kinetic", false, 512);
-                builder = builder.capability("math", false, 256);
-                builder = builder.capability("simulation", false, 1024);
-
-                match builder.build() {
-                    Ok((mut entry, _, caps)) => {
-                        if let Ok(offset) = write_capability_table(sab, &caps) {
-                            entry.cap_table_offset = offset;
-                        }
-                        if let Ok((slot, _)) = find_slot_double_hashing(sab, id) {
-                            match write_enhanced_entry(sab, slot, &entry) {
-                                Ok(_) => info!("Registered module {} at slot {}", id, slot),
-                                Err(e) => {
-                                    error!("Failed to write registry entry for {}: {:?}", id, e)
-                                }
-                            }
-                        } else {
-                            error!("Could not find available slot for module {}", id);
-                        }
-                    }
-                    Err(e) => error!("Failed to build module entry for {}: {:?}", id, e),
-                }
-            };
-
+            // Register capabilities
             register_science(&global_sab);
+
+            // Instantiate Global Module
+            unsafe {
+                let mut module = ScienceModule::new();
+                module.set_sab(module_sab);
+                GLOBAL_SCIENCE = Some(module);
+            }
 
             return 1;
         }
     }
     0
+}
+
+/// Helper to register science capabilities
+fn register_science(sab: &sdk::sab::SafeSAB) {
+    use sdk::registry::*;
+    let id = "science";
+    let mut builder = ModuleEntryBuilder::new(id).version(1, 9, 0);
+    // Register capabilities with scales
+    builder = builder.capability("atomic", false, 512);
+    builder = builder.capability("continuum", false, 512);
+    builder = builder.capability("kinetic", false, 512);
+    builder = builder.capability("math", false, 256);
+    builder = builder.capability("simulation", false, 1024);
+
+    match builder.build() {
+        Ok((mut entry, _, caps)) => {
+            if let Ok(offset) = write_capability_table(sab, &caps) {
+                entry.cap_table_offset = offset;
+            }
+            if let Ok((slot, _)) = find_slot_double_hashing(sab, id) {
+                let _ = write_enhanced_entry(sab, slot, &entry);
+            }
+        }
+        Err(_) => {}
+    }
+}
+
+/// Standardized Memory Allocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn science_alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
+}
+
+/// External poll entry point for JavaScript
+#[no_mangle]
+pub extern "C" fn science_poll() {
+    unsafe {
+        if let Some(ref module) = GLOBAL_SCIENCE {
+            module.poll_reactive();
+        }
+    }
 }
 
 // Removed wasm_bindgen
@@ -269,7 +289,12 @@ pub struct ScienceModule {
 
     // P2P Bridge (Decoupled in Phase 2)
     bridge: RefCell<Option<Arc<P2PBridge>>>,
+
+    // Shared SAB for direct memory access
+    sab: Option<sdk::sab::SafeSAB>,
 }
+
+static mut GLOBAL_SCIENCE: Option<ScienceModule> = None;
 
 // Shared Telemetry used from crate::types
 
@@ -302,6 +327,90 @@ impl ScienceModule {
             epoch,
             last_inbox_epoch: Arc::new(AtomicU64::new(0)),
             bridge: RefCell::new(None),
+            sab: None,
+        }
+    }
+
+    pub fn set_sab(&mut self, sab: sdk::sab::SafeSAB) {
+        self.sab = Some(sab);
+    }
+
+    pub fn poll_reactive(&self) {
+        // High-frequency task execution (Chain of Mutators)
+        if let Some(ref sab) = self.sab {
+            // 1. Process standard inbox signals (JobRequests)
+            let _ = self.poll_inbox(sab);
+
+            // 2. Continuous Bird Physics (High Frequency)
+            self.update_bird_physics(sab);
+        }
+    }
+
+    fn poll_inbox(&self, _sab: &sdk::sab::SafeSAB) -> Result<bool, String> {
+        // Legacy/Generic inbox polling logic (placeholder)
+        Ok(false)
+    }
+
+    fn update_bird_physics(&self, sab: &sdk::sab::SafeSAB) {
+        use sdk::layout::{IDX_BIRD_EPOCH, OFFSET_BIRD_STATE, SIZE_BIRD_STATE};
+
+        // Standard Zero-Copy Pattern: Read -> Mutate -> Write
+        let mut data = match sab.read(OFFSET_BIRD_STATE, SIZE_BIRD_STATE) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+
+        // Direct C-style binding to the data
+        let state = unsafe { &mut *(data.as_mut_ptr() as *mut BirdState) };
+
+        // 1. Physics: Velocity towards interaction point (Attraction)
+        let target = state.interaction_point;
+        let pos = state.position;
+
+        // Direction vector
+        let dx = target[0] - pos[0];
+        let dy = target[1] - pos[1];
+        let dz = target[2] - pos[2];
+
+        // Small damping force
+        let strength = 0.05;
+        state.velocity[0] += dx * strength;
+        state.velocity[1] += dy * strength;
+        state.velocity[2] += dz * strength;
+
+        // Apply friction
+        let friction = 0.95;
+        state.velocity[0] *= friction;
+        state.velocity[1] *= friction;
+        state.velocity[2] *= friction;
+
+        // Update position
+        state.position[0] += state.velocity[0] * 0.01;
+        state.position[1] += state.velocity[1] * 0.01;
+        state.position[2] += state.velocity[2] * 0.01;
+
+        // 2. Animation: Flap Phase
+        state.flap_phase += 0.1 * state.energy.max(0.1);
+        if state.flap_phase > 1.0 {
+            state.flap_phase -= 1.0;
+        }
+
+        // 3. Write back and Notify Local JS
+        if sab.write(OFFSET_BIRD_STATE, &data).is_ok() {
+            // Flip the BIRD_EPOCH to signal JS that new coordinates are ready
+            let flags = sab
+                .int32_view(sdk::layout::OFFSET_ATOMIC_FLAGS, 16)
+                .unwrap();
+            sdk::js_interop::atomic_add(&flags.into(), IDX_BIRD_EPOCH, 1);
+        }
+
+        // 4. Automated P2P Gossip (Throttled to ~10Hz)
+        // Triggered every 12 frames of 120Hz loop
+        let current_epoch = self.epoch.fetch_add(1, Ordering::SeqCst);
+        if current_epoch % 12 == 0 {
+            // We use the SDK's automated Syscall path
+            // This writes to the SAB Outbox; Go Kernel's signal_listener picks it up
+            let _ = sdk::syscalls::SyscallClient::send_message(sab, "mesh:gossip:bird", &data);
         }
     }
 
@@ -631,11 +740,7 @@ impl ScienceModule {
         //`` For now, use a hash of instance memory + timestamp
         let mut hasher = blake3::Hasher::new();
         hasher.update(
-            &std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-                .to_le_bytes(),
+            &((sdk::js_interop::get_now() / 1000) as u64).to_le_bytes(), // Unix epoch in seconds
         );
         let hash = hasher.finalize();
         u64::from_le_bytes(hash.as_bytes()[..8].try_into().unwrap())
@@ -1073,10 +1178,7 @@ impl ScienceModule {
     }
 
     fn get_current_epoch(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64
+        (sdk::js_interop::get_now() / 1000) as u64 // Unix epoch in seconds as u64
     }
 
     fn get_current_timestamp(&self) -> u64 {
