@@ -152,12 +152,17 @@
     },
     "Layer 2": {
       "components": {
-        "kernel/core/mesh": {
+        "kernel/core/mesh/routing": {
           "capabilities": [
-            "P2P Mesh Networking",
-            "Mesh Mesh Coordination"
+            "P2P Mesh Networking"
           ],
-          "path": "kernel/core/mesh"
+          "path": "kernel/core/mesh/routing"
+        },
+        "kernel/core/mesh/transport": {
+          "capabilities": [
+            "P2P Mesh Networking"
+          ],
+          "path": "kernel/core/mesh/transport"
         },
         "kernel/threads": {
           "capabilities": [
@@ -190,18 +195,22 @@
           ],
           "path": "kernel/threads/intelligence/security"
         },
+        "kernel/threads/supervisor": {
+          "capabilities": [
+            "Identity Supervisor",
+            "Social Supervisor"
+          ],
+          "path": "kernel/threads/supervisor"
+        },
         "kernel/threads/supervisor/units": {
           "capabilities": [
             "Audio Supervisor",
+            "Boids Supervisor",
             "Crypto Supervisor",
             "Data Supervisor",
             "Driver Supervisor",
             "Gpu Supervisor",
             "Image Supervisor",
-            "Mining Supervisor",
-            "Ml Supervisor",
-            "Physics Supervisor",
-            "Science Supervisor",
             "Storage Supervisor"
           ],
           "path": "kernel/threads/supervisor/units"
@@ -228,31 +237,13 @@
           ],
           "path": "modules/compute"
         },
+        "modules/diagnostics": {
+          "capabilities": [],
+          "path": "modules/diagnostics"
+        },
         "modules/drivers": {
           "capabilities": [],
           "path": "modules/drivers"
-        },
-        "modules/mining": {
-          "capabilities": [
-            "GPU Acceleration",
-            "Proof-of-Work / Hashing"
-          ],
-          "path": "modules/mining"
-        },
-        "modules/ml": {
-          "capabilities": [
-            "GPU Acceleration",
-            "AI Inference",
-            "Proof-of-Work / Hashing"
-          ],
-          "path": "modules/ml"
-        },
-        "modules/science": {
-          "capabilities": [
-            "Physics Simulation",
-            "Proof-of-Work / Hashing"
-          ],
-          "path": "modules/science"
         },
         "modules/storage": {
           "capabilities": [
@@ -277,34 +268,14 @@
       "path": "modules/compute",
       "type": "Rust Module"
     },
+    "modules/diagnostics": {
+      "capabilities": [],
+      "path": "modules/diagnostics",
+      "type": "Rust Module"
+    },
     "modules/drivers": {
       "capabilities": [],
       "path": "modules/drivers",
-      "type": "Rust Module"
-    },
-    "modules/mining": {
-      "capabilities": [
-        "GPU Acceleration",
-        "Proof-of-Work / Hashing"
-      ],
-      "path": "modules/mining",
-      "type": "Rust Module"
-    },
-    "modules/ml": {
-      "capabilities": [
-        "GPU Acceleration",
-        "AI Inference",
-        "Proof-of-Work / Hashing"
-      ],
-      "path": "modules/ml",
-      "type": "Rust Module"
-    },
-    "modules/science": {
-      "capabilities": [
-        "Physics Simulation",
-        "Proof-of-Work / Hashing"
-      ],
-      "path": "modules/science",
       "type": "Rust Module"
     },
     "modules/storage": {
@@ -316,25 +287,15 @@
     }
   },
   "units": {
-    "atomic": {
+    "api_proxy": {
       "capabilities": [
-        "load_gro",
-        "load_pdb",
-        "select",
-        "rmsd",
-        "center_of_mass",
-        "distance",
-        "serialize_gro",
-        "compute_energy",
-        "compute_forces",
-        "molecular_dynamics",
-        "optimize_geometry",
-        "compute_stress_tensor",
-        "map_to_continuum"
+        "call",
+        "chat",
+        "embeddings"
       ],
-      "id": "atomic",
-      "implementation": "modules/science/src/matter/atomic.rs",
-      "name": "atomic",
+      "id": "api_proxy",
+      "implementation": "modules/compute/src/units/api_proxy.rs",
+      "name": "api_proxy",
       "type": "Rust Unit"
     },
     "audio": {
@@ -363,19 +324,29 @@
       "supervisor": "kernel/threads/supervisor/units/audio_supervisor.go",
       "type": "Rust Unit"
     },
-    "continuum": {
+    "boids": {
       "capabilities": [
-        "generate_mesh",
-        "assemble_stiffness",
-        "solve_linear",
-        "compute_strain",
-        "compute_stress",
-        "apply_quantum_forces",
-        "compute_homogenized_properties"
+        "init_population",
+        "step_physics",
+        "get_state",
+        "forward_pass",
+        "batch_forward",
+        "calculate_fitness",
+        "step_learning",
+        "set_config",
+        "get_stats",
+        "reset",
+        "boids.init_population",
+        "boids.step_physics",
+        "boids.step_learning",
+        "boids.evolve_generation",
+        "boids.forward_pass"
       ],
-      "id": "continuum",
-      "implementation": "modules/science/src/matter/continuum.rs",
-      "name": "continuum",
+      "controller": "Go Supervisor",
+      "id": "boids",
+      "implementation": "modules/compute/src/units/boids.rs",
+      "name": "boids",
+      "supervisor": "kernel/threads/supervisor/units/boids_supervisor.go",
       "type": "Rust Unit"
     },
     "crypto": {
@@ -582,117 +553,48 @@
       "supervisor": "kernel/threads/supervisor/units/image_supervisor.go",
       "type": "Rust Unit"
     },
-    "inference": {
+    "physics": {
       "capabilities": [
-        "load_model_p2p",
-        "store_model_chunks",
-        "shard_model",
-        "export_model",
-        "get_model_metadata",
-        "run_llm",
-        "run_vision",
-        "run_embedding",
-        "run_audio",
-        "quantize_int8",
-        "quantize_int4",
-        "dequantize"
-      ],
-      "id": "inference",
-      "implementation": "modules/ml/src/jobs/inference.rs",
-      "name": "inference",
-      "type": "Rust Unit"
-    },
-    "kinetic": {
-      "capabilities": [
-        "create_body",
+        "create_rigid_body",
+        "remove_rigid_body",
+        "get_rigid_body_state",
+        "set_rigid_body_position",
+        "set_rigid_body_rotation",
+        "set_rigid_body_velocity",
+        "set_rigid_body_angular_velocity",
         "create_collider",
-        "step",
-        "cast_ray",
-        "add_force",
-        "add_impulse",
-        "get_state"
+        "attach_collider",
+        "remove_collider",
+        "set_collider_friction",
+        "set_collider_restitution",
+        "set_collider_density",
+        "create_fixed_joint",
+        "create_revolute_joint",
+        "create_prismatic_joint",
+        "create_spherical_joint",
+        "remove_joint",
+        "set_joint_limits",
+        "apply_force",
+        "apply_impulse",
+        "apply_torque",
+        "apply_force_at_point",
+        "apply_impulse_at_point",
+        "raycast",
+        "raycast_all",
+        "shape_cast",
+        "intersection_test",
+        "contact_query",
+        "proximity_query",
+        "step_simulation",
+        "set_gravity",
+        "get_contacts",
+        "get_collision_events",
+        "get_islands",
+        "reset_simulation"
       ],
-      "id": "kinetic",
-      "implementation": "modules/science/src/matter/kinetic.rs",
-      "name": "kinetic",
-      "type": "Rust Unit"
-    },
-    "layers": {
-      "capabilities": [
-        "linear",
-        "conv2d",
-        "max_pool2d",
-        "avg_pool2d",
-        "layer_norm",
-        "batch_norm",
-        "group_norm",
-        "attention",
-        "multi_head_attention",
-        "cross_attention",
-        "rope"
-      ],
-      "id": "layers",
-      "implementation": "modules/ml/src/jobs/layers.rs",
-      "name": "layers",
-      "type": "Rust Unit"
-    },
-    "math": {
-      "capabilities": [
-        "dot",
-        "cross",
-        "normalize",
-        "matrix_multiply",
-        "inverse",
-        "eigenvalues",
-        "svd",
-        "qr_decomposition",
-        "cholesky",
-        "solve_linear",
-        "tensor_product",
-        "partial_trace",
-        "expectation_value",
-        "commutator",
-        "matrix_exp",
-        "matrix_log",
-        "determinant",
-        "trace",
-        "condition_number",
-        "pseudoinverse",
-        "schur_decomposition",
-        "lyapunov_solve",
-        "riccati_solve"
-      ],
-      "id": "math",
-      "implementation": "modules/science/src/math.rs",
-      "name": "math",
-      "type": "Rust Unit"
-    },
-    "science": {
-      "capabilities": [
-        "atomic:select",
-        "atomic:rmsd",
-        "atomic:centerOfMass",
-        "atomic:distance",
-        "continuum:generateMesh",
-        "continuum:solveLinear",
-        "continuum:computeStress",
-        "kinetic:createBody",
-        "kinetic:step",
-        "kinetic:castRay",
-        "math:matrixMultiply",
-        "math:dotProduct",
-        "math:inverse",
-        "science.experiment",
-        "science.simulate",
-        "science.calculate",
-        "science.analyze",
-        "science.predict"
-      ],
-      "controller": "Go Supervisor",
-      "id": "science",
-      "implementation": "modules/science/src/lib.rs",
-      "name": "science",
-      "supervisor": "kernel/threads/supervisor/units/science_supervisor.go",
+      "id": "physics",
+      "implementation": "modules/compute/src/units/physics.rs",
+      "name": "physics",
       "type": "Rust Unit"
     },
     "storage": {
@@ -719,50 +621,6 @@
       "name": "storage",
       "supervisor": "kernel/threads/supervisor/units/storage_supervisor.go",
       "type": "Rust Unit"
-    },
-    "tensor": {
-      "capabilities": [
-        "tensor_add",
-        "tensor_sub",
-        "tensor_mul",
-        "tensor_div",
-        "tensor_matmul",
-        "tensor_transpose",
-        "tensor_reshape",
-        "tensor_sum",
-        "tensor_mean",
-        "tensor_max",
-        "tensor_min",
-        "tensor_softmax",
-        "tensor_relu",
-        "tensor_gelu"
-      ],
-      "id": "tensor",
-      "implementation": "modules/ml/src/jobs/tensor.rs",
-      "name": "tensor",
-      "type": "Rust Unit"
-    },
-    "training": {
-      "capabilities": [
-        "mse_loss",
-        "mae_loss",
-        "cross_entropy_loss",
-        "binary_cross_entropy",
-        "focal_loss",
-        "huber_loss",
-        "sgd_step",
-        "adam_step",
-        "adamw_step",
-        "rmsprop_step",
-        "adagrad_step",
-        "clip_gradients",
-        "gradient_accumulation",
-        "mixed_precision_step"
-      ],
-      "id": "training",
-      "implementation": "modules/ml/src/jobs/training.rs",
-      "name": "training",
-      "type": "Rust Unit"
     }
   },
   "protocols": {
@@ -787,6 +645,13 @@
       "path": "protocols/schemas/economy/v1",
       "schemas": [
         "ledger.capnp"
+      ]
+    },
+    "protocols/schemas/identity/v1": {
+      "layers": [],
+      "path": "protocols/schemas/identity/v1",
+      "schemas": [
+        "identity.capnp"
       ]
     },
     "protocols/schemas/io/v1": {
@@ -857,6 +722,7 @@
     "notes": "Use 'make \u003ctarget\u003e' to execute. For modules, use 'make check-module MODULE=\u003cname\u003e'.",
     "targets": {
       "# WASM build parameters (CRITICAL": "Build target",
+      "@# NOTE": "ℹ️  Kernel will use JS-created SharedArrayBuffer (provided during instantiation)",
       "@echo \"     Ubuntu": "",
       "@echo \"     macOS": "     Ubuntu:  apt-get install binaryen brotli",
       "@echo \"   Generated code will be in": "   Rust modules import generated code automatically",
@@ -882,14 +748,18 @@
       "@echo \"Testing \u0026 Quality": "  test               - Run all tests (kernel + modules)",
       "@echo \"Utilities": "  clean              - Clean all build artifacts",
       "@echo \"Version": "Build target",
+      "@echo \"⚠️  Install": "Build target",
       "@echo \"⚠️  Note": "Build target",
       "@echo \"⚠️  System dependencies required": "  1. Cap'n Proto compiler:",
       "@echo \"✅ Context generated": "Build target",
       "@echo \"✅ Kernel build complete": "Build target",
       "@echo \"✅ Kernel build complete (Development)": "Build target",
+      "@echo \"📈 Coverage report generated": "",
       "@echo \"📊 Build Summary": "  Kernel:  frontend/public/kernel.wasm",
+      "@echo \"📊 Package-level coverage": "",
       "@echo \"🔍 Checking module": "✅ Module $(MODULE) checked",
       "@echo \"🧪 Testing module": "✅ Module $(MODULE) tested",
+      "@echo \"🧪 Testing package": "Build target",
       "all": "✅ All components built successfully",
       "build": "Build target",
       "capnp compile -I$(CAPNP_PATH) -o ts": "✅ TypeScript protocol code generated in frontend/bridge/generated",
@@ -923,7 +793,13 @@
       "proto-ts": "🔧 Generating TypeScript code from Cap'n Proto schemas...",
       "setup": "🚀 Setting up INOS development environment...",
       "test": "✅ All tests complete",
-      "test-module": "Usage: make test-module MODULE=ml"
+      "test-bench": "Run benchmarks",
+      "test-coverage": "Comprehensive testing with coverage",
+      "test-module": "Usage: make test-module MODULE=ml",
+      "test-package": "Usage: make test-package PKG=core/mesh/routing",
+      "test-quick": "Run quick tests (no race detector, no coverage)",
+      "test-race": "Run tests with race detector",
+      "test-watch": "Continuous testing (watch mode)"
     }
   }
 }

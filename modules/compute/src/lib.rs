@@ -2,10 +2,16 @@ pub mod engine;
 pub mod executor;
 mod units;
 
+#[cfg(test)]
+pub mod benchmarks;
+
 use engine::ComputeEngine;
 use log::{info, warn};
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
-use units::{AudioUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MLUnit, StorageUnit};
+use units::{
+    ApiProxy, AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, PhysicsEngine,
+    StorageUnit,
+};
 
 fn initialize_engine() -> ComputeEngine {
     let mut engine = ComputeEngine::new();
@@ -19,9 +25,9 @@ fn initialize_engine() -> ComputeEngine {
     engine.register(Box::new(
         StorageUnit::new().expect("Failed to initialize StorageUnit"),
     ));
-    engine.register(Box::new(
-        MLUnit::new().expect("Failed to initialize MLUnit"),
-    ));
+    engine.register(Box::new(PhysicsEngine::new()));
+    engine.register(Box::new(BoidUnit::new()));
+    engine.register(Box::new(ApiProxy::new()));
 
     engine
 }
@@ -65,9 +71,9 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data (offset-based)
-            let module_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
             // 2. Global SAB for registry writes (full access)
-            let global_sab = sdk::sab::SafeSAB::new(val.clone());
+            let global_sab = sdk::sab::SafeSAB::new(&val);
 
             // Set global identity context
             sdk::set_module_id(module_id);
@@ -112,7 +118,7 @@ pub extern "C" fn compute_nbody_step(particle_count: u32, dt: f32) -> i32 {
         }
     };
 
-    let sab = sdk::sab::SafeSAB::new(sab_val);
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
 
     const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
     const PARTICLE_SIZE: usize = 32; // 8 floats per particle
@@ -192,6 +198,45 @@ pub extern "C" fn compute_nbody_step(particle_count: u32, dt: f32) -> i32 {
     1 // success
 }
 
+/// Initialize Boids population in SAB
+#[no_mangle]
+pub extern "C" fn compute_boids_init(bird_count: u32) -> i32 {
+    use sdk::js_interop;
+
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => return 0,
+    };
+
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
+    match units::boids::BoidUnit::init_population_sab(&sab, bird_count) {
+        Ok(_) => 1,
+        Err(_) => 0,
+    }
+}
+
+/// Step Boids physics in SAB
+/// Returns the current epoch number, or 0 on error
+#[no_mangle]
+pub extern "C" fn compute_boids_step(bird_count: u32, dt: f32, elapsed_time: f32) -> u32 {
+    use sdk::js_interop;
+
+    let global = js_interop::get_global();
+    let sab_key = js_interop::create_string("__INOS_SAB__");
+    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
+        Ok(val) if !val.is_undefined() && !val.is_null() => val,
+        _ => return 0,
+    };
+
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
+    match units::boids::BoidUnit::step_physics_sab(&sab, bird_count, dt, elapsed_time) {
+        Ok(epoch) => epoch,
+        Err(_) => 0,
+    }
+}
+
 /// Initialize enhanced N-body simulation with particle types and parameters
 /// Particle types: 0=normal, 1=star, 2=black hole, 3=dark matter
 #[no_mangle]
@@ -212,10 +257,8 @@ pub extern "C" fn compute_init_nbody_enhanced(
         }
     };
 
-    let sab = sdk::sab::SafeSAB::new(sab_val);
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
 
-    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
-    const PARTICLE_SIZE: usize = 88; // 64 bytes for enhanced particle (22 floats)
     const PARAMS_OFFSET: usize = 0x300000;
 
     js_interop::console_log(
@@ -272,11 +315,10 @@ pub extern "C" fn compute_nbody_step_enhanced(particle_count: u32, dt: f32) -> i
         _ => return 0,
     };
 
-    let sab = sdk::sab::SafeSAB::new(sab_val);
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
 
     const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
     const PARTICLE_SIZE: usize = 88;
-    const PARAMS_OFFSET: usize = 0x300000;
     const G: f32 = 5.0;
     const SOFTENING: f32 = 15.0;
     const DAMPING: f32 = 1.0;
@@ -294,10 +336,11 @@ pub extern "C" fn compute_nbody_step_enhanced(particle_count: u32, dt: f32) -> i
         particles.push(particle);
     }
 
-    // Apply N-body forces (same as before but with enhanced particle data)
+    // Apply N-body forces (full 3D)
     for i in 0..particle_count as usize {
         let mut fx = 0.0f32;
         let mut fy = 0.0f32;
+        let mut fz = 0.0f32;
 
         let p1 = particles[i];
         let mass1 = p1[9]; // mass at index 9
@@ -310,29 +353,39 @@ pub extern "C" fn compute_nbody_step_enhanced(particle_count: u32, dt: f32) -> i
             let p2 = particles[j];
             let dx = p2[0] - p1[0]; // position x
             let dy = p2[1] - p1[1]; // position y
-            let dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
+            let dz = p2[2] - p1[2]; // position z
+
+            let dist_sq = dx * dx + dy * dy + dz * dz + SOFTENING * SOFTENING;
             let inv_dist = 1.0 / dist_sq.sqrt();
             let inv_dist_cube = inv_dist * inv_dist * inv_dist;
 
             let force = G * mass1 * p2[9] * inv_dist_cube;
             fx += dx * force;
             fy += dy * force;
+            fz += dz * force;
         }
 
         // Update velocity
         let ax = fx / mass1;
         let ay = fy / mass1;
+        let az = fz / mass1;
         particles[i][3] += ax * dt; // velocity x
         particles[i][4] += ay * dt; // velocity y
+        particles[i][5] += az * dt; // velocity z
+
         particles[i][3] *= DAMPING;
         particles[i][4] *= DAMPING;
+        particles[i][5] *= DAMPING;
 
         // Update position
         particles[i][0] += particles[i][3] * dt;
         particles[i][1] += particles[i][4] * dt;
+        particles[i][2] += particles[i][5] * dt;
 
         // Update temperature from velocity (collisional heating)
-        let speed_sq = particles[i][3] * particles[i][3] + particles[i][4] * particles[i][4];
+        let speed_sq = particles[i][3] * particles[i][3]
+            + particles[i][4] * particles[i][4]
+            + particles[i][5] * particles[i][5];
         particles[i][14] = particles[i][14] * 0.9 + speed_sq * 0.01 * 0.1; // temperature at index 14
     }
 
@@ -369,7 +422,7 @@ pub extern "C" fn compute_set_sim_params(param_index: u32, value: f32) -> i32 {
         _ => return 0,
     };
 
-    let sab = sdk::sab::SafeSAB::new(sab_val);
+    let sab = sdk::sab::SafeSAB::new(&sab_val);
     const PARAMS_OFFSET: usize = 0x300000;
 
     let offset = PARAMS_OFFSET + (param_index as usize) * 4;
@@ -443,6 +496,7 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
 
     // Register core modules provided by this kernel
     register_simple("compute", 512, false); // Base compute
+    register_simple("boids", 512, false); // Flocking simulation
 
     // Note: specialized units (ml, storage/vault, etc.) register themselves via their own WASM binaries.
     // We do NOT register them here to avoid registry collisions.

@@ -37,25 +37,32 @@
 ```
 ALL MODULES ARE COMPUTE UNITS:
 ┌────────────────────────────────────────────────────────────┐
-│ LOW-LEVEL PRIMITIVES (Single Operations):                 │
+│ FOUNDATION (SDK):                                          │
+│ • SAB Management, Epoch Signaling, Credits, Identity       │
+└────────────────────────────────────────────────────────────┘
+                          ↓ ENABLES
+┌────────────────────────────────────────────────────────────┐
+│ CORE COMPUTE UNITS (Single Operations):                   │
 │ • audio      - Encode/decode/FFT                          │
 │ • crypto     - Hash/sign/encrypt                          │
 │ • data       - Compress/parse/encode                      │
 │ • gpu        - WebGPU shaders                             │
 │ • image      - Resize/filter/convert                      │
-│ • storage    - CAS/compress/replicate                     │
+│ • physics    - Rapier3D rigid body simulation             │
+│ • api_proxy  - External ML API calls (OpenAI, etc.)       │
 └────────────────────────────────────────────────────────────┘
-                          ↓ COMPOSE
+                          ↓ SUPPORTED BY
 ┌────────────────────────────────────────────────────────────┐
-│ HIGH-LEVEL WORKFLOWS (Multi-Unit Composition):            │
-│ • ml         - Inference (uses gpu + storage)             │
-│ • mining     - SHA mining (uses crypto + gpu)             │
-│ • physics    - Simulation (uses gpu + storage)            │
-│ • science    - MD/quantum (uses physics + storage + data) │
+│ INFRASTRUCTURE MODULES:                                    │
+│ • storage    - Encrypted storage (ChaCha20, Brotli)       │
+│ • drivers    - I/O Sockets (Sensors → Actors)             │
+│ • diagnostics - System metrics and monitoring             │
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Composition Model**: High-level units are workflows that compose low-level units. The supervisor orchestrates this composition intelligently.
+**Composition Model**: The Compute module contains multiple units that can be composed into workflows. Supervisors orchestrate this composition intelligently.
+
+**Note**: ML/Mining/Science modules were removed in v1.10. Use `api_proxy` for ML (external APIs) and `physics` for basic physics simulation.
 
 ### What is a Supervisor?
 
@@ -120,12 +127,17 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 │   • Supervisor Pool (8-127)    - Dynamic supervisor epochs         │
 │   • Reserved (128-255)         - Future expansion                  │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Supervisor Allocation Table (0x000040 - 0x000100) - 192 bytes      │
+│ Supervisor Allocation Table (0x000040 - 0x0000F0) - 176 bytes      │
 │   • UsedBitmap[16]             - Bitmap of allocated epochs        │
 │   • NextIndex (4 bytes)        - Next available epoch hint         │
 │   • AllocatedCount (4 bytes)   - Number of allocated supervisors   │
 │   • Allocations (variable)     - Hash → Epoch index mapping        │
-│   Supports: 120 supervisors dynamically allocated                  │
+│   Supports: ~110 supervisors dynamically allocated                 │
+│                                                                     │
+│ Registry Locking (0x0000F0 - 0x000100) - 16 bytes                  │
+│   • Mutex State (u32)          - Global registry write lock        │
+│   • Owner ID (u32)             - Supervisor holding lock           │
+│   • Timeout/Epoch (u64)        - Deadlock prevention               │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐

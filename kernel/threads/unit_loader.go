@@ -17,15 +17,17 @@ type UnitLoader struct {
 	patterns  *pattern.TieredPatternStorage
 	knowledge *intelligence.KnowledgeGraph
 	registry  *registry.ModuleRegistry
+	credits   *supervisor.CreditSupervisor
 }
 
 // NewUnitLoader creates a new unit loader
-func NewUnitLoader(sab unsafe.Pointer, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry) *UnitLoader {
+func NewUnitLoader(sab unsafe.Pointer, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor) *UnitLoader {
 	return &UnitLoader{
 		sab:       sab,
 		patterns:  patterns,
 		knowledge: knowledge,
 		registry:  registry,
+		credits:   credits,
 	}
 }
 
@@ -55,16 +57,12 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 
 		// Instantiate specialized supervisors based on ID
 		switch name {
-		case "ml":
-			loaded[name] = units.NewMLSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
+
 		case "storage":
 			loaded[name] = units.NewStorageSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "gpu":
 			loaded[name] = units.NewGPUSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
-		case "science":
-			loaded[name] = units.NewScienceSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
-		case "mining":
-			loaded[name] = units.NewMiningSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
+
 		case "audio":
 			loaded[name] = units.NewAudioSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "image":
@@ -73,10 +71,9 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 			loaded[name] = units.NewCryptoSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "data":
 			loaded[name] = units.NewDataSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
-		case "physics":
-			loaded[name] = units.NewPhysicsSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "driver":
-			loaded[name] = units.NewDriverSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
+
+			loaded[name] = units.NewDriverSupervisor(sharedBridge, ul.credits, ul.patterns, ul.knowledge, capabilities)
 		default:
 			// Fallback: Generic Supervisor for new/unknown modules
 			// This enables true dynamic extensibility without code changes

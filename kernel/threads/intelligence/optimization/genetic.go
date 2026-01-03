@@ -27,6 +27,15 @@ func (ga *GeneticAlgorithm) Evolve(
 	bounds map[string]Bounds,
 	generations int,
 ) map[string]float64 {
+	// Validate inputs
+	if fitness == nil {
+		// Return empty params if no fitness function provided
+		return make(map[string]float64)
+	}
+	if len(bounds) == 0 {
+		return make(map[string]float64)
+	}
+
 	// Initialize population
 	population := ga.initializePopulation(bounds)
 

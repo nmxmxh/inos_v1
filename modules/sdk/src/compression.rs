@@ -87,3 +87,42 @@ fn compress_lz4(data: &[u8]) -> Result<Vec<u8>, CompressionError> {
 fn decompress_lz4(data: &[u8]) -> Result<Vec<u8>, CompressionError> {
     lz4_flex::decompress_size_prepended(data).map_err(|e| CompressionError::Lz4(e.to_string()))
 }
+
+/// Computes BLAKE3 hash for content-addressable storage
+/// Returns 32-byte hash suitable for deduplication and integrity verification
+pub fn hash_blake3(data: &[u8]) -> [u8; 32] {
+    use blake3::Hasher;
+    let mut hasher = Hasher::new();
+    hasher.update(data);
+    let hash = hasher.finalize();
+    *hash.as_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_blake3_deterministic() {
+        let data = b"test data";
+        let hash1 = hash_blake3(data);
+        let hash2 = hash_blake3(data);
+        assert_eq!(hash1, hash2, "Hash should be deterministic");
+    }
+
+    #[test]
+    fn test_hash_blake3_different_data() {
+        let hash1 = hash_blake3(b"data1");
+        let hash2 = hash_blake3(b"data2");
+        assert_ne!(
+            hash1, hash2,
+            "Different data should produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_hash_blake3_empty() {
+        let hash = hash_blake3(b"");
+        assert_eq!(hash.len(), 32, "Should return 32-byte hash");
+    }
+}

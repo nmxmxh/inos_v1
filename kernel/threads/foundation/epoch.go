@@ -15,11 +15,11 @@ type EnhancedEpoch struct {
 	lastValue uint32
 
 	// Notification channels for waiters
-	waiters   []chan struct{}
-	waitersMu sync.RWMutex
+	waiters   *[]chan struct{}
+	waitersMu *sync.RWMutex
 
 	// Statistics
-	stats EpochStats
+	stats *EpochStats
 }
 
 // EpochStats tracks epoch performance metrics
@@ -36,11 +36,30 @@ func NewEnhancedEpoch(sab []byte, index uint8) *EnhancedEpoch {
 	offset := uint32(index) * 4
 	lastValue := atomic.LoadUint32((*uint32)(unsafe.Pointer(&sab[offset])))
 
+	waiters := make([]chan struct{}, 0, 8)
+
 	return &EnhancedEpoch{
 		index:     index,
 		sab:       sab,
 		lastValue: lastValue,
-		waiters:   make([]chan struct{}, 0, 8),
+		waiters:   &waiters,
+		waitersMu: &sync.RWMutex{},
+		stats:     &EpochStats{},
+	}
+}
+
+// Reader creates a new reader instance sharing the signaling mechanism
+func (ee *EnhancedEpoch) Reader() *EnhancedEpoch {
+	offset := uint32(ee.index) * 4
+	lastValue := atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+
+	return &EnhancedEpoch{
+		index:     ee.index,
+		sab:       ee.sab,
+		lastValue: lastValue,
+		waiters:   ee.waiters,
+		waitersMu: ee.waitersMu,
+		stats:     ee.stats,
 	}
 }
 
@@ -100,15 +119,15 @@ func (ee *EnhancedEpoch) GetValue() uint32 {
 func (ee *EnhancedEpoch) addWaiter(ch chan struct{}) {
 	ee.waitersMu.Lock()
 	defer ee.waitersMu.Unlock()
-	ee.waiters = append(ee.waiters, ch)
+	*ee.waiters = append(*ee.waiters, ch)
 }
 
 func (ee *EnhancedEpoch) removeWaiter(ch chan struct{}) {
 	ee.waitersMu.Lock()
 	defer ee.waitersMu.Unlock()
-	for i, waiter := range ee.waiters {
+	for i, waiter := range *ee.waiters {
 		if waiter == ch {
-			ee.waiters = append(ee.waiters[:i], ee.waiters[i+1:]...)
+			*ee.waiters = append((*ee.waiters)[:i], (*ee.waiters)[i+1:]...)
 			break
 		}
 	}
@@ -116,8 +135,8 @@ func (ee *EnhancedEpoch) removeWaiter(ch chan struct{}) {
 
 func (ee *EnhancedEpoch) notifyWaiters() {
 	ee.waitersMu.RLock()
-	waiters := make([]chan struct{}, len(ee.waiters))
-	copy(waiters, ee.waiters)
+	waiters := make([]chan struct{}, len(*ee.waiters))
+	copy(waiters, *ee.waiters)
 	ee.waitersMu.RUnlock()
 
 	for _, ch := range waiters {

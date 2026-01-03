@@ -101,6 +101,11 @@ export interface KernelStats {
   particles: number;
   sector: number;
   fps: number;
+  epochPlane: number;
+  sabCommits: number;
+  meshNodes: number;
+  wasmUnits: number;
+  sabUsage: number;
 }
 
 export interface UnitState {

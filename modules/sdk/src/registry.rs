@@ -331,11 +331,11 @@ pub fn allocate_arena(sab: &SafeSAB, size: u32) -> Result<u32, String> {
     // Checking sab.rs... SafeSAB exposes `buffer` which is `SharedArrayBuffer`.
     // We can use `js_sys::Atomics::add`.
 
-    let buffer = &sab.buffer;
     // Use stable ABI to avoid hashed imports
-    let byte_len = crate::js_interop::get_byte_length(buffer);
-    let typed_array = crate::js_interop::create_i32_view(buffer.clone(), 0, byte_len / 4);
-    let typed_array_val: web_sys::wasm_bindgen::JsValue = typed_array.into();
+    let buffer = sab.inner();
+    let length = crate::js_interop::get_byte_length(buffer);
+    let view = crate::js_interop::create_i32_view(buffer, 0, length / 4);
+    let typed_array_val: web_sys::wasm_bindgen::JsValue = view.into();
 
     let aligned_size = (size + 3) & !3;
 
@@ -344,7 +344,7 @@ pub fn allocate_arena(sab: &SafeSAB, size: u32) -> Result<u32, String> {
             as u32;
 
     let offset = OFFSET_ARENA as u32 + old_usage;
-    let total_size = crate::js_interop::get_byte_length(&sab.buffer);
+    let total_size = crate::js_interop::get_byte_length(sab.inner());
 
     if offset + aligned_size > total_size {
         // Rollback? No easy rollback in wait-free. Just fail.

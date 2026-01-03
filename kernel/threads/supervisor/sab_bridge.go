@@ -136,6 +136,13 @@ func (sb *SABBridge) ReadOutboxSequence() uint32 {
 	return atomic.LoadUint32((*uint32)(ptr))
 }
 
+// ReadSystemEpoch reads the global system epoch counter (Index 7)
+func (sb *SABBridge) ReadSystemEpoch() uint64 {
+	ptr := unsafe.Add(sb.sab, sab_layout.IDX_SYSTEM_EPOCH*4)
+	// Even though it's an i32/u32 in Atomic Flags, we treat it as uint64 for the economy loop
+	return uint64(atomic.LoadUint32((*uint32)(ptr)))
+}
+
 // WriteInbox writes raw data to SAB Inbox (for Kernel -> Module return path)
 // Thread-safe.
 func (sb *SABBridge) WriteInbox(data []byte) error {

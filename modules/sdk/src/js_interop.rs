@@ -1,6 +1,16 @@
 use web_sys::wasm_bindgen::JsValue;
 
-// Define stable imports that we implement manually in system.ts
+#[cfg(target_arch = "wasm32")]
+pub type Uint8Array = js_sys::Uint8Array;
+#[cfg(not(target_arch = "wasm32"))]
+pub type Uint8Array = JsValue;
+
+#[cfg(target_arch = "wasm32")]
+pub type Int32Array = js_sys::Int32Array;
+#[cfg(not(target_arch = "wasm32"))]
+pub type Int32Array = JsValue;
+
+#[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 #[allow(improper_ctypes)]
 extern "C" {
@@ -90,130 +100,337 @@ extern "C" {
     fn get_byte_length_raw(val: JsValue) -> u32;
 }
 
-/// Create a string on the JS heap using the stable ABI
-pub fn create_string(s: &str) -> JsValue {
-    unsafe { create_string_raw(s.as_ptr(), s.len() as u32) }
+#[cfg(not(target_arch = "wasm32"))]
+mod native_mock {
+    use super::*;
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    // A mock registry of buffers. JsValue::from(u32) will be treated as an index.
+    static BUFFERS: Lazy<Mutex<Vec<Vec<u8>>>> = Lazy::new(|| Mutex::new(vec![]));
+
+    #[allow(dead_code)]
+    pub fn register_buffer(data: Vec<u8>) -> u32 {
+        let mut buffers = BUFFERS.lock().unwrap();
+        buffers.push(data);
+        (buffers.len() - 1) as u32
+    }
+
+    fn get_buffer_index(_val: &JsValue) -> usize {
+        // In native tests, JSValue is just a wrapper for a pointer or hash
+        // For now, we'll just return 0 for simplicity as most tests use a single SAB.
+        0
+    }
+
+    fn ensure_buffer_initialized() {
+        let mut buffers = BUFFERS.lock().unwrap();
+        if buffers.is_empty() {
+            buffers.push(vec![0u8; 16 * 1024 * 1024]);
+        }
+    }
+
+    pub fn create_u8_array(_data: &[u8]) -> Uint8Array {
+        JsValue::UNDEFINED
+    }
+    pub fn wrap_u8_array(_val: &JsValue) -> Uint8Array {
+        JsValue::UNDEFINED
+    }
+    pub fn create_u8_view(_buffer: &JsValue, _offset: u32, _len: u32) -> Uint8Array {
+        JsValue::UNDEFINED
+    }
+    pub fn create_i32_view(_buffer: &JsValue, _offset: u32, _len: u32) -> Int32Array {
+        JsValue::UNDEFINED
+    }
+    pub fn log(msg: &str, level: u8) {
+        println!("[LOG {}] {}", level, msg);
+    }
+    pub fn create_string(_s: &str) -> JsValue {
+        JsValue::UNDEFINED
+    }
+    pub fn get_now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+    pub fn get_performance_now() -> f64 {
+        0.0
+    }
+
+    pub fn atomic_add(val: &JsValue, index: u32, value: i32) -> i32 {
+        ensure_buffer_initialized();
+        let mut buffers = BUFFERS.lock().unwrap();
+        let idx = get_buffer_index(val);
+        if idx >= buffers.len() {
+            return 0;
+        }
+        let buf = &mut buffers[idx];
+        let byte_idx = (index * 4) as usize;
+        if byte_idx + 4 > buf.len() {
+            return 0;
+        }
+
+        let old = i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap());
+        let new = old + value;
+        buf[byte_idx..byte_idx + 4].copy_from_slice(&new.to_le_bytes());
+        old
+    }
+
+    pub fn atomic_load(val: &JsValue, index: u32) -> i32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        let idx = get_buffer_index(val);
+        if idx >= buffers.len() {
+            return 0;
+        }
+        let buf = &buffers[idx];
+        let byte_idx = (index * 4) as usize;
+        if byte_idx + 4 > buf.len() {
+            return 0;
+        }
+        i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap())
+    }
+
+    pub fn atomic_store(val: &JsValue, index: u32, value: i32) -> i32 {
+        ensure_buffer_initialized();
+        let mut buffers = BUFFERS.lock().unwrap();
+        let idx = get_buffer_index(val);
+        if idx >= buffers.len() {
+            return 0;
+        }
+        let buf = &mut buffers[idx];
+        let byte_idx = (index * 4) as usize;
+        if byte_idx + 4 > buf.len() {
+            return 0;
+        }
+
+        buf[byte_idx..byte_idx + 4].copy_from_slice(&value.to_le_bytes());
+        value
+    }
+
+    pub fn atomic_wait(_typed_array: &JsValue, _index: u32, _value: i32, _timeout_ms: f64) -> i32 {
+        0
+    }
+
+    pub fn atomic_compare_exchange(
+        val: &JsValue,
+        index: u32,
+        expected: i32,
+        replacement: i32,
+    ) -> i32 {
+        ensure_buffer_initialized();
+        let mut buffers = BUFFERS.lock().unwrap();
+        let idx = get_buffer_index(val);
+        if idx >= buffers.len() {
+            return 0;
+        }
+        let buf = &mut buffers[idx];
+        let byte_idx = (index * 4) as usize;
+        if byte_idx + 4 > buf.len() {
+            return 0;
+        }
+
+        let old = i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap());
+        if old == expected {
+            buf[byte_idx..byte_idx + 4].copy_from_slice(&replacement.to_le_bytes());
+        }
+        old
+    }
+
+    pub fn math_random() -> f64 {
+        0.5
+    }
+
+    pub fn copy_to_sab(val: &JsValue, target_offset: u32, src: &[u8]) {
+        ensure_buffer_initialized();
+        let mut buffers = BUFFERS.lock().unwrap();
+        let _idx = get_buffer_index(val);
+        let buf = &mut buffers[0];
+        let offset = target_offset as usize;
+        if offset + src.len() <= buf.len() {
+            buf[offset..offset + src.len()].copy_from_slice(src);
+        }
+    }
+
+    pub fn copy_from_sab(val: &JsValue, src_offset: u32, dest: &mut [u8]) {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        let _idx = get_buffer_index(val);
+        let buf = &buffers[0];
+        let offset = src_offset as usize;
+        if offset + dest.len() <= buf.len() {
+            dest.copy_from_slice(&buf[offset..offset + dest.len()]);
+        }
+    }
+
+    pub fn get_byte_length(_val: &JsValue) -> u32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        buffers[0].len() as u32
+    }
 }
 
-/// Create a Uint8Array from a Rust byte slice using the stable ABI
-pub fn create_u8_array(data: &[u8]) -> js_sys::Uint8Array {
+pub fn create_string(s: &str) -> JsValue {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        create_string_raw(s.as_ptr(), s.len() as u32)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::create_string(s)
+}
+
+pub fn create_u8_array(data: &[u8]) -> Uint8Array {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
         let val = create_u8_array_raw(data.as_ptr(), data.len() as u32);
         val.into()
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::create_u8_array(data)
 }
 
-/// Wrap an existing JS object (ArrayBuffer, etc.) as a Uint8Array using stable ABI
-pub fn wrap_u8_array(val: JsValue) -> js_sys::Uint8Array {
+pub fn wrap_u8_array(val: &JsValue) -> Uint8Array {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
-        let val = wrap_u8_array_raw(val);
+        let val_owned = wrap_u8_array_raw(val.clone());
+        val_owned.into()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::wrap_u8_array(val)
+}
+
+pub fn create_u8_view(buffer: &JsValue, offset: u32, len: u32) -> Uint8Array {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        let val = create_u8_view_raw(buffer.clone(), offset, len);
         val.into()
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::create_u8_view(buffer, offset, len)
 }
 
-/// Create a Uint8Array view on an existing buffer using stable ABI
-pub fn create_u8_view(buffer: JsValue, offset: u32, len: u32) -> js_sys::Uint8Array {
+pub fn create_i32_view(buffer: &JsValue, offset: u32, len: u32) -> Int32Array {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
-        let val = create_u8_view_raw(buffer, offset, len);
+        let val = create_i32_view_raw(buffer.clone(), offset, len);
         val.into()
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::create_i32_view(buffer, offset, len)
 }
 
-/// Create a Int32Array view on an existing buffer using stable ABI
-pub fn create_i32_view(buffer: JsValue, offset: u32, len: u32) -> js_sys::Int32Array {
-    unsafe {
-        let val = create_i32_view_raw(buffer, offset, len);
-        val.into()
-    }
-}
-
-/// Log a message using the stable ABI
-/// level: 0=error, 1=warn, 2=info, 3=debug, 4=trace
 pub fn console_log(msg: &str, level: u8) {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
         log_raw(msg.as_ptr(), msg.len() as u32, level);
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::log(msg, level)
 }
 
-/// Log an error message using the stable ABI (convenience wrapper)
 pub fn console_error(msg: &str) {
     console_log(msg, 0);
 }
 
-/// Get the global object (window/self/global) using stable ABI
 pub fn get_global() -> JsValue {
-    unsafe { get_global_raw() }
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        get_global_raw()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    JsValue::UNDEFINED
 }
 
-/// Get a property from a JS object using stable ABI (Reflect.get)
-pub fn reflect_get(target: &JsValue, key: &JsValue) -> Result<JsValue, JsValue> {
-    Ok(unsafe { reflect_get_raw(target.clone(), key.clone()) })
+pub fn reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
+    #[cfg(target_arch = "wasm32")]
+    return Ok(unsafe { reflect_get_raw(_target.clone(), _key.clone()) });
+    #[cfg(not(target_arch = "wasm32"))]
+    Ok(JsValue::UNDEFINED)
 }
 
-/// Convert JsValue to f64 using stable ABI
-pub fn as_f64(val: &JsValue) -> Option<f64> {
-    let res = unsafe { as_f64_raw(val.clone()) };
-    if res.is_nan() {
-        if val.is_undefined() || val.is_null() {
-            None
+pub fn as_f64(_val: &JsValue) -> Option<f64> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let res = unsafe { as_f64_raw(_val.clone()) };
+        if res.is_nan() {
+            if _val.is_undefined() || _val.is_null() {
+                None
+            } else {
+                Some(res)
+            }
         } else {
             Some(res)
         }
-    } else {
-        Some(res)
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
 }
 
-/// Get current time in milliseconds since epoch using stable ABI
 pub fn get_now() -> u64 {
-    unsafe { get_now_raw() as u64 }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { get_now_raw() as u64 };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::get_now()
 }
 
-/// Get high-resolution time in fractional milliseconds (microsecond precision)
-/// Uses performance.now() which is monotonic and high-resolution
 pub fn get_performance_now() -> f64 {
-    unsafe { get_performance_now_raw() }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { get_performance_now_raw() };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::get_performance_now()
 }
 
-/// Atomic add using stable ABI
 pub fn atomic_add(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    unsafe { atomic_add_raw(typed_array.clone(), index, value) }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { atomic_add_raw(typed_array.clone(), index, value) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::atomic_add(typed_array, index, value)
 }
 
-/// Atomic load using stable ABI
 pub fn atomic_load(typed_array: &JsValue, index: u32) -> i32 {
-    unsafe { atomic_load_raw(typed_array.clone(), index) }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { atomic_load_raw(typed_array.clone(), index) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::atomic_load(typed_array, index)
 }
 
-/// Atomic store using stable ABI
 pub fn atomic_store(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    unsafe { atomic_store_raw(typed_array.clone(), index, value) }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { atomic_store_raw(typed_array.clone(), index, value) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::atomic_store(typed_array, index, value)
 }
 
-/// Atomic wait using stable ABI
-/// returns: 0=ok, 1=not-equal, 2=timed-out
 pub fn atomic_wait(typed_array: &JsValue, index: u32, value: i32, timeout_ms: f64) -> i32 {
-    unsafe { atomic_wait_raw(typed_array.clone(), index, value, timeout_ms) }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { atomic_wait_raw(typed_array.clone(), index, value, timeout_ms) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::atomic_wait(typed_array, index, value, timeout_ms)
 }
 
-/// Atomic compare-exchange using stable ABI
-/// returns: old value
 pub fn atomic_compare_exchange(
     typed_array: &JsValue,
     index: u32,
     expected: i32,
     replacement: i32,
 ) -> i32 {
-    unsafe { atomic_compare_exchange_raw(typed_array.clone(), index, expected, replacement) }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe {
+        atomic_compare_exchange_raw(typed_array.clone(), index, expected, replacement)
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::atomic_compare_exchange(typed_array, index, expected, replacement)
 }
 
-/// Math.random() using stable ABI
 pub fn math_random() -> f64 {
-    unsafe { math_random_raw() }
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { math_random_raw() };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::math_random()
 }
 
-/// Copy data from WASM memory to an external SAB using stable ABI
 pub fn copy_to_sab(target_buffer: &JsValue, target_offset: u32, data: &[u8]) {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
         copy_to_sab_raw(
             target_buffer.clone(),
@@ -222,10 +439,12 @@ pub fn copy_to_sab(target_buffer: &JsValue, target_offset: u32, data: &[u8]) {
             data.len() as u32,
         )
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::copy_to_sab(target_buffer, target_offset, data)
 }
 
-/// Copy data from an external SAB to WASM memory using stable ABI
 pub fn copy_from_sab(src_buffer: &JsValue, src_offset: u32, dest: &mut [u8]) {
+    #[cfg(target_arch = "wasm32")]
     unsafe {
         copy_from_sab_raw(
             src_buffer.clone(),
@@ -234,9 +453,13 @@ pub fn copy_from_sab(src_buffer: &JsValue, src_offset: u32, dest: &mut [u8]) {
             dest.len() as u32,
         )
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::copy_from_sab(src_buffer, src_offset, dest)
 }
 
-/// Get byte length of a JS object (ArrayBuffer, etc.) using stable ABI
-pub fn get_byte_length(val: &JsValue) -> u32 {
-    unsafe { get_byte_length_raw(val.clone()) }
+pub fn get_byte_length(_val: &JsValue) -> u32 {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { get_byte_length_raw(_val.clone()) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::get_byte_length(_val)
 }

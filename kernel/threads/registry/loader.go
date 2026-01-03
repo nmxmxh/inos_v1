@@ -113,8 +113,10 @@ func (mr *ModuleRegistry) LoadFromSAB() error {
 	defer mr.mu.Unlock()
 
 	loadedCount := 0
+	entries := make([]*EnhancedModuleEntry, 0, MAX_MODULES_INLINE)
+	slots := make([]int, 0, MAX_MODULES_INLINE)
 
-	// Scan all inline slots
+	// First pass: Load all module entries and register them
 	for slot := 0; slot < MAX_MODULES_INLINE; slot++ {
 		entry, err := mr.readEnhancedEntry(slot)
 		if err != nil {
@@ -131,11 +133,68 @@ func (mr *ModuleRegistry) LoadFromSAB() error {
 			continue
 		}
 
-		// Parse module
-		module := mr.parseModule(entry, slot)
+		// Extract module ID and create basic module (without dependencies yet)
+		nullPos := 12
+		for i, b := range entry.ModuleID {
+			if b == 0 {
+				nullPos = i
+				break
+			}
+		}
+		moduleID := string(entry.ModuleID[:nullPos])
+
+		// Create module without dependencies
+		module := &RegisteredModule{
+			ID: moduleID,
+			Version: VersionTriple{
+				Major: entry.VersionMajor,
+				Minor: entry.VersionMinor,
+				Patch: entry.VersionPatch,
+			},
+			ResourceProfile: ResourceProfile{
+				Flags:          entry.ResourceFlags,
+				MinMemoryMB:    entry.MinMemoryMB,
+				MinGPUMemoryMB: entry.MinGPUMemoryMB,
+				MinCPUCores:    entry.MinCPUCores,
+			},
+			CostModel: CostModel{
+				BaseCost:      entry.BaseCost,
+				PerMBCost:     entry.PerMBCost,
+				PerSecondCost: entry.PerSecondCost,
+			},
+			Slot:      slot,
+			Timestamp: entry.Timestamp,
+		}
+
 		mr.modules[module.ID] = module
 		mr.byHash[entry.IDHash] = module
+		entries = append(entries, entry)
+		slots = append(slots, slot)
 		loadedCount++
+	}
+
+	// Second pass: Resolve dependencies and capabilities now that all modules are registered
+	for _, entry := range entries {
+		// Extract module ID (same logic as first pass)
+		nullPos := 12
+		for i, b := range entry.ModuleID {
+			if b == 0 {
+				nullPos = i
+				break
+			}
+		}
+		moduleID := string(entry.ModuleID[:nullPos])
+		module := mr.modules[moduleID]
+
+		// Read dependencies from arena if present
+		if entry.DepCount > 0 && entry.DepTableOffset > 0 {
+			module.Dependencies = mr.readDependencyTable(entry.DepTableOffset, entry.DepCount)
+		}
+
+		// Read capabilities from arena if present
+		if entry.CapCount > 0 && entry.CapTableOffset > 0 {
+			module.Capabilities = mr.readCapabilityTable(entry.CapTableOffset, entry.CapCount)
+		}
 	}
 
 	// Validate dependencies
@@ -329,55 +388,6 @@ func (mr *ModuleRegistry) readEnhancedEntry(slot int) (*EnhancedModuleEntry, err
 	return entry, nil
 }
 
-// Helper: Parse module from entry
-func (mr *ModuleRegistry) parseModule(entry *EnhancedModuleEntry, slot int) *RegisteredModule {
-	// Extract module ID
-	nullPos := 12
-	for i, b := range entry.ModuleID {
-		if b == 0 {
-			nullPos = i
-			break
-		}
-	}
-	moduleID := string(entry.ModuleID[:nullPos])
-
-	// Read dependencies from arena if present
-	dependencies := []DependencySpec{}
-	if entry.DepCount > 0 && entry.DepTableOffset > 0 {
-		dependencies = mr.readDependencyTable(entry.DepTableOffset, entry.DepCount)
-	}
-
-	// Read capabilities from arena if present
-	capabilities := []CapabilitySpec{}
-	if entry.CapCount > 0 && entry.CapTableOffset > 0 {
-		capabilities = mr.readCapabilityTable(entry.CapTableOffset, entry.CapCount)
-	}
-
-	return &RegisteredModule{
-		ID: moduleID,
-		Version: VersionTriple{
-			Major: entry.VersionMajor,
-			Minor: entry.VersionMinor,
-			Patch: entry.VersionPatch,
-		},
-		Capabilities: capabilities,
-		Dependencies: dependencies,
-		ResourceProfile: ResourceProfile{
-			Flags:          entry.ResourceFlags,
-			MinMemoryMB:    entry.MinMemoryMB,
-			MinGPUMemoryMB: entry.MinGPUMemoryMB,
-			MinCPUCores:    entry.MinCPUCores,
-		},
-		CostModel: CostModel{
-			BaseCost:      entry.BaseCost,
-			PerMBCost:     entry.PerMBCost,
-			PerSecondCost: entry.PerSecondCost,
-		},
-		Slot:      slot,
-		Timestamp: entry.Timestamp,
-	}
-}
-
 // Helper: Read dependency table from arena
 func (mr *ModuleRegistry) readDependencyTable(offset uint32, count uint16) []DependencySpec {
 	dependencies := make([]DependencySpec, 0, count)
@@ -399,8 +409,9 @@ func (mr *ModuleRegistry) readDependencyTable(offset uint32, count uint16) []Dep
 		// Reverse lookup module ID from hash
 		moduleID := mr.reverseHashLookup(moduleIDHash)
 		if moduleID == "" {
-			entryOffset += 16
-			continue
+			// Keep the dependency with hash as placeholder for validation
+			// This allows validateDependencies to catch unsatisfied dependencies
+			moduleID = fmt.Sprintf("unknown_hash_%d", moduleIDHash)
 		}
 
 		dependencies = append(dependencies, DependencySpec{
@@ -469,12 +480,13 @@ func (mr *ModuleRegistry) readCapabilityTable(offset uint32, count uint16) []Cap
 
 // Helper: Reverse hash lookup (known modules)
 func (mr *ModuleRegistry) reverseHashLookup(hash uint32) string {
-	knownModules := []string{
-		"ml", "gpu", "storage", "crypto", "image",
-		"audio", "data", "mining", "physics", "science",
+	// First check if we already have this module loaded
+	if module, exists := mr.byHash[hash]; exists {
+		return module.ID
 	}
 
-	for _, id := range knownModules {
+	// Fallback: check all loaded modules
+	for id := range mr.modules {
 		if crc32.ChecksumIEEE([]byte(id)) == hash {
 			return id
 		}

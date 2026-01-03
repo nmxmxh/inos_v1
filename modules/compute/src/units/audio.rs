@@ -228,7 +228,7 @@ impl AudioUnit {
     // ===== PHASE 2: DSP OPERATIONS =====
 
     /// Normalize audio volume
-    fn normalize(&self, samples: &[f32]) -> Vec<f32> {
+    pub(crate) fn normalize(&self, samples: &[f32]) -> Vec<f32> {
         // Find peak amplitude
         let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
 
@@ -250,7 +250,7 @@ impl AudioUnit {
     }
 
     /// Apply gain (volume change)
-    fn apply_gain(&self, samples: &[f32], gain_db: f32) -> Vec<f32> {
+    pub(crate) fn apply_gain(&self, samples: &[f32], gain_db: f32) -> Vec<f32> {
         // Convert dB to linear scale
         let gain_linear = 10.0f32.powf(gain_db / 20.0);
         samples

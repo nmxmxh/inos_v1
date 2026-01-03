@@ -15,9 +15,9 @@ const (
 	OFFSET_ATOMIC_FLAGS = 0x000000
 	SIZE_ATOMIC_FLAGS   = 0x000040 // 64 bytes
 
-	// Supervisor Allocation Table (192 bytes)
+	// Supervisor Allocation Table (176 bytes)
 	OFFSET_SUPERVISOR_ALLOC = 0x000040
-	SIZE_SUPERVISOR_ALLOC   = 0x0000C0 // 192 bytes
+	SIZE_SUPERVISOR_ALLOC   = 0x0000B0 // 176 bytes (Ends at 0xF0)
 
 	// Registry locking (16 bytes before registry)
 	OFFSET_REGISTRY_LOCK = 0x0000F0
@@ -48,6 +48,20 @@ const (
 	// Pending syscall metadata (DeepSeek Architecture)
 	OFFSET_SYSCALL_TABLE = 0x003000
 	SIZE_SYSCALL_TABLE   = 0x001000 // 4KB
+	// ========== ECONOMICS (0x004000 - 0x010000) ==========
+	// Credit accounts and resource metrics (Phase 17)
+	OFFSET_ECONOMICS = 0x004000
+	SIZE_ECONOMICS   = 0x004000 // 16KB
+
+	// ========== IDENTITY REGISTRY (0x008000 - 0x00C000) ==========
+	// DIDs, device binding, and TSS metadata (Phase 17.D)
+	OFFSET_IDENTITY_REGISTRY = 0x008000
+	SIZE_IDENTITY_REGISTRY   = 0x004000 // 16KB
+
+	// ========== SOCIAL GRAPH (0x00C000 - 0x010000) ==========
+	// Referrals, close IDs, and social yield (Phase 17.E)
+	OFFSET_SOCIAL_GRAPH = 0x00C000
+	SIZE_SOCIAL_GRAPH   = 0x004000 // 16KB
 
 	// ========== PATTERN EXCHANGE (0x010000 - 0x020000) ==========
 	// Pattern storage with LRU eviction to arena
@@ -165,6 +179,15 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			MaxTotal:  1,
 		},
 		{
+			Name:      "RegistryLock",
+			Offset:    OFFSET_REGISTRY_LOCK,
+			Size:      SIZE_REGISTRY_LOCK,
+			Purpose:   "Global mutex for registry operations",
+			CanExpand: false,
+			MaxInline: 1,
+			MaxTotal:  1,
+		},
+		{
 			Name:      "ModuleRegistry",
 			Offset:    OFFSET_MODULE_REGISTRY,
 			Size:      SIZE_MODULE_REGISTRY,
@@ -217,6 +240,15 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			CanExpand: true,
 			MaxInline: 0,
 			MaxTotal:  0,
+		},
+		{
+			Name:      "Economics",
+			Offset:    OFFSET_ECONOMICS,
+			Size:      SIZE_ECONOMICS,
+			Purpose:   "Credit accounts and resource metrics",
+			CanExpand: true,
+			MaxInline: 128, // 128 accounts inline
+			MaxTotal:  1024,
 		},
 		{
 			Name:      "InboxOutbox",

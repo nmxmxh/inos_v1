@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/optimization"
+	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/scheduling"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 )
 
@@ -56,16 +58,17 @@ func NewUnifiedIntelligenceCoordinator(
 	messageQueue *foundation.MessageQueue,
 	patterns *pattern.TieredPatternStorage,
 ) *UnifiedIntelligenceCoordinator {
-	return &UnifiedIntelligenceCoordinator{
+	uic := &UnifiedIntelligenceCoordinator{
 		sab:          sab,
 		baseOffset:   baseOffset,
 		knowledge:    NewKnowledgeGraph(sab, baseOffset, 1024),
 		feedback:     NewFeedbackLoopManager(),
-		workflows:    NewWorkflowOrchestrator(10),
 		epoch:        epoch,
 		messageQueue: messageQueue,
 		patterns:     patterns,
 	}
+	uic.workflows = NewWorkflowOrchestrator(10, uic)
+	return uic
 }
 
 // Initialize initializes the coordinator and all engines
@@ -110,10 +113,11 @@ func (uic *UnifiedIntelligenceCoordinator) Decide(context *DecisionContext) *fou
 	case foundation.DecisionSecurity:
 		decision = uic.makeSecurityDecision(context)
 	default:
+		// TODO: Implement more granular fallback logic
 		decision = &foundation.Decision{ // Changed to foundation.Decision
 			Type:       foundation.DecisionType(context.Type), // Changed to foundation.DecisionType
 			Confidence: 0.5,
-			Reasoning:  "unknown decision type",
+			Reasoning:  "unknown decision type - using default fallback",
 		}
 	}
 
@@ -128,6 +132,31 @@ func (uic *UnifiedIntelligenceCoordinator) Decide(context *DecisionContext) *fou
 	uic.cacheDecision(context, decision)
 
 	return decision
+}
+
+// Dispatch routes an engine request to the appropriate engine implementation
+func (uic *UnifiedIntelligenceCoordinator) Dispatch(engine foundation.EngineType, operation string, parameters map[string]interface{}) (interface{}, error) {
+	// TODO: Cast engine interfaces to their actual types and call methods
+	// Note: For now, we route based on EngineType and Operation name
+
+	switch engine {
+	case foundation.EngineLearning:
+		if ele, ok := uic.learning.(interface {
+			PredictResources(moduleID uint32, input []byte) interface{}
+		}); ok && operation == "predict" {
+			return ele.PredictResources(0, nil), nil
+		}
+	case foundation.EngineOptimization:
+		if opt, ok := uic.optimization.(*optimization.OptimizationEngine); ok && operation == "optimize" {
+			return opt.Optimize(&optimization.OptimizationProblem{}), nil
+		}
+	case foundation.EngineScheduling:
+		if sched, ok := uic.scheduling.(*scheduling.SchedulingEngine); ok && operation == "schedule" {
+			return sched.Schedule(&scheduling.Job{}), nil
+		}
+	}
+
+	return nil, fmt.Errorf("engine %v or operation %s not supported in dispatcher", engine, operation)
 }
 
 // ExecuteWorkflow executes an intelligence workflow
@@ -255,40 +284,48 @@ func (uic *UnifiedIntelligenceCoordinator) cacheDecision(context *DecisionContex
 }
 
 // makeRoutingDecision handles routing decisions
+// NOTE: Currently using simulated logic for kernel verification
 func (uic *UnifiedIntelligenceCoordinator) makeRoutingDecision(_ *DecisionContext) *foundation.Decision {
+	// TODO: Integrate with Actual Learning Engine for real-time routing optimization
 	return &foundation.Decision{
 		Type:       foundation.DecisionRouting,
 		Confidence: 0.9,
 		Value:      "compute",
+		Reasoning:  "routed to optimal engine (simulated)",
 	}
 }
 
 // Helper: Make scheduling decision
+// NOTE: Currently using simulated logic for kernel verification
 func (uic *UnifiedIntelligenceCoordinator) makeSchedulingDecision(_ *DecisionContext) *foundation.Decision {
-	// Use scheduling engine
+	// TODO: Integrate with Scheduling Engine (kernel/threads/intelligence/scheduling)
 	return &foundation.Decision{
 		Type:       foundation.DecisionScheduling,
 		Confidence: 0.90,
-		Reasoning:  "scheduled based on priority and deadline",
+		Reasoning:  "scheduled based on priority and deadline (simulated)",
 	}
 }
 
 // makeOptimizationDecision makes optimization decisions
+// NOTE: Currently using simulated logic for kernel verification
 func (uic *UnifiedIntelligenceCoordinator) makeOptimizationDecision(_ *DecisionContext) *foundation.Decision {
+	// TODO: Integrate with Optimization Engine (kernel/threads/intelligence/optimization)
 	return &foundation.Decision{
 		Type:       foundation.DecisionOptimization,
 		Confidence: 0.90,
-		Reasoning:  "optimized based on current load",
+		Reasoning:  "optimized based on current load (simulated)",
 	}
 }
 
 // makeSecurityDecision makes security decisions
+// NOTE: Currently using simulated logic for kernel verification
 func (uic *UnifiedIntelligenceCoordinator) makeSecurityDecision(_ *DecisionContext) *foundation.Decision {
+	// TODO: Integrate with Security Engine (kernel/threads/intelligence/security)
 	return &foundation.Decision{
 		Type:       foundation.DecisionSecurity,
 		Confidence: 1.0,
 		Value:      true,
-		Reasoning:  "security check passed",
+		Reasoning:  "security check passed (simulated)",
 	}
 }
 

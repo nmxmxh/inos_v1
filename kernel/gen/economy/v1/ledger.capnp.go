@@ -3,384 +3,1310 @@
 package economy
 
 import (
+	math "math"
 	capnp "zombiezen.com/go/capnproto2"
 	text "zombiezen.com/go/capnproto2/encoding/text"
 	schemas "zombiezen.com/go/capnproto2/schemas"
-	server "zombiezen.com/go/capnproto2/server"
 )
 
-type Economy struct{ Client capnp.Client }
+type Wallet struct{ capnp.Struct }
 
-// Economy_TypeID is the unique identifier for the type Economy.
-const Economy_TypeID = 0xf50a537ca25377ab
+// Wallet_TypeID is the unique identifier for the type Wallet.
+const Wallet_TypeID = 0xf280c335b1fb9ada
 
-type Economy_Server interface {
+func NewWallet(s *capnp.Segment) (Wallet, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 72, PointerCount: 6})
+	return Wallet{st}, err
 }
 
-func Economy_ServerToClient(s Economy_Server) Economy {
-	c, _ := s.(server.Closer)
-	return Economy{Client: server.New(Economy_Methods(nil, s), c)}
+func NewRootWallet(s *capnp.Segment) (Wallet, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 72, PointerCount: 6})
+	return Wallet{st}, err
 }
 
-func Economy_Methods(methods []server.Method, s Economy_Server) []server.Method {
-	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 0)
-	}
-
-	return methods
-}
-
-type Economy_Wallet struct{ capnp.Struct }
-
-// Economy_Wallet_TypeID is the unique identifier for the type Economy_Wallet.
-const Economy_Wallet_TypeID = 0xda2a63e4b82869b0
-
-func NewEconomy_Wallet(s *capnp.Segment) (Economy_Wallet, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Economy_Wallet{st}, err
-}
-
-func NewRootEconomy_Wallet(s *capnp.Segment) (Economy_Wallet, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
-	return Economy_Wallet{st}, err
-}
-
-func ReadRootEconomy_Wallet(msg *capnp.Message) (Economy_Wallet, error) {
+func ReadRootWallet(msg *capnp.Message) (Wallet, error) {
 	root, err := msg.RootPtr()
-	return Economy_Wallet{root.Struct()}, err
+	return Wallet{root.Struct()}, err
 }
 
-func (s Economy_Wallet) String() string {
-	str, _ := text.Marshal(0xda2a63e4b82869b0, s.Struct)
+func (s Wallet) String() string {
+	str, _ := text.Marshal(0xf280c335b1fb9ada, s.Struct)
 	return str
 }
 
-func (s Economy_Wallet) PublicKey() ([]byte, error) {
+func (s Wallet) PublicKey() ([]byte, error) {
 	p, err := s.Struct.Ptr(0)
 	return []byte(p.Data()), err
 }
 
-func (s Economy_Wallet) HasPublicKey() bool {
+func (s Wallet) HasPublicKey() bool {
 	p, err := s.Struct.Ptr(0)
 	return p.IsValid() || err != nil
 }
 
-func (s Economy_Wallet) SetPublicKey(v []byte) error {
+func (s Wallet) SetPublicKey(v []byte) error {
 	return s.Struct.SetData(0, v)
 }
 
-func (s Economy_Wallet) Balance() uint64 {
-	return s.Struct.Uint64(0)
+func (s Wallet) Balance() int64 {
+	return int64(s.Struct.Uint64(0))
 }
 
-func (s Economy_Wallet) SetBalance(v uint64) {
-	s.Struct.SetUint64(0, v)
+func (s Wallet) SetBalance(v int64) {
+	s.Struct.SetUint64(0, uint64(v))
 }
 
-// Economy_Wallet_List is a list of Economy_Wallet.
-type Economy_Wallet_List struct{ capnp.List }
-
-// NewEconomy_Wallet creates a new list of Economy_Wallet.
-func NewEconomy_Wallet_List(s *capnp.Segment, sz int32) (Economy_Wallet_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
-	return Economy_Wallet_List{l}, err
-}
-
-func (s Economy_Wallet_List) At(i int) Economy_Wallet { return Economy_Wallet{s.List.Struct(i)} }
-
-func (s Economy_Wallet_List) Set(i int, v Economy_Wallet) error { return s.List.SetStruct(i, v.Struct) }
-
-func (s Economy_Wallet_List) String() string {
-	str, _ := text.MarshalList(0xda2a63e4b82869b0, s.List)
-	return str
-}
-
-// Economy_Wallet_Promise is a wrapper for a Economy_Wallet promised by a client call.
-type Economy_Wallet_Promise struct{ *capnp.Pipeline }
-
-func (p Economy_Wallet_Promise) Struct() (Economy_Wallet, error) {
-	s, err := p.Pipeline.Struct()
-	return Economy_Wallet{s}, err
-}
-
-type Economy_Transaction struct{ capnp.Struct }
-
-// Economy_Transaction_TypeID is the unique identifier for the type Economy_Transaction.
-const Economy_Transaction_TypeID = 0xd26e57fad0ab9c59
-
-func NewEconomy_Transaction(s *capnp.Segment) (Economy_Transaction, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
-	return Economy_Transaction{st}, err
-}
-
-func NewRootEconomy_Transaction(s *capnp.Segment) (Economy_Transaction, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
-	return Economy_Transaction{st}, err
-}
-
-func ReadRootEconomy_Transaction(msg *capnp.Message) (Economy_Transaction, error) {
-	root, err := msg.RootPtr()
-	return Economy_Transaction{root.Struct()}, err
-}
-
-func (s Economy_Transaction) String() string {
-	str, _ := text.Marshal(0xd26e57fad0ab9c59, s.Struct)
-	return str
-}
-
-func (s Economy_Transaction) Id() (string, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.Text(), err
-}
-
-func (s Economy_Transaction) HasId() bool {
-	p, err := s.Struct.Ptr(0)
-	return p.IsValid() || err != nil
-}
-
-func (s Economy_Transaction) IdBytes() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s Economy_Transaction) SetId(v string) error {
-	return s.Struct.SetText(0, v)
-}
-
-func (s Economy_Transaction) From() (string, error) {
+func (s Wallet) Did() (string, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.Text(), err
 }
 
-func (s Economy_Transaction) HasFrom() bool {
+func (s Wallet) HasDid() bool {
 	p, err := s.Struct.Ptr(1)
 	return p.IsValid() || err != nil
 }
 
-func (s Economy_Transaction) FromBytes() ([]byte, error) {
+func (s Wallet) DidBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.TextBytes(), err
 }
 
-func (s Economy_Transaction) SetFrom(v string) error {
+func (s Wallet) SetDid(v string) error {
 	return s.Struct.SetText(1, v)
 }
 
-func (s Economy_Transaction) To() (string, error) {
+func (s Wallet) ReputationScore() float32 {
+	return math.Float32frombits(s.Struct.Uint32(8))
+}
+
+func (s Wallet) SetReputationScore(v float32) {
+	s.Struct.SetUint32(8, math.Float32bits(v))
+}
+
+func (s Wallet) LinkedDevicesCount() uint16 {
+	return s.Struct.Uint16(12)
+}
+
+func (s Wallet) SetLinkedDevicesCount(v uint16) {
+	s.Struct.SetUint16(12, v)
+}
+
+func (s Wallet) UptimeScore() float32 {
+	return math.Float32frombits(s.Struct.Uint32(16))
+}
+
+func (s Wallet) SetUptimeScore(v float32) {
+	s.Struct.SetUint32(16, math.Float32bits(v))
+}
+
+func (s Wallet) LastUbiClaim() int64 {
+	return int64(s.Struct.Uint64(24))
+}
+
+func (s Wallet) SetLastUbiClaim(v int64) {
+	s.Struct.SetUint64(24, uint64(v))
+}
+
+func (s Wallet) CreatorDid() (string, error) {
 	p, err := s.Struct.Ptr(2)
 	return p.Text(), err
 }
 
-func (s Economy_Transaction) HasTo() bool {
+func (s Wallet) HasCreatorDid() bool {
 	p, err := s.Struct.Ptr(2)
 	return p.IsValid() || err != nil
 }
 
-func (s Economy_Transaction) ToBytes() ([]byte, error) {
+func (s Wallet) CreatorDidBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(2)
 	return p.TextBytes(), err
 }
 
-func (s Economy_Transaction) SetTo(v string) error {
+func (s Wallet) SetCreatorDid(v string) error {
 	return s.Struct.SetText(2, v)
 }
 
-func (s Economy_Transaction) Amount() uint64 {
-	return s.Struct.Uint64(0)
-}
-
-func (s Economy_Transaction) SetAmount(v uint64) {
-	s.Struct.SetUint64(0, v)
-}
-
-func (s Economy_Transaction) Signature() ([]byte, error) {
+func (s Wallet) ReferrerDid() (string, error) {
 	p, err := s.Struct.Ptr(3)
-	return []byte(p.Data()), err
+	return p.Text(), err
 }
 
-func (s Economy_Transaction) HasSignature() bool {
+func (s Wallet) HasReferrerDid() bool {
 	p, err := s.Struct.Ptr(3)
 	return p.IsValid() || err != nil
 }
 
-func (s Economy_Transaction) SetSignature(v []byte) error {
-	return s.Struct.SetData(3, v)
+func (s Wallet) ReferrerDidBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(3)
+	return p.TextBytes(), err
 }
 
-func (s Economy_Transaction) Timestamp() int64 {
+func (s Wallet) SetReferrerDid(v string) error {
+	return s.Struct.SetText(3, v)
+}
+
+func (s Wallet) ReferrerLockedAt() int64 {
+	return int64(s.Struct.Uint64(32))
+}
+
+func (s Wallet) SetReferrerLockedAt(v int64) {
+	s.Struct.SetUint64(32, uint64(v))
+}
+
+func (s Wallet) ReferrerChangedAt() int64 {
+	return int64(s.Struct.Uint64(40))
+}
+
+func (s Wallet) SetReferrerChangedAt(v int64) {
+	s.Struct.SetUint64(40, uint64(v))
+}
+
+func (s Wallet) CloseIdentities() (CloseIdentity_List, error) {
+	p, err := s.Struct.Ptr(4)
+	return CloseIdentity_List{List: p.List()}, err
+}
+
+func (s Wallet) HasCloseIdentities() bool {
+	p, err := s.Struct.Ptr(4)
+	return p.IsValid() || err != nil
+}
+
+func (s Wallet) SetCloseIdentities(v CloseIdentity_List) error {
+	return s.Struct.SetPtr(4, v.List.ToPtr())
+}
+
+// NewCloseIdentities sets the closeIdentities field to a newly
+// allocated CloseIdentity_List, preferring placement in s's segment.
+func (s Wallet) NewCloseIdentities(n int32) (CloseIdentity_List, error) {
+	l, err := NewCloseIdentity_List(s.Struct.Segment(), n)
+	if err != nil {
+		return CloseIdentity_List{}, err
+	}
+	err = s.Struct.SetPtr(4, l.List.ToPtr())
+	return l, err
+}
+
+func (s Wallet) YieldEarned() (YieldStats, error) {
+	p, err := s.Struct.Ptr(5)
+	return YieldStats{Struct: p.Struct()}, err
+}
+
+func (s Wallet) HasYieldEarned() bool {
+	p, err := s.Struct.Ptr(5)
+	return p.IsValid() || err != nil
+}
+
+func (s Wallet) SetYieldEarned(v YieldStats) error {
+	return s.Struct.SetPtr(5, v.Struct.ToPtr())
+}
+
+// NewYieldEarned sets the yieldEarned field to a newly
+// allocated YieldStats struct, preferring placement in s's segment.
+func (s Wallet) NewYieldEarned() (YieldStats, error) {
+	ss, err := NewYieldStats(s.Struct.Segment())
+	if err != nil {
+		return YieldStats{}, err
+	}
+	err = s.Struct.SetPtr(5, ss.Struct.ToPtr())
+	return ss, err
+}
+
+func (s Wallet) EarnedTotal() uint64 {
+	return s.Struct.Uint64(48)
+}
+
+func (s Wallet) SetEarnedTotal(v uint64) {
+	s.Struct.SetUint64(48, v)
+}
+
+func (s Wallet) SpentTotal() uint64 {
+	return s.Struct.Uint64(56)
+}
+
+func (s Wallet) SetSpentTotal(v uint64) {
+	s.Struct.SetUint64(56, v)
+}
+
+func (s Wallet) LastActivityEpoch() uint64 {
+	return s.Struct.Uint64(64)
+}
+
+func (s Wallet) SetLastActivityEpoch(v uint64) {
+	s.Struct.SetUint64(64, v)
+}
+
+func (s Wallet) Tier() EconomicTier {
+	return EconomicTier(s.Struct.Uint16(14))
+}
+
+func (s Wallet) SetTier(v EconomicTier) {
+	s.Struct.SetUint16(14, uint16(v))
+}
+
+func (s Wallet) Threshold() uint8 {
+	return s.Struct.Uint8(20)
+}
+
+func (s Wallet) SetThreshold(v uint8) {
+	s.Struct.SetUint8(20, v)
+}
+
+func (s Wallet) TotalShares() uint8 {
+	return s.Struct.Uint8(21)
+}
+
+func (s Wallet) SetTotalShares(v uint8) {
+	s.Struct.SetUint8(21, v)
+}
+
+// Wallet_List is a list of Wallet.
+type Wallet_List struct{ capnp.List }
+
+// NewWallet creates a new list of Wallet.
+func NewWallet_List(s *capnp.Segment, sz int32) (Wallet_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 72, PointerCount: 6}, sz)
+	return Wallet_List{l}, err
+}
+
+func (s Wallet_List) At(i int) Wallet { return Wallet{s.List.Struct(i)} }
+
+func (s Wallet_List) Set(i int, v Wallet) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s Wallet_List) String() string {
+	str, _ := text.MarshalList(0xf280c335b1fb9ada, s.List)
+	return str
+}
+
+// Wallet_Promise is a wrapper for a Wallet promised by a client call.
+type Wallet_Promise struct{ *capnp.Pipeline }
+
+func (p Wallet_Promise) Struct() (Wallet, error) {
+	s, err := p.Pipeline.Struct()
+	return Wallet{s}, err
+}
+
+func (p Wallet_Promise) YieldEarned() YieldStats_Promise {
+	return YieldStats_Promise{Pipeline: p.Pipeline.GetPipeline(5)}
+}
+
+type CloseIdentity struct{ capnp.Struct }
+
+// CloseIdentity_TypeID is the unique identifier for the type CloseIdentity.
+const CloseIdentity_TypeID = 0xd6efd0bfa9696e05
+
+func NewCloseIdentity(s *capnp.Segment) (CloseIdentity, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 2})
+	return CloseIdentity{st}, err
+}
+
+func NewRootCloseIdentity(s *capnp.Segment) (CloseIdentity, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 2})
+	return CloseIdentity{st}, err
+}
+
+func ReadRootCloseIdentity(msg *capnp.Message) (CloseIdentity, error) {
+	root, err := msg.RootPtr()
+	return CloseIdentity{root.Struct()}, err
+}
+
+func (s CloseIdentity) String() string {
+	str, _ := text.Marshal(0xd6efd0bfa9696e05, s.Struct)
+	return str
+}
+
+func (s CloseIdentity) Did() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s CloseIdentity) HasDid() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s CloseIdentity) DidBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s CloseIdentity) SetDid(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s CloseIdentity) AddedAt() int64 {
+	return int64(s.Struct.Uint64(0))
+}
+
+func (s CloseIdentity) SetAddedAt(v int64) {
+	s.Struct.SetUint64(0, uint64(v))
+}
+
+func (s CloseIdentity) VerifiedAt() int64 {
 	return int64(s.Struct.Uint64(8))
 }
 
-func (s Economy_Transaction) SetTimestamp(v int64) {
+func (s CloseIdentity) SetVerifiedAt(v int64) {
 	s.Struct.SetUint64(8, uint64(v))
 }
 
-// Economy_Transaction_List is a list of Economy_Transaction.
-type Economy_Transaction_List struct{ capnp.List }
-
-// NewEconomy_Transaction creates a new list of Economy_Transaction.
-func NewEconomy_Transaction_List(s *capnp.Segment, sz int32) (Economy_Transaction_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4}, sz)
-	return Economy_Transaction_List{l}, err
-}
-
-func (s Economy_Transaction_List) At(i int) Economy_Transaction {
-	return Economy_Transaction{s.List.Struct(i)}
-}
-
-func (s Economy_Transaction_List) Set(i int, v Economy_Transaction) error {
-	return s.List.SetStruct(i, v.Struct)
-}
-
-func (s Economy_Transaction_List) String() string {
-	str, _ := text.MarshalList(0xd26e57fad0ab9c59, s.List)
-	return str
-}
-
-// Economy_Transaction_Promise is a wrapper for a Economy_Transaction promised by a client call.
-type Economy_Transaction_Promise struct{ *capnp.Pipeline }
-
-func (p Economy_Transaction_Promise) Struct() (Economy_Transaction, error) {
-	s, err := p.Pipeline.Struct()
-	return Economy_Transaction{s}, err
-}
-
-type Economy_MiningShare struct{ capnp.Struct }
-
-// Economy_MiningShare_TypeID is the unique identifier for the type Economy_MiningShare.
-const Economy_MiningShare_TypeID = 0x8fdb535ca62787d2
-
-func NewEconomy_MiningShare(s *capnp.Segment) (Economy_MiningShare, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return Economy_MiningShare{st}, err
-}
-
-func NewRootEconomy_MiningShare(s *capnp.Segment) (Economy_MiningShare, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return Economy_MiningShare{st}, err
-}
-
-func ReadRootEconomy_MiningShare(msg *capnp.Message) (Economy_MiningShare, error) {
-	root, err := msg.RootPtr()
-	return Economy_MiningShare{root.Struct()}, err
-}
-
-func (s Economy_MiningShare) String() string {
-	str, _ := text.Marshal(0x8fdb535ca62787d2, s.Struct)
-	return str
-}
-
-func (s Economy_MiningShare) Nonce() uint64 {
-	return s.Struct.Uint64(0)
-}
-
-func (s Economy_MiningShare) SetNonce(v uint64) {
-	s.Struct.SetUint64(0, v)
-}
-
-func (s Economy_MiningShare) Hash() ([]byte, error) {
-	p, err := s.Struct.Ptr(0)
-	return []byte(p.Data()), err
-}
-
-func (s Economy_MiningShare) HasHash() bool {
-	p, err := s.Struct.Ptr(0)
-	return p.IsValid() || err != nil
-}
-
-func (s Economy_MiningShare) SetHash(v []byte) error {
-	return s.Struct.SetData(0, v)
-}
-
-func (s Economy_MiningShare) JobId() (string, error) {
+func (s CloseIdentity) Relationship() (string, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.Text(), err
 }
 
-func (s Economy_MiningShare) HasJobId() bool {
+func (s CloseIdentity) HasRelationship() bool {
 	p, err := s.Struct.Ptr(1)
 	return p.IsValid() || err != nil
 }
 
-func (s Economy_MiningShare) JobIdBytes() ([]byte, error) {
+func (s CloseIdentity) RelationshipBytes() ([]byte, error) {
 	p, err := s.Struct.Ptr(1)
 	return p.TextBytes(), err
 }
 
-func (s Economy_MiningShare) SetJobId(v string) error {
+func (s CloseIdentity) SetRelationship(v string) error {
 	return s.Struct.SetText(1, v)
 }
 
-// Economy_MiningShare_List is a list of Economy_MiningShare.
-type Economy_MiningShare_List struct{ capnp.List }
-
-// NewEconomy_MiningShare creates a new list of Economy_MiningShare.
-func NewEconomy_MiningShare_List(s *capnp.Segment, sz int32) (Economy_MiningShare_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
-	return Economy_MiningShare_List{l}, err
+func (s CloseIdentity) YieldShare() float32 {
+	return math.Float32frombits(s.Struct.Uint32(16))
 }
 
-func (s Economy_MiningShare_List) At(i int) Economy_MiningShare {
-	return Economy_MiningShare{s.List.Struct(i)}
+func (s CloseIdentity) SetYieldShare(v float32) {
+	s.Struct.SetUint32(16, math.Float32bits(v))
 }
 
-func (s Economy_MiningShare_List) Set(i int, v Economy_MiningShare) error {
-	return s.List.SetStruct(i, v.Struct)
+func (s CloseIdentity) Reputation() float32 {
+	return math.Float32frombits(s.Struct.Uint32(20))
 }
 
-func (s Economy_MiningShare_List) String() string {
-	str, _ := text.MarshalList(0x8fdb535ca62787d2, s.List)
+func (s CloseIdentity) SetReputation(v float32) {
+	s.Struct.SetUint32(20, math.Float32bits(v))
+}
+
+// CloseIdentity_List is a list of CloseIdentity.
+type CloseIdentity_List struct{ capnp.List }
+
+// NewCloseIdentity creates a new list of CloseIdentity.
+func NewCloseIdentity_List(s *capnp.Segment, sz int32) (CloseIdentity_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 24, PointerCount: 2}, sz)
+	return CloseIdentity_List{l}, err
+}
+
+func (s CloseIdentity_List) At(i int) CloseIdentity { return CloseIdentity{s.List.Struct(i)} }
+
+func (s CloseIdentity_List) Set(i int, v CloseIdentity) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s CloseIdentity_List) String() string {
+	str, _ := text.MarshalList(0xd6efd0bfa9696e05, s.List)
 	return str
 }
 
-// Economy_MiningShare_Promise is a wrapper for a Economy_MiningShare promised by a client call.
-type Economy_MiningShare_Promise struct{ *capnp.Pipeline }
+// CloseIdentity_Promise is a wrapper for a CloseIdentity promised by a client call.
+type CloseIdentity_Promise struct{ *capnp.Pipeline }
 
-func (p Economy_MiningShare_Promise) Struct() (Economy_MiningShare, error) {
+func (p CloseIdentity_Promise) Struct() (CloseIdentity, error) {
 	s, err := p.Pipeline.Struct()
-	return Economy_MiningShare{s}, err
+	return CloseIdentity{s}, err
 }
 
-const schema_c42e032179831952 = "x\xda\x8c\x93AK\x14a\x1c\xc6\x9f\xe7}g\x9a\x8c" +
-	"]\xece\xf7PAX\xa7LR\xdb\x0c\x0a/\x8a$" +
-	"$%\xf8\xba\x86\x08u\x98\x1d\xa7ubgf\xd9\x1d" +
-	"\x13#\xe8\xd0\xa1c\x97\x0e\x09\x06\xb6T\x18&)t" +
-	"\xe8P\x87\xa0\x0f\x10\x1e\xeb\xdaW\xe8\xd2e\xe2\xd5f" +
-	"w\xe9\x92\x87\x81\xff\xfc\xe7a\xe67\xcf\xf3\xbc\x17m" +
-	"\x8e\x8b\x92]%\xa0\x8f\xdbG\xd2\xbd'\xe7\xde\xdc." +
-	"\xffx\x0a\xddO\xa6[+\xe5\xd6\xc3\xf2\xb1_\xb0\x85" +
-	"\x03\x94\xd6ZT\xbb\x0e\xa0\xb6\xdf\x83\xe9\xc2\xfa\xd6\xb7" +
-	"\xdf\xf3\xd1\x9e\x91\x8a.\xa9\xe5\x00#\x93l\xb1p\x87" +
-	"f\\\xe0<\xc1t'\xe8\xff\xf8\xd3\x1b\xf8\xfe\xef\x9b" +
-	"\xf75\xdb\xe2\x01\x0b_\xccG\x0a\x9f\xc5\x0a\xba\x9e\xab" +
-	"32\x9d=\xf9x\xf5\xac\x1c\xfa\x0ap\xe4\xb4\x9c`" +
-	"aP^\x01\x0a\xb7\xa4c. \xf5\xbd8\x8a\xc3\xd5" +
-	"a\xfb~i\xb8\xe6/V\xfd\xc6`5\x1eL\xfc\xb0" +
-	">\xe4\xb9\xf5\xa8>:y \x18\x9a\x0e\xa2 \xaa\x96" +
-	"\x97\x1c\xb7\xe1\xcf\x90:'-\xc0\"\xa0&/\x01z" +
-	"\\R\xdf\x14$\x8b4\xbb\xa9\x01@_\x93\xd43\x82" +
-	"J\xb0H\x01\xa8i#\xbc.\xa9\xe7\x04\xfb\xa28\xf2" +
-	"|\xf6@\xb0\x07\xec]r\x9bK\xccC0\x0f\xf6\xdd" +
-	"\x8b+S\x8b\xccA0\x07\x1e\x9ep\xae\xe1FM\xd7" +
-	"K\x9c \x8e\x0c\xe1\x896\xe1\xda)@?\x93\xd4\x1b" +
-	"\x82*C|a\x10\x9fK\xeaW\x06Q\x1c \xbe4" +
-	"\xcauI\xbd)HY\xa4\x04\xd4\xebQ@oH\xea" +
-	"w\x82\xca\x92EZ\x80z;\x0b\xe8MI\xfdAP" +
-	"\xd9,\xd2\x06\xd4\xaeY\xeeH\xeaO\x822h\xffB" +
-	"\xef\xddF\x1cf72\x89\xb3q\xcc\x0d\xe3\xe5(\xc9" +
-	"LH\x9bA5r\x93\xe5\x06\xe8g^\xa4I\x10\xfa" +
-	"\xcd\xc4\x0d\xc1:m\x08\xda]\x8eX\xffsdl\xde" +
-	"\xad\xd5\xfc\xc4\x98q\xb4m\xc6y\x03\xd9/\xa9/w" +
-	"\xe2*M\x00\xfa\x82\xa4\xbe*\x98\xd6\x97+\xb5\xc0\xbb" +
-	"\xe1\x83\xab\x19\xc6\xa3\x8a[s\xbb\xf2:4\x02t\x8e" +
-	"]\x05Vj\xb4S~\x95\xaft\x0e\x8d\xcaW\xfe\xd2" +
-	"\xa6Y\x8e0A\xa6Y\xef\xb0_<i\xcf\x90\x7f\x02" +
-	"\x00\x00\xff\xff\xad\x9f\xdd\xc8"
+type YieldStats struct{ capnp.Struct }
+
+// YieldStats_TypeID is the unique identifier for the type YieldStats.
+const YieldStats_TypeID = 0xd89dc33b07864a04
+
+func NewYieldStats(s *capnp.Segment) (YieldStats, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 56, PointerCount: 0})
+	return YieldStats{st}, err
+}
+
+func NewRootYieldStats(s *capnp.Segment) (YieldStats, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 56, PointerCount: 0})
+	return YieldStats{st}, err
+}
+
+func ReadRootYieldStats(msg *capnp.Message) (YieldStats, error) {
+	root, err := msg.RootPtr()
+	return YieldStats{root.Struct()}, err
+}
+
+func (s YieldStats) String() string {
+	str, _ := text.Marshal(0xd89dc33b07864a04, s.Struct)
+	return str
+}
+
+func (s YieldStats) FromCreator() uint64 {
+	return s.Struct.Uint64(0)
+}
+
+func (s YieldStats) SetFromCreator(v uint64) {
+	s.Struct.SetUint64(0, v)
+}
+
+func (s YieldStats) FromReferrals() uint64 {
+	return s.Struct.Uint64(8)
+}
+
+func (s YieldStats) SetFromReferrals(v uint64) {
+	s.Struct.SetUint64(8, v)
+}
+
+func (s YieldStats) FromCloseIds() uint64 {
+	return s.Struct.Uint64(16)
+}
+
+func (s YieldStats) SetFromCloseIds(v uint64) {
+	s.Struct.SetUint64(16, v)
+}
+
+func (s YieldStats) PaidToCreator() uint64 {
+	return s.Struct.Uint64(24)
+}
+
+func (s YieldStats) SetPaidToCreator(v uint64) {
+	s.Struct.SetUint64(24, v)
+}
+
+func (s YieldStats) PaidToReferrer() uint64 {
+	return s.Struct.Uint64(32)
+}
+
+func (s YieldStats) SetPaidToReferrer(v uint64) {
+	s.Struct.SetUint64(32, v)
+}
+
+func (s YieldStats) PaidToCloseIds() uint64 {
+	return s.Struct.Uint64(40)
+}
+
+func (s YieldStats) SetPaidToCloseIds(v uint64) {
+	s.Struct.SetUint64(40, v)
+}
+
+func (s YieldStats) ReferredUsers() uint32 {
+	return s.Struct.Uint32(48)
+}
+
+func (s YieldStats) SetReferredUsers(v uint32) {
+	s.Struct.SetUint32(48, v)
+}
+
+func (s YieldStats) ActiveReferrals() uint32 {
+	return s.Struct.Uint32(52)
+}
+
+func (s YieldStats) SetActiveReferrals(v uint32) {
+	s.Struct.SetUint32(52, v)
+}
+
+// YieldStats_List is a list of YieldStats.
+type YieldStats_List struct{ capnp.List }
+
+// NewYieldStats creates a new list of YieldStats.
+func NewYieldStats_List(s *capnp.Segment, sz int32) (YieldStats_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 56, PointerCount: 0}, sz)
+	return YieldStats_List{l}, err
+}
+
+func (s YieldStats_List) At(i int) YieldStats { return YieldStats{s.List.Struct(i)} }
+
+func (s YieldStats_List) Set(i int, v YieldStats) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s YieldStats_List) String() string {
+	str, _ := text.MarshalList(0xd89dc33b07864a04, s.List)
+	return str
+}
+
+// YieldStats_Promise is a wrapper for a YieldStats promised by a client call.
+type YieldStats_Promise struct{ *capnp.Pipeline }
+
+func (p YieldStats_Promise) Struct() (YieldStats, error) {
+	s, err := p.Pipeline.Struct()
+	return YieldStats{s}, err
+}
+
+type EconomicTier uint16
+
+// EconomicTier_TypeID is the unique identifier for the type EconomicTier.
+const EconomicTier_TypeID = 0xfdcd313f8fc3fcee
+
+// Values of EconomicTier.
+const (
+	EconomicTier_basic       EconomicTier = 0
+	EconomicTier_verified    EconomicTier = 1
+	EconomicTier_contributor EconomicTier = 2
+	EconomicTier_validator   EconomicTier = 3
+	EconomicTier_protocol    EconomicTier = 4
+)
+
+// String returns the enum's constant name.
+func (c EconomicTier) String() string {
+	switch c {
+	case EconomicTier_basic:
+		return "basic"
+	case EconomicTier_verified:
+		return "verified"
+	case EconomicTier_contributor:
+		return "contributor"
+	case EconomicTier_validator:
+		return "validator"
+	case EconomicTier_protocol:
+		return "protocol"
+
+	default:
+		return ""
+	}
+}
+
+// EconomicTierFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func EconomicTierFromString(c string) EconomicTier {
+	switch c {
+	case "basic":
+		return EconomicTier_basic
+	case "verified":
+		return EconomicTier_verified
+	case "contributor":
+		return EconomicTier_contributor
+	case "validator":
+		return EconomicTier_validator
+	case "protocol":
+		return EconomicTier_protocol
+
+	default:
+		return 0
+	}
+}
+
+type EconomicTier_List struct{ capnp.List }
+
+func NewEconomicTier_List(s *capnp.Segment, sz int32) (EconomicTier_List, error) {
+	l, err := capnp.NewUInt16List(s, sz)
+	return EconomicTier_List{l.List}, err
+}
+
+func (l EconomicTier_List) At(i int) EconomicTier {
+	ul := capnp.UInt16List{List: l.List}
+	return EconomicTier(ul.At(i))
+}
+
+func (l EconomicTier_List) Set(i int, v EconomicTier) {
+	ul := capnp.UInt16List{List: l.List}
+	ul.Set(i, uint16(v))
+}
+
+type Transaction struct{ capnp.Struct }
+type Transaction_context Transaction
+
+// Transaction_TypeID is the unique identifier for the type Transaction.
+const Transaction_TypeID = 0xbcc58a395deb8fc4
+
+func NewTransaction(s *capnp.Segment) (Transaction, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 7})
+	return Transaction{st}, err
+}
+
+func NewRootTransaction(s *capnp.Segment) (Transaction, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 7})
+	return Transaction{st}, err
+}
+
+func ReadRootTransaction(msg *capnp.Message) (Transaction, error) {
+	root, err := msg.RootPtr()
+	return Transaction{root.Struct()}, err
+}
+
+func (s Transaction) String() string {
+	str, _ := text.Marshal(0xbcc58a395deb8fc4, s.Struct)
+	return str
+}
+
+func (s Transaction) Id() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Transaction) HasId() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction) IdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Transaction) SetId(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Transaction) FromDid() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Transaction) HasFromDid() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction) FromDidBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Transaction) SetFromDid(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Transaction) ToDid() (string, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.Text(), err
+}
+
+func (s Transaction) HasToDid() bool {
+	p, err := s.Struct.Ptr(2)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction) ToDidBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Transaction) SetToDid(v string) error {
+	return s.Struct.SetText(2, v)
+}
+
+func (s Transaction) Amount() uint64 {
+	return s.Struct.Uint64(0)
+}
+
+func (s Transaction) SetAmount(v uint64) {
+	s.Struct.SetUint64(0, v)
+}
+
+func (s Transaction) ProtocolFee() uint64 {
+	return s.Struct.Uint64(8)
+}
+
+func (s Transaction) SetProtocolFee(v uint64) {
+	s.Struct.SetUint64(8, v)
+}
+
+func (s Transaction) Timestamp() int64 {
+	return int64(s.Struct.Uint64(16))
+}
+
+func (s Transaction) SetTimestamp(v int64) {
+	s.Struct.SetUint64(16, uint64(v))
+}
+
+func (s Transaction) Type() TransactionType {
+	return TransactionType(s.Struct.Uint16(24))
+}
+
+func (s Transaction) SetType(v TransactionType) {
+	s.Struct.SetUint16(24, uint16(v))
+}
+
+func (s Transaction) Context() Transaction_context { return Transaction_context(s) }
+
+func (s Transaction_context) WorkId() (string, error) {
+	p, err := s.Struct.Ptr(3)
+	return p.Text(), err
+}
+
+func (s Transaction_context) HasWorkId() bool {
+	p, err := s.Struct.Ptr(3)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction_context) WorkIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(3)
+	return p.TextBytes(), err
+}
+
+func (s Transaction_context) SetWorkId(v string) error {
+	return s.Struct.SetText(3, v)
+}
+
+func (s Transaction_context) BountyId() (string, error) {
+	p, err := s.Struct.Ptr(4)
+	return p.Text(), err
+}
+
+func (s Transaction_context) HasBountyId() bool {
+	p, err := s.Struct.Ptr(4)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction_context) BountyIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(4)
+	return p.TextBytes(), err
+}
+
+func (s Transaction_context) SetBountyId(v string) error {
+	return s.Struct.SetText(4, v)
+}
+
+func (s Transaction_context) PatternId() (string, error) {
+	p, err := s.Struct.Ptr(5)
+	return p.Text(), err
+}
+
+func (s Transaction_context) HasPatternId() bool {
+	p, err := s.Struct.Ptr(5)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction_context) PatternIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(5)
+	return p.TextBytes(), err
+}
+
+func (s Transaction_context) SetPatternId(v string) error {
+	return s.Struct.SetText(5, v)
+}
+
+func (s Transaction) Signature() ([]byte, error) {
+	p, err := s.Struct.Ptr(6)
+	return []byte(p.Data()), err
+}
+
+func (s Transaction) HasSignature() bool {
+	p, err := s.Struct.Ptr(6)
+	return p.IsValid() || err != nil
+}
+
+func (s Transaction) SetSignature(v []byte) error {
+	return s.Struct.SetData(6, v)
+}
+
+// Transaction_List is a list of Transaction.
+type Transaction_List struct{ capnp.List }
+
+// NewTransaction creates a new list of Transaction.
+func NewTransaction_List(s *capnp.Segment, sz int32) (Transaction_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 32, PointerCount: 7}, sz)
+	return Transaction_List{l}, err
+}
+
+func (s Transaction_List) At(i int) Transaction { return Transaction{s.List.Struct(i)} }
+
+func (s Transaction_List) Set(i int, v Transaction) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s Transaction_List) String() string {
+	str, _ := text.MarshalList(0xbcc58a395deb8fc4, s.List)
+	return str
+}
+
+// Transaction_Promise is a wrapper for a Transaction promised by a client call.
+type Transaction_Promise struct{ *capnp.Pipeline }
+
+func (p Transaction_Promise) Struct() (Transaction, error) {
+	s, err := p.Pipeline.Struct()
+	return Transaction{s}, err
+}
+
+func (p Transaction_Promise) Context() Transaction_context_Promise {
+	return Transaction_context_Promise{p.Pipeline}
+}
+
+// Transaction_context_Promise is a wrapper for a Transaction_context promised by a client call.
+type Transaction_context_Promise struct{ *capnp.Pipeline }
+
+func (p Transaction_context_Promise) Struct() (Transaction_context, error) {
+	s, err := p.Pipeline.Struct()
+	return Transaction_context{s}, err
+}
+
+type TransactionType uint16
+
+// TransactionType_TypeID is the unique identifier for the type TransactionType.
+const TransactionType_TypeID = 0xaa2fe37968342fd1
+
+// Values of TransactionType.
+const (
+	TransactionType_transfer              TransactionType = 0
+	TransactionType_poUWCompletion        TransactionType = 1
+	TransactionType_protocolFeeCollection TransactionType = 2
+	TransactionType_ubiDistribution       TransactionType = 3
+	TransactionType_bountyPayout          TransactionType = 4
+	TransactionType_royaltyPayout         TransactionType = 5
+	TransactionType_deviceLink            TransactionType = 6
+	TransactionType_creatorYield          TransactionType = 7
+	TransactionType_referrerYield         TransactionType = 8
+	TransactionType_closeIdYield          TransactionType = 9
+)
+
+// String returns the enum's constant name.
+func (c TransactionType) String() string {
+	switch c {
+	case TransactionType_transfer:
+		return "transfer"
+	case TransactionType_poUWCompletion:
+		return "poUWCompletion"
+	case TransactionType_protocolFeeCollection:
+		return "protocolFeeCollection"
+	case TransactionType_ubiDistribution:
+		return "ubiDistribution"
+	case TransactionType_bountyPayout:
+		return "bountyPayout"
+	case TransactionType_royaltyPayout:
+		return "royaltyPayout"
+	case TransactionType_deviceLink:
+		return "deviceLink"
+	case TransactionType_creatorYield:
+		return "creatorYield"
+	case TransactionType_referrerYield:
+		return "referrerYield"
+	case TransactionType_closeIdYield:
+		return "closeIdYield"
+
+	default:
+		return ""
+	}
+}
+
+// TransactionTypeFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func TransactionTypeFromString(c string) TransactionType {
+	switch c {
+	case "transfer":
+		return TransactionType_transfer
+	case "poUWCompletion":
+		return TransactionType_poUWCompletion
+	case "protocolFeeCollection":
+		return TransactionType_protocolFeeCollection
+	case "ubiDistribution":
+		return TransactionType_ubiDistribution
+	case "bountyPayout":
+		return TransactionType_bountyPayout
+	case "royaltyPayout":
+		return TransactionType_royaltyPayout
+	case "deviceLink":
+		return TransactionType_deviceLink
+	case "creatorYield":
+		return TransactionType_creatorYield
+	case "referrerYield":
+		return TransactionType_referrerYield
+	case "closeIdYield":
+		return TransactionType_closeIdYield
+
+	default:
+		return 0
+	}
+}
+
+type TransactionType_List struct{ capnp.List }
+
+func NewTransactionType_List(s *capnp.Segment, sz int32) (TransactionType_List, error) {
+	l, err := capnp.NewUInt16List(s, sz)
+	return TransactionType_List{l.List}, err
+}
+
+func (l TransactionType_List) At(i int) TransactionType {
+	ul := capnp.UInt16List{List: l.List}
+	return TransactionType(ul.At(i))
+}
+
+func (l TransactionType_List) Set(i int, v TransactionType) {
+	ul := capnp.UInt16List{List: l.List}
+	ul.Set(i, uint16(v))
+}
+
+type ContentPolicy struct{ capnp.Struct }
+
+// ContentPolicy_TypeID is the unique identifier for the type ContentPolicy.
+const ContentPolicy_TypeID = 0xb2ad1ffcee58f6fa
+
+func NewContentPolicy(s *capnp.Segment) (ContentPolicy, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 1})
+	return ContentPolicy{st}, err
+}
+
+func NewRootContentPolicy(s *capnp.Segment) (ContentPolicy, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 1})
+	return ContentPolicy{st}, err
+}
+
+func ReadRootContentPolicy(msg *capnp.Message) (ContentPolicy, error) {
+	root, err := msg.RootPtr()
+	return ContentPolicy{root.Struct()}, err
+}
+
+func (s ContentPolicy) String() string {
+	str, _ := text.Marshal(0xb2ad1ffcee58f6fa, s.Struct)
+	return str
+}
+
+func (s ContentPolicy) ContentAddress() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return []byte(p.Data()), err
+}
+
+func (s ContentPolicy) HasContentAddress() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s ContentPolicy) SetContentAddress(v []byte) error {
+	return s.Struct.SetData(0, v)
+}
+
+func (s ContentPolicy) ReplicationTier() ReplicationTier {
+	return ReplicationTier(s.Struct.Uint16(0))
+}
+
+func (s ContentPolicy) SetReplicationTier(v ReplicationTier) {
+	s.Struct.SetUint16(0, uint16(v))
+}
+
+func (s ContentPolicy) ReplicaCount() uint32 {
+	return s.Struct.Uint32(4)
+}
+
+func (s ContentPolicy) SetReplicaCount(v uint32) {
+	s.Struct.SetUint32(4, v)
+}
+
+func (s ContentPolicy) AccessCount() uint64 {
+	return s.Struct.Uint64(8)
+}
+
+func (s ContentPolicy) SetAccessCount(v uint64) {
+	s.Struct.SetUint64(8, v)
+}
+
+func (s ContentPolicy) TotalBytesServed() uint64 {
+	return s.Struct.Uint64(16)
+}
+
+func (s ContentPolicy) SetTotalBytesServed(v uint64) {
+	s.Struct.SetUint64(16, v)
+}
+
+func (s ContentPolicy) TotalHoursStored() uint64 {
+	return s.Struct.Uint64(24)
+}
+
+func (s ContentPolicy) SetTotalHoursStored(v uint64) {
+	s.Struct.SetUint64(24, v)
+}
+
+// ContentPolicy_List is a list of ContentPolicy.
+type ContentPolicy_List struct{ capnp.List }
+
+// NewContentPolicy creates a new list of ContentPolicy.
+func NewContentPolicy_List(s *capnp.Segment, sz int32) (ContentPolicy_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 32, PointerCount: 1}, sz)
+	return ContentPolicy_List{l}, err
+}
+
+func (s ContentPolicy_List) At(i int) ContentPolicy { return ContentPolicy{s.List.Struct(i)} }
+
+func (s ContentPolicy_List) Set(i int, v ContentPolicy) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s ContentPolicy_List) String() string {
+	str, _ := text.MarshalList(0xb2ad1ffcee58f6fa, s.List)
+	return str
+}
+
+// ContentPolicy_Promise is a wrapper for a ContentPolicy promised by a client call.
+type ContentPolicy_Promise struct{ *capnp.Pipeline }
+
+func (p ContentPolicy_Promise) Struct() (ContentPolicy, error) {
+	s, err := p.Pipeline.Struct()
+	return ContentPolicy{s}, err
+}
+
+type ReplicationTier uint16
+
+// ReplicationTier_TypeID is the unique identifier for the type ReplicationTier.
+const ReplicationTier_TypeID = 0xff759cc3aa97aad1
+
+// Values of ReplicationTier.
+const (
+	ReplicationTier_hot  ReplicationTier = 0
+	ReplicationTier_warm ReplicationTier = 1
+	ReplicationTier_cold ReplicationTier = 2
+)
+
+// String returns the enum's constant name.
+func (c ReplicationTier) String() string {
+	switch c {
+	case ReplicationTier_hot:
+		return "hot"
+	case ReplicationTier_warm:
+		return "warm"
+	case ReplicationTier_cold:
+		return "cold"
+
+	default:
+		return ""
+	}
+}
+
+// ReplicationTierFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func ReplicationTierFromString(c string) ReplicationTier {
+	switch c {
+	case "hot":
+		return ReplicationTier_hot
+	case "warm":
+		return ReplicationTier_warm
+	case "cold":
+		return ReplicationTier_cold
+
+	default:
+		return 0
+	}
+}
+
+type ReplicationTier_List struct{ capnp.List }
+
+func NewReplicationTier_List(s *capnp.Segment, sz int32) (ReplicationTier_List, error) {
+	l, err := capnp.NewUInt16List(s, sz)
+	return ReplicationTier_List{l.List}, err
+}
+
+func (l ReplicationTier_List) At(i int) ReplicationTier {
+	ul := capnp.UInt16List{List: l.List}
+	return ReplicationTier(ul.At(i))
+}
+
+func (l ReplicationTier_List) Set(i int, v ReplicationTier) {
+	ul := capnp.UInt16List{List: l.List}
+	ul.Set(i, uint16(v))
+}
+
+type EconomicSyscall struct{ capnp.Struct }
+
+// EconomicSyscall_TypeID is the unique identifier for the type EconomicSyscall.
+const EconomicSyscall_TypeID = 0xcc41928deb44f3de
+
+func NewEconomicSyscall(s *capnp.Segment) (EconomicSyscall, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return EconomicSyscall{st}, err
+}
+
+func NewRootEconomicSyscall(s *capnp.Segment) (EconomicSyscall, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return EconomicSyscall{st}, err
+}
+
+func ReadRootEconomicSyscall(msg *capnp.Message) (EconomicSyscall, error) {
+	root, err := msg.RootPtr()
+	return EconomicSyscall{root.Struct()}, err
+}
+
+func (s EconomicSyscall) String() string {
+	str, _ := text.Marshal(0xcc41928deb44f3de, s.Struct)
+	return str
+}
+
+func (s EconomicSyscall) CallerModuleId() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s EconomicSyscall) HasCallerModuleId() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s EconomicSyscall) CallerModuleIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s EconomicSyscall) SetCallerModuleId(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s EconomicSyscall) MaxCreditCost() int64 {
+	return int64(s.Struct.Uint64(0))
+}
+
+func (s EconomicSyscall) SetMaxCreditCost(v int64) {
+	s.Struct.SetUint64(0, uint64(v))
+}
+
+func (s EconomicSyscall) Urgency() int32 {
+	return int32(s.Struct.Uint32(8))
+}
+
+func (s EconomicSyscall) SetUrgency(v int32) {
+	s.Struct.SetUint32(8, uint32(v))
+}
+
+// EconomicSyscall_List is a list of EconomicSyscall.
+type EconomicSyscall_List struct{ capnp.List }
+
+// NewEconomicSyscall creates a new list of EconomicSyscall.
+func NewEconomicSyscall_List(s *capnp.Segment, sz int32) (EconomicSyscall_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1}, sz)
+	return EconomicSyscall_List{l}, err
+}
+
+func (s EconomicSyscall_List) At(i int) EconomicSyscall { return EconomicSyscall{s.List.Struct(i)} }
+
+func (s EconomicSyscall_List) Set(i int, v EconomicSyscall) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s EconomicSyscall_List) String() string {
+	str, _ := text.MarshalList(0xcc41928deb44f3de, s.List)
+	return str
+}
+
+// EconomicSyscall_Promise is a wrapper for a EconomicSyscall promised by a client call.
+type EconomicSyscall_Promise struct{ *capnp.Pipeline }
+
+func (p EconomicSyscall_Promise) Struct() (EconomicSyscall, error) {
+	s, err := p.Pipeline.Struct()
+	return EconomicSyscall{s}, err
+}
+
+const schema_c42e032179831952 = "x\xda\x94\x96\x7f\x88\x1dW\xf9\xc6\x9f\xf7\x9c{\xef\xec" +
+	"\xa6\xbb\xb9;\x9d\x1b\xe8\xf7\x0b\xe5\xa6E\xa1-m\xd3" +
+	"4-\xd8(lv\xef\xa6t\xe3\x16w\xf6\xee\x92\x1f" +
+	"Zp\xee\xccIv\x92\xd9\x99\x9b3\xe7nr\x83\x90" +
+	"\xba\x8ah\xb0\x14K\xc0Z\x0c$\xd2?\x9aP\xd1-" +
+	"-X\x08\x88$\xc1\x0a\x0a\x0d\x88T\xb1\xa2(\xa2\xb4" +
+	"\xa9\x8d\xad\xdah\xc2\xc8;w\xef\x8f\xa4\x96\xe8\x7fw" +
+	">\xf3\xde3\xe7<\xef\xfb\xbc\xe7} .l\x13\x9b" +
+	"\x8b\x87$\xe0\xdeU,e\x177=\xb4\xd8\xfe\xfd\xa6" +
+	"3\xb07\x8al\xee\xff\xbe\xd4\xbeC\xde\x7f\x1e\xa0-" +
+	"\xa7h\x85\x9cW\xc8\x02\x9cU\xfa\x07(\xfb\xe7\xdfw" +
+	"\xbds\xb5\xfa\xdd\x97\xe0n\xa4B?\xb4\xc8![<" +
+	"\xa1\xc9i\x09\xfeyP\xec$Pv\xfe\xe9\xb7\x9ex" +
+	"\xe4\xd8\x85\xb37\x86[\x1c\xf3\xa6l\x90sY\xf2\xcf" +
+	"K2\xe3\xf0\xdf\xbc7\xf5\xd6S\xcfL\xfc\x94\xc3\xc5" +
+	"\x8d\xab\xbfY\\!\xe7r\x91\xf7r\xa9\xf8=PV" +
+	"\x8c\xc3\xd3?|\xfd/\xbf\xe0h9\x10\x9do\xe0\xa9" +
+	"\x92&\xe7T\x89\x7f\x9e(\xe5{)\xec\xf8\x8a\xf5\xc9" +
+	"s'\xde\xe0p\xab\x1f^\xe0\x90+\xd6\x1erF\x87" +
+	"\xf8\xe7\xf0\xd0\x8f9\xfaW\xcf\xfdk\xf5\xe1sO\xfe" +
+	"\x95\xa3\x87\x07\x16\xcfW\xbc4\xbc\x95\x9ck\xc3\xf9?" +
+	"\x877\x15@\xd9\xe4\x89wWw\xfe\xf1\xb3\xef\xc1\xbd" +
+	"\x97\x0a\xfdco\xb0,\x02\xb6\xac\xae\xff\x0e\x81\x9c\x1f" +
+	"\xad\xe7m\xbfs\xf5\xdc\xd3\xe3\x9b\x7fv\xedCb{" +
+	"\xe5\xfd\xe4\xb4\xca|\xc0\x83\xe5\xa3\xa0\xec\xe2\x99o\x9e" +
+	"9\xf7\xedV\xf6\xa1\xc8W\xca+\xe4\xfc$\x8f\xbcP" +
+	"\xfe\x0c(S~\x12'K\xedM\xc5\xe5\xcd\x9b\"\x15" +
+	"\xecS\xfa\xbe}\xc9}F-5\xef\xf7\xbdf\xdc\xdc" +
+	":\xaf\xbd8\xf5|\x13&\xf1|\xbb\xa90K\xe4\xde" +
+	"E\x02\xb0\x0f\xee\x00\x88\xec\xa5#\x00\x09;|\x09 " +
+	"i\x87+\x00\x15l\xb5\x1f\xa0\xa2\xedi\x80J\xf6\x13" +
+	"{\x00\xb2\xec\xdd\x0c\x87\xec\x05\x86\xc3\xb6\xbb\x1f\xc8\x0c" +
+	"\xaf\xbeWi\x00Y3Y\xd8YK\x96\x9a\x18\x8f\x14" +
+	"\x7f.k\xea\xc4$~\x12\xd1\xa3J\xd5\x92(R\xd5" +
+	"|\x1bY\xab\x11N\x85\xa9\xd1\"l\xb4\x18\xa0\x91\xb4" +
+	"b\xd3\x9e\xf5\xca\xed\xa4e2\x9d\xb4\xbd\xc8\xb4gQ" +
+	"\xf5\xf2\xe7@-\x87\xbe\x9a\x09!\xe3\x03\x99\xaf\x95g" +
+	"\x12\xbd\x1b\xe5PEA\xa6\xd5^\xa5\xb5\xd2\xa8\xee\xce" +
+	"\x9f\xfd(I\xd5t\xd0}\xddU\xa7\xf0Q\xea\xd4\x92" +
+	"\xd8\xa8\xd8\xccV\x93(\xf4\xdb\xac\xcdm\xb2\x00\x14\x08" +
+	"\xb0\xbfu\x04p\x9f\x95\xe4>/\x88\xa8B\xccN\xad" +
+	"\x00\xeeII\xee\x8b\x82lA\x95\\\xc8\xd3\xfb\x01\xf7" +
+	"\x05I\xee\xcb\x82lI\x15\x92\x80\xbd\xda\x00\xdc\xefK" +
+	"r\xcf\x0a\xb2\x0b\xa2B\x05\xc0~\xf5\x18\xe0\x9e\x95\xe4" +
+	"\xbe&\xc8.\xca\x0a\x15\x01\xfb\x02\xc3\xd7$\xb9?\x17" +
+	"\x94\xf9\x9d\x0dM`<\x08\xb4JS\x1a\x85\xa0QP" +
+	"\xa6U3\x0a}\xcf\x10'2T\x1aT\xee\x97\x09\x88" +
+	"\xca\xfd\x98\x1a\xca,(\x0dA\xd0\x10(\xf3|_\xa5" +
+	"i-\x81\xc5t\x18\x82\x86A\x99I\x8c\x17M\xb6\x0d" +
+	"\xa9\xb4\xae\xf4\xb2\x0a8\xab\x83\xef\x1eKZ\xa4\xd3\xba" +
+	"I\xf4u\xefn\xaai\xb7\xe2\xac0\x89Y\xd1\x8f\xf5" +
+	"\x14\xbd\xf4\xff\x80\xfb'I\xee\xfb\x82\xec\xae\xa4\x97'" +
+	"\x01\xf7mI\xee\x07,\xa9\xe8H\xfa\xb7\x07\x01\xf7]" +
+	"I\xeeUA$;\x8a^\xd9\x0a\xb8\xefK\x9a#V" +
+	"\x94:\x8a^c\x99\xafJ\xaa\x0f1-\x8a\\R\xa7" +
+	"Hs@\xbd@\x92\xeac\xccK#\x15*\x01\xce(" +
+	"\xdd\x03\xd4\x87\x98WH\x10Y4``\xc7\xa6I\x08" +
+	"{\xa8T\xa1u\xfc\xb99\xc0\xfd@R\xbd@\x82d" +
+	"\x18\xd0\x08\x04\x8d\x80\x8e\xee\xd5\xc9\xd2T\xff\xb9j\x92" +
+	"\x81\xa7qo)\x19T\xb9\xeb\x01X\x8f*\xd5\xd77" +
+	"\\R\xa9\xf1\x96@M*BP\x11T6\xed\xa6\xe2" +
+	"\x9cv;r'\xa7G\xf3\x828l\xb24\xdc\x17{" +
+	"\xa6\xa5A\xaaW\x1375\xff\xf6< \xf4\xeb\xed\xd4" +
+	"\xf7\xa2(7\xffH/\x1d\xdb\xb9\xc0\xa7$\xb9\xb3\xfd" +
+	"\x02\x7f\\\x03\xee\x8c$w\xd7@6\x168E\xb3\x92" +
+	"\xdc\xcfq\x85zQ\xa4\xf4\xe3\x09\xc6\x83V\xa4\xa6{" +
+	"'\xcf\x96\xbc\xc35\xad\x82\x10USKR\xd3=\xd8" +
+	"\xd1\x96\xde\xa7b\xbfM\x05\x08*\xfc7\x05T\xeb\x98" +
+	"XUc\x13\x9a\x1bMy'\xe0\x1e\x97\xe4\x9e\xec\xef" +
+	"\xf9\xc4d\xdf\xa8=S\x9e\xda3\xe0\xd4\xae)\xafs" +
+	"j\xa1\xd0)\xa1\xd5=\x03N-\x16;\xa6|\x95\xe1" +
+	"\x0f$\xb9\xe7\x05Y\xc1@\xf6\xbd P\xc1D\xeft" +
+	"\xd9\xb2\xd2\xe1\xdeP\x05\x90\x03P\xab\xc8\xcb;[9" +
+	"]\x0c\x9b=\x85\xda\xdc\x94\xea\x8b\x1e\xa4V\xb4\x0e\x82" +
+	"\xd6uL\xdb2\x9e\x09!\x93\xb8\x07o\xaaQ\xde\xee" +
+	"\xea\xc6\x93&e\x816\xf6\x04\xba\xc8\x86x]\x92\xfb" +
+	"\xeb\x01\x8f\xfd\x92\xb3\xfa\x86$\xf7\x0f\x03Y\xfd\x1d\x8b" +
+	"\xf1[I\xee\xdb\xac\xd0\x9a\xc9\xfe\xac\x07,\xdaU\xe8" +
+	"\xf2\x91\xbe\x1b{\x0a]92\xe0\x8f\x9e\xc3\x8840" +
+	"\xc7\x06\x1bal\x8dV\xf2\x19b\x98V\x06\x8d\x97\xb1" +
+	"\x87jZy\xb0L\xa2{\xb6`:\xa7\xf6*T\xb5" +
+	"\xf6\xa2\xf4:\xceE\x81\xb2\x9a\x0e\xfa\xb8\xe9\x85\xc1|" +
+	"R\xd3\xa8\xe6w\xc2\x0d|Na\xbcs9\xdc\xf8\x87" +
+	"\x08\xe3y\x81\xf5WZ\xbbF\x02T\x17R\xa5\xd3\x81" +
+	"\xcei\xc2e5\xa7\x88_{Q\x8a\xde\x9bn\x82\xe4" +
+	"G%h|'\xfb\xc4prf\xba\xc9q\x8a\"\xef" +
+	"K\x82\xfb\x92\xe8\x15\xb03*&Y\x1d\xc6\x15\xd1\xaf" +
+	"a\xc7\x16w\x02\xf5\x11\xe6\xb71\x97\"O\x92\xb3A" +
+	"\xb0\x9a\x15\xe6\x1b\x99\x17Jy\x9e\x9c\xdb\xc5s@}" +
+	"#\xf3{\x99\x17\x0b\x9dvx\xb7h\x00\xf5\xbb\x98?" +
+	"\xc4\xbc$;\xc9\xda,\xf6\x03\xf5\x07\x98\x7f\x8a\xb9%" +
+	":\xd9zD\xec\x01\xea\x9f`>\xc5|HVh\x08" +
+	"p&\xf2u\xb61\x9fa>\\\xa8\xd00\xe0L\x8b" +
+	"c@}\x86\xf9.\xe6\xeb\x8ay\x0bu\x16\xc43@" +
+	"}\x17\xf3\x80\xf9-\x85\x0a\xdd\x028^\xbe\xff\xcf3" +
+	"\xff\x02\xf3\x91b\x85F\x00\xa7\x9d\xaf\x7f\x98\xf9\x97\x99" +
+	"\x8f\x96*4\x0a8_\xcc\xf9\x93\xcc\xbf\xce|\xbdU" +
+	"\xa1\xf5\x80\xf3\xb5|\x9f_e~\x9cyy\xa8Be" +
+	"\xc0\xf9F\xfe\xdd\xe3\xccO2\x1f\xb3*4\x068'" +
+	"\x04\xb7\xffg\x99?\xcf\xdc\xaeT\xc8\x06\x9cSyZ" +
+	"N2\x7f\x91\xf9\xad\x1b*t+\xe0\x9c\xce\xbf\xfb\x02" +
+	"\xf3\x97\x85\xa0\xac\xd9jD\xa1\xffi\x05jw{\xf0" +
+	"\xd1\x86\x17y\xb1\xaf\xba\xd6\x1f\xec\x15=kS\x12\xd7" +
+	"\xfdD+\xf4\xfc\x1d\x85\xf1\x01\x15L)\xe2\xd1&\xad" +
+	"%-\x19\x1b\xb2 \xc8\x02e\xad&\xdf\x0fu\x1fV" +
+	"2\xd0'\"/5\x0b\x8d\xb0\x86r\xe4\x85K\xbdV" +
+	"\xb36\x10MA^\xf7\xe1\xb5\xb1\xc8\x9a\xfa\x0f\x94f" +
+	"\x12\xff\x0071\x9e\xf1z\x1dk\xed]m\xd1\x8b\xf7" +
+	"\xa9`\x82\xfa\xddlm\xa8R\xc4\xfd8T)h=" +
+	"hV\x12\x8d\xf5'q\x10\xc3N\x87\xdb\xeeiX\xb1" +
+	"\x0ah\xac?z\x83h\x8cm\xe3\xe9X\x05\xf3\x09," +
+	"\xe3E=\xfb\xa5M\x15\x9b\xf9\xc4@\x0e@>\xef\x84" +
+	"oBZ\x0eM{{3\xf1i\xb1\xfb\xaelB\xa5" +
+	"\xa9\xdc\x1f\xa8\xd7\xe6\x1f\xb3\xa8U\xba\x98D\xa0\x80J" +
+	"\x10T\xea\x8e2\xdcs-\xad\xd2\x1e\xfd_\xc6\xe6\xfb" +
+	"\xf9\x0a\xb6\xd4a\xc3W\xe7\x98\xcc-bo\xe7ad" +
+	"\x9b$w\x86\xdbl!\xf7\x87=\xbd\x03p\x1f\x93\xe4" +
+	"\xce\xb3\x89\x8b\xb99lw\xae\x7fy\x8e\x1fJ\xf4\x81" +
+	"\x81+\xb33\xf8N\x07\x00z\xac\xe9\x19\xa3t<\xcd" +
+	"\x87\xe8\xb2\x9b^\x07\xdd\x8b\xbe\xcc\xa3!\xf7\x9cN\x8b" +
+	"\x7f\xf8\xc1|\xc4\xbfoG>\xe2\xdf\xdd\xc8G\xfc\x8f" +
+	"\xcf\xe5#\xfe\x1d;\x80j\xc3KC\xbf\x7f\x87\x01\xf9" +
+	"\x00\xaa\xc3F+\xef\xcc\xd9\xb2\x17\x85\x81g\x12\x90\xee" +
+	"\x8f2\xc0\xcd\xf5\x9b[\x1bW\xbb\xd3j>y\xe4{" +
+	"\xba\xfd\xce|O\x1b\xee\xc9\xf74z\x0f`-&\xa6" +
+	"|\xc8\xd3Ke?\x89\x82\x7f\x07\x00\x00\xff\xff\xbaa" +
+	"\x81\xf7"
 
 func init() {
 	schemas.Register(schema_c42e032179831952,
-		0x8fdb535ca62787d2,
-		0xd26e57fad0ab9c59,
-		0xda2a63e4b82869b0,
-		0xf50a537ca25377ab)
+		0xaa2fe37968342fd1,
+		0xb2ad1ffcee58f6fa,
+		0xbcc58a395deb8fc4,
+		0xcc41928deb44f3de,
+		0xd6efd0bfa9696e05,
+		0xd89dc33b07864a04,
+		0xf280c335b1fb9ada,
+		0xf35be657b1f09d42,
+		0xfdcd313f8fc3fcee,
+		0xff759cc3aa97aad1)
 }

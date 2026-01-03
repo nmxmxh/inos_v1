@@ -26,6 +26,9 @@ type BuddyAllocator struct {
 	bitmap    []uint64
 	bitmapLen int
 
+	// Level tracking (1 byte per 4KB block)
+	blockLevels []uint8
+
 	mu sync.RWMutex
 }
 
@@ -35,15 +38,32 @@ func NewBuddyAllocator(sab []byte, baseOffset, totalSize uint32) *BuddyAllocator
 	bitmapLen := (numBlocks + 63) / 64 // Round up to uint64s
 
 	ba := &BuddyAllocator{
-		sab:        sab,
-		baseOffset: baseOffset,
-		totalSize:  totalSize,
-		bitmap:     make([]uint64, bitmapLen),
-		bitmapLen:  bitmapLen,
+		sab:         sab,
+		baseOffset:  baseOffset,
+		totalSize:   totalSize,
+		bitmap:      make([]uint64, bitmapLen),
+		bitmapLen:   bitmapLen,
+		blockLevels: make([]uint8, numBlocks),
 	}
 
-	// Initialize with one large free block
-	ba.freeLists[NUM_BUDDY_LEVELS-1] = baseOffset
+	// Initialize free lists with largest possible blocks
+	remaining := totalSize
+	currentOffset := baseOffset
+
+	for remaining >= MIN_BUDDY_SIZE {
+		// Find largest level that fits
+		level := NUM_BUDDY_LEVELS - 1
+		for level >= 0 {
+			size := ba.levelToSize(level)
+			if size <= remaining {
+				ba.addToFreeList(currentOffset, level)
+				currentOffset += size
+				remaining -= size
+				break
+			}
+			level--
+		}
+	}
 
 	return ba
 }
@@ -146,7 +166,10 @@ func (ba *BuddyAllocator) splitBlock(fromLevel, toLevel int) uint32 {
 func (ba *BuddyAllocator) coalesce(offset uint32, level int) {
 	for level < NUM_BUDDY_LEVELS-1 {
 		blockSize := ba.levelToSize(level)
-		buddyOffset := offset ^ blockSize
+		// Calculate buddy using relative offset
+		relOffset := offset - ba.baseOffset
+		buddyRel := relOffset ^ blockSize
+		buddyOffset := ba.baseOffset + buddyRel
 
 		// Check if buddy is free
 		if !ba.isFree(buddyOffset, level) {
@@ -174,6 +197,12 @@ func (ba *BuddyAllocator) isFree(offset uint32, level int) bool {
 
 	blockIndex := (offset - ba.baseOffset) / MIN_BUDDY_SIZE
 
+	// Check if block is within arena bounds
+	totalBlocks := ba.totalSize / MIN_BUDDY_SIZE
+	if blockIndex+numBlocks > totalBlocks {
+		return false
+	}
+
 	// Check all constituent 4KB blocks are free
 	for i := uint32(0); i < numBlocks; i++ {
 		bitIndex := int(blockIndex + i)
@@ -182,11 +211,12 @@ func (ba *BuddyAllocator) isFree(offset uint32, level int) bool {
 		}
 
 		// If any block is allocated, the whole block is not free
-		if (ba.bitmap[bitIndex/64] & (1 << (bitIndex % 64))) != 0 {
+		word := ba.bitmap[bitIndex/64]
+		mask := uint64(1 << (bitIndex % 64))
+		if (word & mask) != 0 {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -199,6 +229,7 @@ func (ba *BuddyAllocator) markAllocated(offset uint32, level int) {
 	for i := uint32(0); i < numBlocks; i++ {
 		bitIndex := int(blockIndex + i)
 		ba.bitmap[bitIndex/64] |= (1 << (bitIndex % 64))
+		ba.blockLevels[bitIndex] = uint8(level)
 	}
 }
 
@@ -219,6 +250,9 @@ func (ba *BuddyAllocator) addToFreeList(offset uint32, level int) {
 	// Write next pointer at offset (in SAB)
 	nextOffset := ba.freeLists[level]
 	ba.writeU32(offset, nextOffset)
+	if nextOffset == offset {
+		panic(fmt.Sprintf("Creating cycle in addToFreeList! off %d L%d", offset, level))
+	}
 
 	ba.freeLists[level] = offset
 }
@@ -269,26 +303,10 @@ func (ba *BuddyAllocator) writeU32(offset, value uint32) {
 // Helper: Get block level from offset
 func (ba *BuddyAllocator) getBlockLevel(offset uint32) int {
 	blockIndex := (offset - ba.baseOffset) / MIN_BUDDY_SIZE
-
-	// Find contiguous allocated blocks
-	count := 0
-	for i := blockIndex; i < uint32(len(ba.bitmap)*64); i++ {
-		if (ba.bitmap[i/64] & (1 << (i % 64))) != 0 {
-			count++
-		} else {
-			break
-		}
+	if blockIndex >= uint32(len(ba.blockLevels)) {
+		return -1
 	}
-
-	// Convert count to level
-	level := 0
-	blocks := 1
-	for blocks < count && level < NUM_BUDDY_LEVELS-1 {
-		blocks *= 2
-		level++
-	}
-
-	return level
+	return int(ba.blockLevels[blockIndex])
 }
 
 // Statistics
@@ -332,9 +350,17 @@ func (ba *BuddyAllocator) GetStats() BuddyStats {
 		for level := 0; level < NUM_BUDDY_LEVELS; level++ {
 			count := 0
 			offset := ba.freeLists[level]
+			// fmt.Printf("DEBUG: GetStats L%d head: %d\n", level, offset)
 			for offset != 0 {
 				count++
-				offset = ba.getNextFree(offset)
+				next := ba.getNextFree(offset)
+				if next == offset {
+					panic("Cycle detected")
+				}
+				offset = next
+				if count > 10000 {
+					panic("Infinite loop")
+				}
 			}
 			stats.LevelStats[level] = LevelStats{
 				Level:      level,

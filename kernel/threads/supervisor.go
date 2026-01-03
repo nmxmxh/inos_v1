@@ -51,6 +51,11 @@ type Supervisor struct {
 	knowledge *intelligence.KnowledgeGraph
 	registry  *registry.ModuleRegistry
 	units     map[string]interface{}
+
+	// Phase 17: Economy & Identity
+	credits  *supervisor.CreditSupervisor
+	identity *supervisor.IdentitySupervisor
+	social   *supervisor.SocialGraphSupervisor
 }
 
 type SupervisorConfig struct {
@@ -172,16 +177,33 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		s.logger.Warn("Failed to load module registry from SAB", utils.Err(err))
 	}
 
+	// Phase 17: Initialize Economy & Identity Supervisors
+	s.credits = supervisor.NewCreditSupervisor(sabSlice, sab_layout.OFFSET_ECONOMICS)
+	s.identity = supervisor.NewIdentitySupervisor(sabSlice)
+	s.social = supervisor.NewSocialGraphSupervisor(sabSlice)
+
+	// Register Core System DIDs
+	if _, err := s.identity.RegisterDID("did:inos:nmxmxh", nil); err != nil {
+		s.logger.Error("Failed to register nmxmxh DID", utils.Err(err))
+	}
+	if _, err := s.credits.RegisterAccount("did:inos:nmxmxh"); err != nil {
+		s.logger.Error("Failed to register nmxmxh account", utils.Err(err))
+	}
+	if _, err := s.credits.RegisterAccount("did:inos:treasury"); err != nil {
+		s.logger.Error("Failed to register treasury account", utils.Err(err))
+	}
+
 	s.mu.Unlock() // Unlock before spawning children
 
 	s.logger.Info("Initializing compute units with shared SAB")
 
-	loader := NewUnitLoader(s.sab, s.patterns, s.knowledge, s.registry)
+	loader := NewUnitLoader(s.sab, s.patterns, s.knowledge, s.registry, s.credits)
 	units, bridge := loader.LoadUnits()
 	s.bridge = bridge
 
 	// Spawn Signal Listener (Phase 15: Late Initialization)
 	s.spawnChild("signal_listener", s.runSignalListener, 100)
+	s.spawnChild("economy_loop", s.runEconomyLoop, 10)
 
 	s.mu.Lock()
 	s.units = units
@@ -549,5 +571,38 @@ func (s *Supervisor) RequestThrottle(resourceID string, currentLoad float64) (bo
 		return resp.ShouldThrottle, resp.NewRate, nil
 	case <-time.After(5 * time.Second):
 		return false, 0, utils.TimeoutError("request throttle response")
+	}
+}
+
+// runEconomyLoop monitors the SAB for epoch changes and triggers economic settlement
+func (s *Supervisor) runEconomyLoop(ctx context.Context) error {
+	s.logger.Info("Economy Loop started")
+
+	ticker := time.NewTicker(1 * time.Second) // Check epoch every second
+	defer ticker.Stop()
+
+	var lastEpoch uint64 = 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			// Read current system epoch from SAB
+			// Using the bridge to read from the signal region
+			currentEpoch := s.bridge.ReadSystemEpoch()
+
+			if currentEpoch > lastEpoch {
+				s.logger.Debug("Epoch change detected, settling economics",
+					utils.Uint64("old", lastEpoch),
+					utils.Uint64("new", currentEpoch))
+
+				if err := s.credits.OnEpoch(currentEpoch); err != nil {
+					s.logger.Error("Failed to settle economics", utils.Err(err))
+				}
+
+				lastEpoch = currentEpoch
+			}
+		}
 	}
 }

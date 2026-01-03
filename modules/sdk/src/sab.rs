@@ -1,3 +1,4 @@
+use crate::js_interop::Int32Array;
 use std::sync::atomic::Ordering;
 use web_sys::wasm_bindgen::JsValue;
 
@@ -9,36 +10,69 @@ use web_sys::wasm_bindgen::JsValue;
 /// 3. Atomic operations with proper memory barriers
 /// 4. Rust-side safe borrowing
 // Removed wasm_bindgen attribute
+#[cfg(target_arch = "wasm32")]
+type BufferHandle = web_sys::wasm_bindgen::JsValue;
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+pub(crate) struct BufferHandle(u32);
+
+#[cfg(not(target_arch = "wasm32"))]
+unsafe impl Sync for BufferHandle {}
+#[cfg(not(target_arch = "wasm32"))]
+unsafe impl Send for BufferHandle {}
+
+/// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety
 #[derive(Clone)]
 pub struct SafeSAB {
-    pub(crate) buffer: web_sys::wasm_bindgen::JsValue,
+    #[allow(dead_code)]
+    pub(crate) buffer: BufferHandle,
     base_offset: usize,
     capacity: usize,
 }
 
 impl SafeSAB {
     /// Create a new SafeSAB from an existing SharedArrayBuffer (entire buffer)
-    pub fn new(buffer: JsValue) -> Self {
-        let capacity = crate::js_interop::get_byte_length(&buffer) as usize;
+    pub fn new(_buffer: &JsValue) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let capacity = crate::js_interop::get_byte_length(_buffer) as usize;
+        #[cfg(not(target_arch = "wasm32"))]
+        let capacity = crate::js_interop::get_byte_length(&JsValue::UNDEFINED) as usize;
 
         Self {
-            buffer,
+            #[cfg(target_arch = "wasm32")]
+            buffer: _buffer.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            buffer: BufferHandle(0),
             base_offset: 0,
             capacity,
         }
     }
 
     /// Create a new SafeSAB as a view into a sub-region of a SharedArrayBuffer
-    pub fn new_shared_view(buffer: JsValue, offset: u32, size: u32) -> Self {
+    pub fn new_shared_view(_buffer: &JsValue, offset: u32, size: u32) -> Self {
         Self {
-            buffer,
+            #[cfg(target_arch = "wasm32")]
+            buffer: _buffer.clone(),
+            #[cfg(not(target_arch = "wasm32"))]
+            buffer: BufferHandle(0),
             base_offset: offset as usize,
             capacity: size as usize,
         }
     }
     pub fn with_size(size: usize) -> Self {
-        let buffer = js_sys::SharedArrayBuffer::new(size as u32);
-        Self::new(buffer.into())
+        #[cfg(target_arch = "wasm32")]
+        {
+            let buffer = js_sys::SharedArrayBuffer::new(size as u32);
+            let buffer_js: JsValue = buffer.into();
+            Self::new(&buffer_js)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        Self {
+            buffer: BufferHandle(0),
+            base_offset: 0,
+            capacity: size,
+        }
     }
 
     /// Get total capacity in bytes
@@ -55,7 +89,7 @@ impl SafeSAB {
 
         let mut slice = vec![0u8; length];
         let abs_offset = self.base_offset + offset;
-        crate::js_interop::copy_from_sab(&self.buffer, abs_offset as u32, &mut slice);
+        crate::js_interop::copy_from_sab(self.as_js(), abs_offset as u32, &mut slice);
 
         // Release barrier after reading
         self.memory_barrier_release(offset);
@@ -71,7 +105,7 @@ impl SafeSAB {
         self.memory_barrier_acquire(offset);
 
         let abs_offset = self.base_offset + offset;
-        crate::js_interop::copy_to_sab(&self.buffer, abs_offset as u32, data);
+        crate::js_interop::copy_to_sab(self.as_js(), abs_offset as u32, data);
 
         // Release barrier after writing
         self.memory_barrier_release(offset);
@@ -94,27 +128,49 @@ impl SafeSAB {
         // We use the first word of the buffer as a barrier for now,
         // OR we use the actual offset if we have a view.
         let abs_offset = self.base_offset + offset;
-        let view =
-            crate::js_interop::create_i32_view(self.buffer.clone(), (abs_offset & !3) as u32, 1);
+        let view = crate::js_interop::create_i32_view(self.as_js(), (abs_offset & !3) as u32, 1);
         let _ = crate::js_interop::atomic_load(&view.into(), 0);
     }
 
     fn memory_barrier_release(&self, offset: usize) {
         // Use custom atomic_store via stable ABI
         let abs_offset = self.base_offset + offset;
-        let view =
-            crate::js_interop::create_i32_view(self.buffer.clone(), (abs_offset & !3) as u32, 1);
+        let view = crate::js_interop::create_i32_view(self.as_js(), (abs_offset & !3) as u32, 1);
         // FIXED: Use atomic_load instead of atomic_store to avoid data corruption
         let _ = crate::js_interop::atomic_load(&view.into(), 0);
     }
 
     /// Get raw inner buffer (use with caution)
     pub fn inner(&self) -> &JsValue {
-        &self.buffer
+        #[cfg(target_arch = "wasm32")]
+        return &self.buffer;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use once_cell::sync::Lazy;
+            struct SyncJsValue(JsValue);
+            unsafe impl Sync for SyncJsValue {}
+            unsafe impl Send for SyncJsValue {}
+            static UNDEFINED: Lazy<SyncJsValue> = Lazy::new(|| SyncJsValue(JsValue::UNDEFINED));
+            &UNDEFINED.0
+        }
+    }
+
+    fn as_js(&self) -> &JsValue {
+        #[cfg(target_arch = "wasm32")]
+        return &self.buffer;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use once_cell::sync::Lazy;
+            struct SyncJsValue(JsValue);
+            unsafe impl Sync for SyncJsValue {}
+            unsafe impl Send for SyncJsValue {}
+            static UNDEFINED: Lazy<SyncJsValue> = Lazy::new(|| SyncJsValue(JsValue::UNDEFINED));
+            &UNDEFINED.0
+        }
     }
 
     /// Get a typed Int32Array view of a region (for Atomics)
-    pub fn int32_view(&self, offset: usize, count: usize) -> Result<JsValue, String> {
+    pub fn int32_view(&self, offset: usize, count: usize) -> Result<Int32Array, String> {
         let byte_len = count * 4;
         self.bounds_check(offset, byte_len)?;
 
@@ -125,15 +181,24 @@ impl SafeSAB {
 
         let abs_offset = self.base_offset + offset;
         // Int32Array constructor via stable ABI
-        Ok(
-            crate::js_interop::create_i32_view(
-                self.buffer.clone(),
-                abs_offset as u32,
-                count as u32,
-            )
-            .into(),
-        )
+        Ok(crate::js_interop::create_i32_view(
+            self.as_js(),
+            abs_offset as u32,
+            count as u32,
+        ))
     }
+
+    // ========== SAB REGION CONSTANTS ==========
+    pub const OFFSET_ECONOMICS: usize = 0x004000;
+    pub const SIZE_ECONOMICS: usize = 0x004000;
+
+    pub const OFFSET_IDENTITY_REGISTRY: usize = 0x008000;
+    pub const SIZE_IDENTITY_REGISTRY: usize = 0x004000;
+
+    pub const OFFSET_SOCIAL_GRAPH: usize = 0x00C000;
+    pub const SIZE_SOCIAL_GRAPH: usize = 0x004000;
+
+    pub const OFFSET_PATTERN_EXCHANGE: usize = 0x010000;
 }
 
 // SAFETY: SafeSAB wraps SharedArrayBuffer which is designed to be shared across
@@ -406,5 +471,50 @@ where
         }
 
         Ok(result_vec)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_safesab_read_write() {
+        let sab = SafeSAB::with_size(1024);
+        let data = b"hello inos";
+        sab.write(10, data).unwrap();
+
+        let read_data = sab.read(10, data.len()).unwrap();
+        assert_eq!(&read_data, data);
+    }
+
+    #[test]
+    fn test_safesab_bounds() {
+        let sab = SafeSAB::with_size(100);
+        assert!(sab.write(95, &[0, 0, 0, 0, 0]).is_ok());
+        assert!(sab.write(96, &[0, 0, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn test_rwlock_basic() {
+        let lock = SABRwLock::new();
+
+        {
+            let _read = lock.try_read().unwrap();
+            assert!(lock.try_write().is_none());
+            let _read2 = lock.try_read().unwrap();
+        }
+
+        let _write = lock.try_write().unwrap();
+        assert!(lock.try_read().is_none());
+    }
+
+    #[test]
+    fn test_tensor_sab() {
+        let tensor = TensorSAB::<f32>::new(&[4]).unwrap();
+        let data = vec![1.0, 2.0, 3.0, 4.0];
+        tensor.write_tensor(&data).unwrap();
+
+        let read_data = tensor.read_tensor(4).unwrap();
+        assert_eq!(read_data, data);
     }
 }

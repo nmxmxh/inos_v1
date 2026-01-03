@@ -10,10 +10,16 @@ import (
 
 // WorkflowOrchestrator orchestrates complex intelligence workflows
 type WorkflowOrchestrator struct {
-	workflows map[string]*IntelligenceWorkflow
-	executor  *WorkflowExecutor
-	monitor   *WorkflowMonitor
-	mu        sync.RWMutex
+	workflows  map[string]*IntelligenceWorkflow
+	executor   *WorkflowExecutor
+	monitor    *WorkflowMonitor
+	dispatcher EngineDispatcher
+	mu         sync.RWMutex
+}
+
+// EngineDispatcher defines the interface for executing engine operations
+type EngineDispatcher interface {
+	Dispatch(engine foundation.EngineType, operation string, parameters map[string]interface{}) (interface{}, error)
 }
 
 // IntelligenceWorkflow defines a multi-stage intelligence workflow
@@ -60,6 +66,7 @@ type PipelineMetrics struct {
 type WorkflowExecutor struct {
 	maxConcurrent int
 	semaphore     chan struct{}
+	dispatcher    EngineDispatcher
 }
 
 // WorkflowMonitor monitors workflow execution
@@ -86,16 +93,18 @@ type WorkflowContext struct {
 }
 
 // NewWorkflowOrchestrator creates a new workflow orchestrator
-func NewWorkflowOrchestrator(maxConcurrent int) *WorkflowOrchestrator {
+func NewWorkflowOrchestrator(maxConcurrent int, dispatcher EngineDispatcher) *WorkflowOrchestrator {
 	return &WorkflowOrchestrator{
 		workflows: make(map[string]*IntelligenceWorkflow),
 		executor: &WorkflowExecutor{
 			maxConcurrent: maxConcurrent,
 			semaphore:     make(chan struct{}, maxConcurrent),
+			dispatcher:    dispatcher,
 		},
 		monitor: &WorkflowMonitor{
 			executions: make(map[string]*WorkflowExecution),
 		},
+		dispatcher: dispatcher,
 	}
 }
 
@@ -103,6 +112,14 @@ func NewWorkflowOrchestrator(maxConcurrent int) *WorkflowOrchestrator {
 func (wo *WorkflowOrchestrator) RegisterWorkflow(workflow *IntelligenceWorkflow) error {
 	wo.mu.Lock()
 	defer wo.mu.Unlock()
+
+	if workflow.ID == "" {
+		return fmt.Errorf("workflow ID cannot be empty")
+	}
+
+	if len(workflow.Stages) == 0 {
+		return fmt.Errorf("workflow must have at least one stage")
+	}
 
 	if _, exists := wo.workflows[workflow.ID]; exists {
 		return fmt.Errorf("workflow already exists: %s", workflow.ID)
@@ -182,20 +199,40 @@ func (we *WorkflowExecutor) Execute(workflow *IntelligenceWorkflow, context *Wor
 	}
 }
 
-func (we *WorkflowExecutor) executeStage(stage *PipelineStage, _ *WorkflowContext) error {
+func (we *WorkflowExecutor) executeStage(stage *PipelineStage, context *WorkflowContext) error {
 	// Execute stage with timeout
-	done := make(chan error, 1)
+	done := make(chan struct {
+		result interface{}
+		err    error
+	}, 1)
 
 	go func() {
-		// Simulate stage execution
-		// In production, call appropriate engine
-		time.Sleep(10 * time.Millisecond)
-		done <- nil
+		if we.dispatcher == nil {
+			done <- struct {
+				result interface{}
+				err    error
+			}{nil, fmt.Errorf("engine dispatcher not initialized")}
+			return
+		}
+
+		// Dispatch to actual engine
+		res, err := we.dispatcher.Dispatch(stage.Engine, stage.Operation, stage.Parameters)
+		done <- struct {
+			result interface{}
+			err    error
+		}{res, err}
 	}()
 
 	select {
-	case err := <-done:
-		return err
+	case res := <-done:
+		if res.err != nil {
+			return res.err
+		}
+		// Store result in context state
+		if context.State != nil {
+			context.State[stage.ID] = res.result
+		}
+		return nil
 	case <-time.After(stage.Timeout):
 		return fmt.Errorf("stage timeout: %s", stage.ID)
 	}

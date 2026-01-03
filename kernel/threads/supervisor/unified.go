@@ -113,10 +113,27 @@ func (us *UnifiedSupervisor) Stop() error {
 	return nil
 }
 
-// Submit submits a job (non-blocking)
+// Submit queues a job for execution
 func (us *UnifiedSupervisor) Submit(job *foundation.Job) (<-chan *foundation.Result, error) {
+	// Validate job
+	if job == nil {
+		return nil, fmt.Errorf("job cannot be nil")
+	}
+
 	if !us.running.Load() {
 		return nil, fmt.Errorf("supervisor not running")
+	}
+
+	// Check if job is already expired
+	if !job.Deadline.IsZero() && time.Now().After(job.Deadline) {
+		resultChan := make(chan *foundation.Result, 1)
+		resultChan <- &foundation.Result{
+			JobID:   job.ID,
+			Success: false,
+			Error:   "job deadline already expired",
+		}
+		close(resultChan)
+		return resultChan, nil
 	}
 
 	// Create result channel
@@ -442,7 +459,15 @@ func (us *UnifiedSupervisor) validateJob(job *foundation.Job) bool {
 }
 
 func (us *UnifiedSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
-	// Base implementation - to be overridden
+	// Base implementation - validate capabilities
+	if !us.SupportsOperation(job.Operation) {
+		return &foundation.Result{
+			JobID:   job.ID,
+			Success: false,
+			Error:   fmt.Sprintf("Capability not supported: %s", job.Operation),
+		}
+	}
+
 	return &foundation.Result{
 		JobID:   job.ID,
 		Success: true,

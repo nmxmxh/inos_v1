@@ -230,8 +230,8 @@ func main() {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".rs") {
 			return nil
 		}
-		// lib.rs is usually a module entry, unless it's a monolithic module like mining
-		if info.Name() == "mod.rs" || (info.Name() == "lib.rs" && !strings.Contains(path, "mining") && !strings.Contains(path, "science")) {
+		// lib.rs is usually a module entry point
+		if info.Name() == "mod.rs" || info.Name() == "lib.rs" {
 			return nil
 		}
 

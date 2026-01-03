@@ -8,18 +8,15 @@ use crate::ringbuffer::RingBuffer;
 use crate::sab::SafeSAB;
 
 pub struct Reactor {
-    flags: JsValue,
+    flags: SafeSAB,
     pub inbox: RingBuffer,
     pub outbox: RingBuffer,
 }
 
 impl Reactor {
     pub fn new(sab: &JsValue) -> Self {
-        // Flags region is 256 words (1024 bytes) to cover all epoch indices (0-255)
-        // Use stable ABI to avoid hashed imports
-        let flags = crate::js_interop::create_i32_view(sab.clone(), 0, 256);
-        let flags_val: JsValue = flags.into();
-        let safe_sab = SafeSAB::new(sab.clone());
+        let safe_sab = SafeSAB::new(sab);
+        let flags = SafeSAB::new_shared_view(sab, 0, 1024);
 
         let inbox = RingBuffer::new(
             safe_sab.clone(),
@@ -34,24 +31,22 @@ impl Reactor {
         );
 
         Self {
-            flags: flags_val,
+            flags,
             inbox,
             outbox,
         }
     }
 
     pub fn check_inbox(&self) -> bool {
-        crate::js_interop::atomic_load(&self.flags, IDX_INBOX_DIRTY) == 1
+        crate::js_interop::atomic_load(self.flags.inner(), IDX_INBOX_DIRTY) == 1
     }
 
     pub fn ack_inbox(&self) {
-        crate::js_interop::atomic_store(&self.flags, IDX_INBOX_DIRTY, 0);
+        crate::js_interop::atomic_store(self.flags.inner(), IDX_INBOX_DIRTY, 0);
     }
 
     pub fn raise_outbox(&self) {
-        // Increment sequence counter (0-255 loop or uint32 wrap)
-        // Corresponds to IDX_OUTBOX_DIRTY (Index 2)
-        crate::js_interop::atomic_add(&self.flags, IDX_OUTBOX_DIRTY, 1);
+        crate::js_interop::atomic_add(self.flags.inner(), IDX_OUTBOX_DIRTY, 1);
     }
 
     /// Read next message from Inbox (Ring Buffer)
@@ -67,19 +62,17 @@ impl Reactor {
 
 /// Generic Epoch Counter for "Reactive Mutation"
 pub struct Epoch {
-    flags: JsValue,
+    flags: SafeSAB,
     index: u32,
     last_seen: i32,
 }
 
 impl Epoch {
     pub fn new(sab: &JsValue, index: u32) -> Self {
-        // Use stable ABI to avoid hashed imports
-        let flags = crate::js_interop::create_i32_view(sab.clone(), 0, 256);
-        let flags_val: JsValue = flags.into();
-        let current = crate::js_interop::atomic_load(&flags_val, index);
+        let flags = SafeSAB::new_shared_view(sab, 0, 1024);
+        let current = crate::js_interop::atomic_load(flags.inner(), index);
         Self {
-            flags: flags_val,
+            flags,
             index,
             last_seen: current,
         }
@@ -87,7 +80,7 @@ impl Epoch {
 
     /// Check if the reality has been mutated (Epoch incremented)
     pub fn has_changed(&mut self) -> bool {
-        let current = crate::js_interop::atomic_load(&self.flags, self.index);
+        let current = crate::js_interop::atomic_load(self.flags.inner(), self.index);
         if current > self.last_seen {
             self.last_seen = current;
             true
@@ -98,12 +91,50 @@ impl Epoch {
 
     /// Signal a mutation (Increment Epoch)
     pub fn increment(&mut self) -> i32 {
-        let next = crate::js_interop::atomic_add(&self.flags, self.index, 1) + 1;
-        self.last_seen = next;
-        next
+        crate::js_interop::atomic_add(self.flags.inner(), self.index, 1) + 1
     }
 
     pub fn current(&self) -> i32 {
-        crate::js_interop::atomic_load(&self.flags, self.index)
+        crate::js_interop::atomic_load(self.flags.inner(), self.index)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_epoch_logic() {
+        let sab = JsValue::UNDEFINED;
+        let mut epoch = Epoch::new(&sab, IDX_SYSTEM_EPOCH);
+
+        assert_eq!(epoch.current(), 0);
+        assert!(!epoch.has_changed());
+
+        epoch.increment();
+        assert_eq!(epoch.current(), 1);
+        assert!(epoch.has_changed());
+        assert!(!epoch.has_changed()); // Second check should be false
+    }
+
+    #[test]
+    fn test_reactor_signals() {
+        let sab = JsValue::UNDEFINED;
+        let reactor = Reactor::new(&sab);
+
+        assert!(!reactor.check_inbox());
+
+        // Mock signal: in native this would be atomic_store
+        crate::js_interop::atomic_store(&sab, IDX_INBOX_DIRTY, 1);
+        assert!(reactor.check_inbox());
+
+        reactor.ack_inbox();
+        assert!(!reactor.check_inbox());
+
+        let start_epoch = crate::js_interop::atomic_load(&sab, IDX_OUTBOX_DIRTY);
+        reactor.raise_outbox();
+        assert_eq!(
+            crate::js_interop::atomic_load(&sab, IDX_OUTBOX_DIRTY),
+            start_epoch + 1
+        );
     }
 }

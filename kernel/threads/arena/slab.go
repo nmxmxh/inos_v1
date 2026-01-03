@@ -34,6 +34,9 @@ type SlabAllocator struct {
 	// One cache per size class
 	caches [10]*SlabCache
 
+	// Page allocation tracking
+	pageBitmap []uint64 // 1 bit per SLAB_PAGE_SIZE page
+
 	mu sync.RWMutex
 }
 
@@ -52,14 +55,18 @@ type SlabPage struct {
 	offset     uint32 // Offset in SAB
 	freeCount  uint16
 	totalCount uint16
-	bitmap     uint64 // Free object bitmap (max 64 objects per page)
+	bitmap     []uint64 // Free object bitmap
 }
 
 func NewSlabAllocator(sab []byte, baseOffset, totalSize uint32) *SlabAllocator {
+	numPages := totalSize / SLAB_PAGE_SIZE
+	bitmapLen := (numPages + 63) / 64
+
 	sa := &SlabAllocator{
 		sab:        sab,
 		baseOffset: baseOffset,
 		totalSize:  totalSize,
+		pageBitmap: make([]uint64, bitmapLen),
 	}
 
 	// Initialize caches for each size class
@@ -146,15 +153,23 @@ func (sc *SlabCache) allocate(sa *SlabAllocator) (uint32, error) {
 
 func (sc *SlabCache) allocateFromSlab(slab *SlabPage) (uint32, error) {
 	// Find first free bit in bitmap
-	for i := uint16(0); i < slab.totalCount; i++ {
-		if (slab.bitmap & (1 << i)) != 0 {
-			// Found free object
-			slab.bitmap &^= (1 << i) // Clear bit
-			slab.freeCount--
-			sc.allocated++
+	for w := 0; w < len(slab.bitmap); w++ {
+		word := slab.bitmap[w]
+		if word != 0 {
+			// Found word with free bits
+			// Find bit index
+			for i := 0; i < 64; i++ {
+				if (word & (1 << i)) != 0 {
+					// Found free object
+					slab.bitmap[w] &^= (1 << i) // Clear bit
+					slab.freeCount--
+					sc.allocated++
 
-			offset := slab.offset + uint32(i)*sc.objectSize
-			return offset, nil
+					objIdx := uint32(w*64 + i)
+					offset := slab.offset + objIdx*sc.objectSize
+					return offset, nil
+				}
+			}
 		}
 	}
 
@@ -165,21 +180,44 @@ func (sc *SlabCache) allocateNewSlab(sa *SlabAllocator) (*SlabPage, error) {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
 
-	// Calculate how many slabs we already have
-	totalSlabSize := uint32(len(sc.slabs)) * SLAB_PAGE_SIZE
-	if totalSlabSize >= sa.totalSize {
-		return nil, fmt.Errorf("slab allocator out of memory")
+	// Allocate a page from the global pool
+	offset, err := sa.allocatePage()
+	if err != nil {
+		return nil, err
 	}
 
-	// Allocate new slab page
-	slabOffset := sa.baseOffset + totalSlabSize
 	objectsPerPage := uint16(SLAB_PAGE_SIZE / sc.objectSize)
 
+	// Calculate bitmap size
+	numWords := (int(objectsPerPage) + 63) / 64
+	bitmap := make([]uint64, numWords)
+	for i := 0; i < numWords; i++ {
+		bitmap[i] = ^uint64(0) // All 1s
+	}
+	// Mask out excess bits in last word if needed
+	excess := (numWords * 64) - int(objectsPerPage)
+	if excess > 0 {
+		// Clear top bits
+		// E.g. excess 1. Clear bit 63.
+		// Keep bits 0..62.
+		// Actually standard is alloc if bit is 1.
+		// If totalCount is 128. 2 words. Both -1 (all set).
+		// If totalCount 70. 2 words.
+		// Word 0: -1.
+		// Word 1: bits 0..5 set. 6..63 cleared.
+		// We should clear bits >= objectsPerPage.
+		lastWordBits := objectsPerPage % 64
+		if lastWordBits > 0 {
+			mask := (uint64(1) << lastWordBits) - 1
+			bitmap[numWords-1] &= mask
+		}
+	}
+
 	slab := &SlabPage{
-		offset:     slabOffset,
+		offset:     offset,
 		freeCount:  objectsPerPage,
 		totalCount: objectsPerPage,
-		bitmap:     (1 << objectsPerPage) - 1, // All bits set (all free)
+		bitmap:     bitmap,
 	}
 
 	sc.slabs = append(sc.slabs, slab)
@@ -204,12 +242,15 @@ func (sc *SlabCache) free(slab *SlabPage, offset uint32) error {
 	}
 
 	// Check if already free
-	if (slab.bitmap & (1 << objectIndex)) != 0 {
+	wordIdx := objectIndex / 64
+	bitIdx := objectIndex % 64
+
+	if (slab.bitmap[wordIdx] & (1 << bitIdx)) != 0 {
 		return fmt.Errorf("double free detected at offset %d", offset)
 	}
 
 	// Mark as free
-	slab.bitmap |= (1 << objectIndex)
+	slab.bitmap[wordIdx] |= (1 << bitIdx)
 	slab.freeCount++
 	sc.allocated--
 
@@ -251,6 +292,35 @@ func (sa *SlabAllocator) GetStats() []SlabStats {
 	return stats
 }
 
+// Helper: Allocate a page
+func (sa *SlabAllocator) allocatePage() (uint32, error) {
+	numPages := int(sa.totalSize / SLAB_PAGE_SIZE)
+
+	for i := 0; i < numPages; i++ {
+		wordIdx := i / 64
+		bitIdx := i % 64
+
+		if (sa.pageBitmap[wordIdx] & (1 << bitIdx)) == 0 {
+			// Found free page
+			sa.pageBitmap[wordIdx] |= (1 << bitIdx)
+			return sa.baseOffset + uint32(i)*SLAB_PAGE_SIZE, nil
+		}
+	}
+
+	return 0, fmt.Errorf("slab allocator out of memory (no free pages)")
+}
+
+// Helper: Free a page
+func (sa *SlabAllocator) freePage(offset uint32) {
+	if offset < sa.baseOffset || offset >= sa.baseOffset+sa.totalSize {
+		return
+	}
+	pageIndex := int((offset - sa.baseOffset) / SLAB_PAGE_SIZE)
+	wordIdx := pageIndex / 64
+	bitIdx := pageIndex % 64
+	sa.pageBitmap[wordIdx] &^= (1 << bitIdx)
+}
+
 // FreeEmptySlabs frees slab pages that are completely empty
 func (sa *SlabAllocator) FreeEmptySlabs() uint32 {
 	freed := uint32(0)
@@ -265,7 +335,11 @@ func (sa *SlabAllocator) FreeEmptySlabs() uint32 {
 				// Slab has allocated objects, keep it
 				kept = append(kept, slab)
 			} else {
-				// Slab is empty, free it
+				// Slab is empty, free the page
+				sa.mu.Lock()
+				sa.freePage(slab.offset)
+				sa.mu.Unlock()
+
 				freed += SLAB_PAGE_SIZE
 				cache.capacity -= uint32(slab.totalCount)
 			}

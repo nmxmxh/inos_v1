@@ -87,12 +87,15 @@ No data is ever copied between languages. We pass **Pointers**, not Payloads.
 
 ## **4. Layer 3: The Modules (The Work)**
 
-*   **Rust Modules:**
-    *   **Role:** Heavy Lifting & Storage Logic.
-    *   **Tasks:** Splitting files into chunks (CAS), Physics, GPU Kernels.
-*   **JavaScript Modules (React + Vite):**
-    *   **Role:** User Interface.
-    *   **Tasks:** Rendering the visual dashboard.
+*   **Rust Modules (Production-Ready)**:
+    *   **SDK**: Foundation (SAB, Epoch, Credits, Identity)
+    *   **Compute**: Multi-unit compute (GPU, Data, Crypto, Image, Audio, Physics, API Proxy)
+    *   **Storage**: Encrypted storage (ChaCha20, Brotli compression)
+    *   **Drivers**: I/O Sockets (Sensors → Actors, library proxy pattern)
+    *   **Diagnostics**: System metrics and monitoring
+*   **JavaScript Modules (React + Vite)**:
+    *   **Role**: User Interface
+    *   **Tasks**: Rendering the visual dashboard, sensor access, zero-copy rendering
 
 ---
 

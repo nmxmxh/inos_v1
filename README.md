@@ -50,7 +50,7 @@ INOS:         Node A writes to SAB → Node B reads from same memory
 | **Ingress** | Nginx + Brotli | High-speed network termination |
 | **UI** | React + Vite | User interaction & sensor access |
 | **Kernel** | Go (WASM) | Orchestration, policy, economy |
-| **Compute** | Rust (WASM) | Physics, GPU, storage, ML |
+| **Compute** | Rust (WASM) | GPU, Data, Crypto, Image, Audio, Physics, API Proxy |
 | **Storage** | P2P Mesh | Content-addressed, economically incentivized |
 
 ---
@@ -84,11 +84,6 @@ Epoch += 1  // Signal mutation
 // Kernel reacts when: Epoch > LastSeenEpoch
 ```
 
-### Sovereign Yield (Background Mining)
-*   **Idle Cycle Harvesting**: Nodes mine Bitcoin (SHA-256) via WebGPU when system load is low.
-*   **"Silent as a Lamb"**: Automatic throttling ensures zero impact on user-facing apps.
-*   **Identity Ledger**: Yield is aggregated to the Architect's wallet while rewarding nodes with native grains.
-
 ### Syscall Architecture (v2.0)
 *   **Authenticated Communication**: Modules request kernel services via Cap'n Proto syscalls
 *   **Zero-Copy Routing**: Messages routed through `MeshCoordinator` without serialization overhead
@@ -111,12 +106,11 @@ inos_v1/
 │   ├── transport/      # P2P networking (DHT, WebRTC)
 │   └── utils/          # Logging, error handling
 ├── modules/            # Rust WASM modules (compute)
-│   ├── sdk/           # Shared utilities (signals, credits, identity)
-│   ├── compute/       # GPU compute (wgpu)
-│   ├── physics/       # Deterministic physics (rapier3d/simd)
-│   ├── mining/        # Proof-of-work (sha2, blake3)
-│   ├── ml/            # AI inference (burn)
-│   └── drivers/       # Hardware I/O (Serial, USB, BLE)
+│   ├── sdk/           # Shared utilities (SAB, Epoch, Credits)
+│   ├── compute/       # Multi-unit compute (GPU, Data, Crypto, Image, Audio, Physics, API Proxy)
+│   ├── storage/       # Encrypted storage (ChaCha20, Brotli)
+│   ├── drivers/       # I/O Sockets (Sensors → Actors, library proxies)
+│   └── diagnostics/   # System metrics and monitoring
 ├── frontend/           # React + Vite UI
 ├── protocols/          # Cap'n Proto schemas
 │   └── schemas/        # Versioned protocol definitions
@@ -178,13 +172,15 @@ INOS is built using a novel methodology where:
 
 | Component | Status | Notes |
 |:----------|:-------|:------|
-| **Kernel (Go)** | ✅ Stable | Scheduler, memory manager, transport layer, Mesh Coordinator |
-| **SDK (Rust)** | ✅ Stable | Signals, credits, identity, Cap'n Proto, SafeSAB |
-| **P2P Mesh** | ✅ Stable | DHT, WebRTC, Gossip, Adaptive Replication |
-| **Compute Modules** | ✅ Stable | GPU, physics, mining, ML foundations functional |
-| **ML Module** | ✅ Stable | Distributed inference, layer partitioning, PoR verification |
-| **Frontend** | ✅ Stable | React + Three.js, WASM loader |
-| **Storage Economy** | 🏗️ In Progress | Credit system, pool management, ledger integration |
+| **Kernel (Go)** | ✅ Production | Scheduler, memory manager, transport, Mesh Coordinator, Intelligence |
+| **SDK (Rust)** | ✅ Production | SAB, Epoch, Credits, Cap'n Proto, Identity |
+| **Compute Module** | ✅ Production | GPU, Data, Crypto, Image, Audio, Physics, API Proxy (8 units) |
+| **Storage Module** | ✅ Production | ChaCha20 encryption, Brotli compression, 15/17 tests passing |
+| **Drivers Module** | 🏗️ In Progress | I/O Sockets (Sensors → Actors), library proxy pattern |
+| **P2P Mesh** | ✅ Production | DHT, WebRTC, Gossip, Adaptive Replication |
+| **Frontend** | ✅ Production | React + Three.js, WASM loader, zero-copy rendering |
+| **Documentation** | ✅ Complete | ASSESSMENT.md, MIGRATION_GUIDE.md, DRIVERS_ARCHITECTURE.md |
+
 
 ---
 
@@ -216,7 +212,6 @@ By combining:
 *   **Go's brain** (orchestration + policy)
 *   **JS's body** (sensors + UI)
 *   **Economic incentives** (self-sustaining mesh)
-    *   **Background Yield**: Idle cycles are automatically redirected to SHA-256 (Bitcoin) mining, ensuring nodes remain profitable even with zero external demand.
 
 We're building the foundational layer for the next generation of distributed applications—where computation, storage, and identity flow seamlessly across devices, from phones to drones to data centers.
 

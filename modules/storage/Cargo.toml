@@ -17,5 +17,6 @@ getrandom = { version = "0.2", features = ["js"] }
 base64 = "0.21"
 thiserror = "1.0"
 log = "0.4"
+hex = "0.4"
 console_error_panic_hook = "0.1"
 capnp = "0.19"

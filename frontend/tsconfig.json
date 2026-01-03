@@ -20,7 +20,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["app", "bridge"],
+  "include": ["app", "bridge", "src"],
   "exclude": ["node_modules", "dist", "public/modules/**/*.d.ts", "public/modules"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

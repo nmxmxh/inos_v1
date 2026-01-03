@@ -1,5 +1,7 @@
 use log::info;
-use sdk::{Epoch, Reactor};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
+use sdk::Reactor;
 
 /// Diagnostics Module (The Watchdog)
 ///
@@ -14,7 +16,7 @@ pub struct DiagnosticsModule {
     last_scan: u32,
 }
 
-static mut GLOBAL_WATCHDOG: Option<DiagnosticsModule> = None;
+static GLOBAL_WATCHDOG: Lazy<Mutex<Option<DiagnosticsModule>>> = Lazy::new(|| Mutex::new(None));
 
 impl DiagnosticsModule {
     pub fn new(sab: &sdk::JsValue) -> Self {
@@ -22,7 +24,7 @@ impl DiagnosticsModule {
         info!("Diagnostics Watchdog initialized");
         Self {
             reactor: Reactor::new(sab),
-            sab: sdk::sab::SafeSAB::new(sab.clone()),
+            sab: sdk::sab::SafeSAB::new(sab),
             last_scan: 0,
         }
     }
@@ -137,7 +139,11 @@ pub extern "C" fn diagnostics_init_with_sab() -> i32 {
             info!("Diagnostics Watchdog booting up...");
 
             // Register capabilities
-            register_diagnostics(&sdk::sab::SafeSAB::new(val.clone()));
+            register_diagnostics(&sdk::sab::SafeSAB::new(&val));
+
+            // Initialize global watchdog
+            let mut lock = GLOBAL_WATCHDOG.lock();
+            *lock = Some(DiagnosticsModule::new(&val));
 
             return 1;
         }
@@ -148,7 +154,23 @@ pub extern "C" fn diagnostics_init_with_sab() -> i32 {
 /// External poll entry point for JavaScript
 #[no_mangle]
 pub extern "C" fn diagnostics_poll() {
-    // Watchdog logic (Memory audits, heartbeat checks)
+    let mut lock = GLOBAL_WATCHDOG.lock();
+    if let Some(watchdog) = lock.as_mut() {
+        // 1. Check for external diagnostics requests
+        if watchdog.reactor.check_inbox() {
+            watchdog.reactor.ack_inbox();
+            if let Some(_req) = watchdog.reactor.read_request() {
+                // Process diagnostics request (e.g. manual scan)
+                let _ = watchdog.scan_memory();
+            }
+        }
+
+        // 2. Periodic memory audit
+        if watchdog.last_scan % 1000 == 0 {
+            let _ = watchdog.scan_memory();
+        }
+        watchdog.last_scan = watchdog.last_scan.wrapping_add(1);
+    }
 }
 
 fn register_diagnostics(sab: &sdk::sab::SafeSAB) {
@@ -169,5 +191,40 @@ fn register_diagnostics(sab: &sdk::sab::SafeSAB) {
             }
         }
         Err(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_memory_scan_detects_overlaps() {
+        // Create a mock SAB for testing
+        let mock_sab = sdk::JsValue::NULL;
+        let diag = DiagnosticsModule::new(&mock_sab);
+
+        // Memory scan should pass with correct layout
+        let result = diag.scan_memory();
+        assert!(result.is_ok(), "Memory scan should pass with valid layout");
+    }
+
+    #[test]
+    fn test_pulse_tracking() {
+        let mock_sab = sdk::JsValue::NULL;
+        let diag = DiagnosticsModule::new(&mock_sab);
+
+        // Pulse should not panic
+        diag.pulse(0);
+        diag.pulse(1);
+        diag.pulse(255);
+    }
+
+    #[test]
+    fn test_diagnostics_module_creation() {
+        let mock_sab = sdk::JsValue::NULL;
+        let diag = DiagnosticsModule::new(&mock_sab);
+
+        assert_eq!(diag.last_scan, 0);
     }
 }

@@ -58,7 +58,11 @@ impl ImageUnit {
     }
 
     /// Validate input BEFORE decoding to prevent decompression bombs
-    fn validate_input(&self, input: &[u8], params: &serde_json::Value) -> Result<(), ComputeError> {
+    pub(crate) fn validate_input(
+        &self,
+        input: &[u8],
+        params: &serde_json::Value,
+    ) -> Result<(), ComputeError> {
         // 1. Size check
         if input.len() > self.config.max_input_size {
             return Err(ComputeError::InputTooLarge {
@@ -112,7 +116,7 @@ impl ImageUnit {
     }
 
     /// Safe image loading with limits
-    fn safe_load(&self, input: &[u8]) -> Result<DynamicImage, ComputeError> {
+    pub(crate) fn safe_load(&self, input: &[u8]) -> Result<DynamicImage, ComputeError> {
         let reader = image::ImageReader::new(std::io::Cursor::new(input))
             .with_guessed_format()
             .map_err(|e| {
@@ -139,7 +143,7 @@ impl ImageUnit {
     }
 
     /// SIMD-accelerated resize using fast_image_resize
-    fn resize_simd(
+    pub(crate) fn resize_simd(
         &self,
         img: &DynamicImage,
         params: &serde_json::Value,
@@ -457,7 +461,7 @@ impl ImageUnit {
         Ok(img.thumbnail(size, size))
     }
 
-    fn crop(
+    pub(crate) fn crop(
         &self,
         img: &DynamicImage,
         params: &serde_json::Value,

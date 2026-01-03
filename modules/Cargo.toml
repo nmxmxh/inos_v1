@@ -2,10 +2,7 @@
 members = [
     "sdk",
     "compute",
-    "science",
-    "mining",
     "storage",
-    "ml",
     "drivers",
     "diagnostics",
 ]

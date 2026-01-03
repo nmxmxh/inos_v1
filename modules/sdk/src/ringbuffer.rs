@@ -1,3 +1,4 @@
+use crate::js_interop::Int32Array;
 use crate::sab::SafeSAB;
 
 /// Generic Ring Buffer backed by SharedArrayBuffer
@@ -137,11 +138,6 @@ impl RingBuffer {
 
         let to_read = std::cmp::min(available as usize, buf.len());
 
-        // Use read_raw internal logic but don't duplicate code?
-        // Actually read_raw takes buf so it matches signature partially.
-        // But read_raw returns Result<(), String> and assumes buf fits.
-        // Let's implement read using read_raw logic but handling partial reads.
-
         let read_idx = (head as usize) % self.data_capacity as usize;
         let first_chunk = std::cmp::min(to_read, (self.data_capacity as usize) - read_idx);
         let second_chunk = to_read - first_chunk;
@@ -232,41 +228,36 @@ impl RingBuffer {
         }
     }
 
+    fn get_sab_view(&self) -> (Int32Array, u32) {
+        let buffer = self.sab.inner();
+        let length = crate::js_interop::get_byte_length(buffer);
+        let view = crate::js_interop::create_i32_view(buffer, 0, length / 4);
+        (view.into(), length / 4)
+    }
+
     fn load_head(&self) -> u32 {
-        let buffer = &self.sab.buffer;
-        let byte_len = crate::js_interop::get_byte_length(buffer);
-        let view = crate::js_interop::create_i32_view(buffer.clone(), 0, byte_len / 4);
+        let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::HEAD_OFFSET) / 4;
-        let view_val: web_sys::wasm_bindgen::JsValue = view.into();
         let val = crate::js_interop::atomic_load(&view_val, idx);
         val as u32
     }
 
     fn store_head(&self, val: u32) {
-        let buffer = &self.sab.buffer;
-        let byte_len = crate::js_interop::get_byte_length(buffer);
-        let view = crate::js_interop::create_i32_view(buffer.clone(), 0, byte_len / 4);
+        let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::HEAD_OFFSET) / 4;
-        let view_val: web_sys::wasm_bindgen::JsValue = view.into();
         crate::js_interop::atomic_store(&view_val, idx, val as i32);
     }
 
     fn load_tail(&self) -> u32 {
-        let buffer = &self.sab.buffer;
-        let byte_len = crate::js_interop::get_byte_length(buffer);
-        let view = crate::js_interop::create_i32_view(buffer.clone(), 0, byte_len / 4);
+        let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::TAIL_OFFSET) / 4;
-        let view_val: web_sys::wasm_bindgen::JsValue = view.into();
         let val = crate::js_interop::atomic_load(&view_val, idx);
         val as u32
     }
 
     fn store_tail(&self, val: u32) {
-        let buffer = &self.sab.buffer;
-        let byte_len = crate::js_interop::get_byte_length(buffer);
-        let view = crate::js_interop::create_i32_view(buffer.clone(), 0, byte_len / 4);
+        let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::TAIL_OFFSET) / 4;
-        let view_val: web_sys::wasm_bindgen::JsValue = view.into();
         crate::js_interop::atomic_store(&view_val, idx, val as i32);
     }
 }

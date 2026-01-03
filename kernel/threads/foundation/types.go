@@ -238,3 +238,74 @@ type HistoricalExecution struct {
 	Success  bool
 	Features map[string]float64
 }
+
+// CreditAccount in SAB for economic state (Unified v1.9)
+// Size: 128 bytes (aligned to cache line x 2)
+type CreditAccount struct {
+	Balance           int64   // 8
+	EarnedTotal       uint64  // 8
+	SpentTotal        uint64  // 8
+	LastActivityEpoch uint64  // 8
+	ReputationScore   float32 // 4
+	DeviceCount       uint16  // 2
+	UptimeScore       float32 // 4
+	LastUbiClaim      int64   // 8
+
+	// Social-Economic Graph (Fixed Offsets for Zero-Copy)
+	ReferrerLockedAt  int64 // 8
+	ReferrerChangedAt int64 // 8
+
+	// Yield Stats (Aggregated)
+	FromCreator   uint64 // 8
+	FromReferrals uint64 // 8
+	FromCloseIds  uint64 // 8
+
+	// Thresholds
+	Threshold   uint8 // 1
+	TotalShares uint8 // 1
+	Tier        uint8 // 1
+
+	// Alignment & Padding for 128 bytes
+	Reserved [45]byte
+}
+
+// SocialEntry for the Social Graph region
+type SocialEntry struct {
+	OwnerDid    [64]byte // did:inos:<hash> (fixed size)
+	ReferrerDid [64]byte
+	CloseIds    [15][64]byte // Max 15 close IDs directly in SAB
+}
+
+// IdentityEntry for the Identity Registry region
+type IdentityEntry struct {
+	Did       [64]byte
+	PublicKey [33]byte // Compressed Ed25519/X25519
+	Status    uint8
+	Reserved  [30]byte
+}
+
+// ResourceMetrics for economic settlement
+type ResourceMetrics struct {
+	ComputeCyclesUsed   uint64  // CPU/GPU cycles consumed
+	BytesServed         uint64  // Bandwidth used
+	BytesStored         uint64  // Storage usage
+	UptimeSeconds       uint64  // Availability
+	LocalityScore       float32 // Network proximity (0-1)
+	SyscallCount        uint64  // Kernel requests
+	MemoryPressure      float32 // SAB usage ratio
+	ReplicationPriority uint32  // Urgency
+	SchedulingBias      int32   // Urgency offset
+}
+
+// EconomicRates for credit calculation
+type EconomicRates struct {
+	ComputeRate        float64
+	BandwidthRate      float64
+	StorageRate        float64
+	UptimeRate         float64
+	LocalityBonus      float64
+	SyscallCost        float64
+	ReplicationCost    float64
+	SchedulingCost     float64
+	PressureMultiplier float64
+}

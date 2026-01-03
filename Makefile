@@ -200,7 +200,7 @@ modules-build: proto-rust
 	@cd modules && RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) build $(RUST_BUILD_FLAGS)
 	@echo "📦 Copying WASM modules to frontend..."
 	@mkdir -p frontend/public/modules
-	@for module in compute science ml mining vault drivers diagnostics; do \
+	@for module in compute vault drivers diagnostics; do \
 		if [ -f "modules/target/$(RUST_TARGET)/release/$$module.wasm" ]; then \
 			cp "modules/target/$(RUST_TARGET)/release/$$module.wasm" "frontend/public/modules/$$module.wasm"; \
 			echo "  ✅ Copied $$module.wasm"; \
@@ -302,8 +302,61 @@ build: all
 # Testing
 # ============================================================================
 
+# ============================================================================
+# Testing
+# ============================================================================
+
 test: kernel-test modules-test
 	@echo "✅ All tests complete"
+
+# Comprehensive testing with coverage
+test-coverage:
+	@echo "📊 Running tests with coverage analysis..."
+	@mkdir -p coverage
+	@cd kernel && $(GOTEST) -v -race -coverprofile=../coverage/kernel.out -covermode=atomic ./...
+	@cd kernel && go tool cover -html=../coverage/kernel.out -o ../coverage/kernel.html
+	@cd kernel && go tool cover -func=../coverage/kernel.out | grep total | awk '{print "Kernel Coverage: " $$3}'
+	@echo "📈 Coverage report generated: coverage/kernel.html"
+	@echo ""
+	@echo "📊 Package-level coverage:"
+	@cd kernel && go tool cover -func=../coverage/kernel.out | grep -E "core/mesh/(routing|optimization|internal|common|transport)" | awk '{printf "  %-50s %s\n", $$1, $$3}'
+	@echo ""
+	@echo "🎯 Coverage threshold check (90%):"
+	@cd kernel && go tool cover -func=../coverage/kernel.out | grep total | awk '{if ($$3+0 < 90.0) {print "❌ FAILED: Coverage " $$3 " is below 90%"; exit 1} else {print "✅ PASSED: Coverage " $$3 " meets 90% threshold"}}'
+
+# Run benchmarks
+test-bench:
+	@echo "⚡ Running performance benchmarks..."
+	@cd kernel && $(GOTEST) -bench=. -benchmem -benchtime=3s ./core/mesh/... | tee ../coverage/bench.txt
+	@echo "✅ Benchmark results saved to coverage/bench.txt"
+
+# Run tests with race detector
+test-race:
+	@echo "🔍 Running tests with race detector..."
+	@cd kernel && $(GOTEST) -v -race ./...
+	@echo "✅ Race detector tests complete"
+
+# Run tests for specific package
+# Usage: make test-package PKG=core/mesh/routing
+test-package:
+	@if [ -z "$(PKG)" ]; then echo "❌ Error: PKG argument required. Usage: make test-package PKG=core/mesh/routing"; exit 1; fi
+	@echo "🧪 Testing package: $(PKG)..."
+	@cd kernel && $(GOTEST) -v -race -coverprofile=../coverage/$(subst /,_,$(PKG)).out ./$(PKG)
+	@cd kernel && go tool cover -html=../coverage/$(subst /,_,$(PKG)).out -o ../coverage/$(subst /,_,$(PKG)).html
+	@cd kernel && go tool cover -func=../coverage/$(subst /,_,$(PKG)).out | grep total
+	@echo "✅ Package $(PKG) tested"
+
+# Run quick tests (no race detector, no coverage)
+test-quick:
+	@echo "⚡ Running quick tests..."
+	@cd kernel && $(GOTEST) -short ./...
+	@echo "✅ Quick tests complete"
+
+# Continuous testing (watch mode)
+test-watch:
+	@echo "👀 Watching for changes..."
+	@echo "⚠️  Install: go install github.com/cespare/reflex@latest"
+	@reflex -r '\.go$$' -s -- sh -c 'clear && make test-quick'
 
 # ============================================================================
 # Linting

@@ -262,7 +262,7 @@ impl CryptoUnit {
     // ===== HASH FUNCTIONS =====
 
     /// SHA-256 with hardware acceleration
-    fn sha256_secure(&self, input: &[u8]) -> Zeroizing<Vec<u8>> {
+    pub(crate) fn sha256_secure(&self, input: &[u8]) -> Zeroizing<Vec<u8>> {
         let mut hasher = Sha256::new();
         hasher.update(input);
         Zeroizing::new(hasher.finalize().to_vec())
@@ -339,7 +339,7 @@ impl CryptoUnit {
     // ===== SYMMETRIC ENCRYPTION =====
 
     /// AES-256-GCM encryption with hardware acceleration
-    fn aes256_gcm_encrypt(
+    pub(crate) fn aes256_gcm_encrypt(
         &self,
         plaintext: &[u8],
         params: &serde_json::Value,
@@ -375,7 +375,7 @@ impl CryptoUnit {
     }
 
     /// AES-256-GCM decryption with authentication
-    fn aes256_gcm_decrypt(
+    pub(crate) fn aes256_gcm_decrypt(
         &self,
         ciphertext: &[u8],
         params: &serde_json::Value,

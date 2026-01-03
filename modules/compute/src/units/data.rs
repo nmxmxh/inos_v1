@@ -107,11 +107,13 @@ impl DataUnit {
         Ok(buffer)
     }
 
-    /// Read CSV from bytes
+    /// Read CSV from bytes with automatic schema inference
     fn csv_read(&self, input: &[u8], has_header: bool) -> Result<RecordBatch, ComputeError> {
-        let cursor = Cursor::new(input);
+        // Infer schema from data
+        let schema = self.infer_csv_schema(input, has_header)?;
 
-        let reader = csv::ReaderBuilder::new(Arc::new(Schema::empty()))
+        let cursor = Cursor::new(input);
+        let reader = csv::ReaderBuilder::new(schema)
             .with_header(has_header)
             .build(cursor)
             .map_err(|e| {
@@ -151,22 +153,272 @@ impl DataUnit {
         Ok(buffer)
     }
 
-    /// Read JSON from bytes
-    fn json_read(&self, input: &[u8]) -> Result<RecordBatch, ComputeError> {
+    /// Infer Arrow schema from JSON data by examining the first object
+    fn infer_json_schema(&self, input: &[u8]) -> Result<Arc<Schema>, ComputeError> {
+        // Parse JSON to serde_json::Value first
+        let json_value: serde_json::Value = serde_json::from_slice(input)
+            .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
+
+        // Handle both array and single object
+        let sample = match &json_value {
+            serde_json::Value::Array(arr) if !arr.is_empty() => &arr[0],
+            serde_json::Value::Object(_) => &json_value,
+            serde_json::Value::Array(_) => {
+                // Empty array - create minimal schema
+                return Ok(Arc::new(Schema::new(vec![Field::new(
+                    "column_0",
+                    DataType::Utf8,
+                    true,
+                )])));
+            }
+            _ => {
+                return Err(ComputeError::InvalidParams(
+                    "JSON must be object or array".to_string(),
+                ))
+            }
+        };
+
+        // Infer fields from first object
+        let fields: Vec<Field> = match sample {
+            serde_json::Value::Object(map) => map
+                .iter()
+                .map(|(key, value)| {
+                    let data_type = match value {
+                        serde_json::Value::Number(n) if n.is_i64() => DataType::Int64,
+                        serde_json::Value::Number(n) if n.is_f64() => DataType::Float64,
+                        serde_json::Value::Number(_) => DataType::Float64, // Default for numbers
+                        serde_json::Value::Bool(_) => DataType::Boolean,
+                        serde_json::Value::String(_) => DataType::Utf8,
+                        serde_json::Value::Null => DataType::Utf8, // Default for null
+                        _ => DataType::Utf8,                       // Arrays/objects as strings
+                    };
+                    Field::new(key, data_type, true) // nullable=true for flexibility
+                })
+                .collect(),
+            _ => {
+                return Err(ComputeError::InvalidParams(
+                    "JSON object expected".to_string(),
+                ))
+            }
+        };
+
+        Ok(Arc::new(Schema::new(fields)))
+    }
+
+    /// Infer Arrow schema from CSV headers and first data row
+    fn infer_csv_schema(
+        &self,
+        input: &[u8],
+        has_header: bool,
+    ) -> Result<Arc<Schema>, ComputeError> {
+        use std::io::BufRead;
+
         let cursor = Cursor::new(input);
+        let mut lines = cursor.lines();
 
-        let mut reader = json::ReaderBuilder::new(Arc::new(Schema::empty()))
-            .build(cursor)
-            .map_err(|e| {
-                ComputeError::ExecutionFailed(format!("JSON reader creation failed: {}", e))
-            })?;
+        if !has_header {
+            // Without headers, peek at first line to count columns
+            if let Some(Ok(first_line)) = lines.next() {
+                let col_count = first_line.split(',').count();
+                let fields: Vec<Field> = (0..col_count)
+                    .map(|i| Field::new(format!("column_{}", i), DataType::Utf8, true))
+                    .collect();
+                return Ok(Arc::new(Schema::new(fields)));
+            }
+            return Ok(Arc::new(Schema::new(vec![Field::new(
+                "column_0",
+                DataType::Utf8,
+                true,
+            )])));
+        }
 
-        let batch = reader
+        // Read headers
+        let headers = lines
             .next()
-            .ok_or_else(|| ComputeError::ExecutionFailed("No data in JSON file".to_string()))?
-            .map_err(|e| ComputeError::ExecutionFailed(format!("JSON read failed: {}", e)))?;
+            .ok_or_else(|| ComputeError::ExecutionFailed("No header row in CSV".to_string()))?
+            .map_err(|e| ComputeError::ExecutionFailed(format!("CSV header read failed: {}", e)))?;
 
-        Ok(batch)
+        let header_names: Vec<&str> = headers.split(',').map(|s| s.trim()).collect();
+
+        // Try to read first data row for type inference
+        if let Some(Ok(first_row)) = lines.next() {
+            let values: Vec<&str> = first_row.split(',').map(|s| s.trim()).collect();
+
+            let fields: Vec<Field> = header_names
+                .iter()
+                .zip(values.iter())
+                .map(|(name, value)| {
+                    // Infer type from value
+                    let data_type = if value.parse::<i64>().is_ok() {
+                        DataType::Int64
+                    } else if value.parse::<f64>().is_ok() {
+                        DataType::Float64
+                    } else if value.parse::<bool>().is_ok() {
+                        DataType::Boolean
+                    } else {
+                        DataType::Utf8
+                    };
+                    Field::new(*name, data_type, true)
+                })
+                .collect();
+
+            Ok(Arc::new(Schema::new(fields)))
+        } else {
+            // No data rows, default to Utf8 for all columns
+            let fields: Vec<Field> = header_names
+                .iter()
+                .map(|name| Field::new(*name, DataType::Utf8, true))
+                .collect();
+            Ok(Arc::new(Schema::new(fields)))
+        }
+    }
+
+    /// Read JSON from bytes with automatic schema inference and manual RecordBatch construction
+    fn json_read(&self, input: &[u8]) -> Result<RecordBatch, ComputeError> {
+        use arrow::array::*;
+
+        // Parse JSON to serde_json::Value
+        let json_value: serde_json::Value = serde_json::from_slice(input)
+            .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
+
+        // Convert to array of objects
+        let objects = match json_value {
+            serde_json::Value::Array(arr) => arr,
+            serde_json::Value::Object(_) => vec![json_value],
+            _ => {
+                return Err(ComputeError::InvalidParams(
+                    "JSON must be object or array".to_string(),
+                ))
+            }
+        };
+
+        if objects.is_empty() {
+            // Return empty RecordBatch with minimal schema
+            let schema = Arc::new(Schema::new(vec![Field::new("empty", DataType::Utf8, true)]));
+            let empty_array: ArrayRef = Arc::new(StringArray::from(Vec::<Option<&str>>::new()));
+            return RecordBatch::try_new(schema, vec![empty_array]).map_err(|e| {
+                ComputeError::ExecutionFailed(format!("RecordBatch creation failed: {}", e))
+            });
+        }
+
+        // Infer schema from first object
+        let schema = self.infer_json_schema(input)?;
+        let num_rows = objects.len();
+
+        // Build arrays for each field
+        let mut arrays: Vec<ArrayRef> = Vec::new();
+
+        for field in schema.fields() {
+            let field_name = field.name();
+            let data_type = field.data_type();
+
+            match data_type {
+                DataType::Int64 => {
+                    let mut builder = Int64Builder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let Some(map) = obj.as_object() {
+                            if let Some(value) = map.get(field_name) {
+                                match value {
+                                    serde_json::Value::Number(n) => {
+                                        builder.append_value(n.as_i64().unwrap_or(0));
+                                    }
+                                    _ => builder.append_null(),
+                                }
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()) as ArrayRef);
+                }
+                DataType::Float64 => {
+                    let mut builder = Float64Builder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let Some(map) = obj.as_object() {
+                            if let Some(value) = map.get(field_name) {
+                                match value {
+                                    serde_json::Value::Number(n) => {
+                                        builder.append_value(n.as_f64().unwrap_or(0.0));
+                                    }
+                                    _ => builder.append_null(),
+                                }
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()) as ArrayRef);
+                }
+                DataType::Boolean => {
+                    let mut builder = BooleanBuilder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let Some(map) = obj.as_object() {
+                            if let Some(value) = map.get(field_name) {
+                                match value {
+                                    serde_json::Value::Bool(b) => builder.append_value(*b),
+                                    _ => builder.append_null(),
+                                }
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()) as ArrayRef);
+                }
+                DataType::Utf8 => {
+                    let mut builder = StringBuilder::with_capacity(num_rows, num_rows * 10);
+                    for obj in &objects {
+                        if let Some(map) = obj.as_object() {
+                            if let Some(value) = map.get(field_name) {
+                                match value {
+                                    serde_json::Value::String(s) => builder.append_value(s),
+                                    serde_json::Value::Number(n) => {
+                                        builder.append_value(n.to_string())
+                                    }
+                                    serde_json::Value::Bool(b) => {
+                                        builder.append_value(b.to_string())
+                                    }
+                                    serde_json::Value::Null => builder.append_null(),
+                                    _ => builder.append_value(value.to_string()),
+                                }
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()) as ArrayRef);
+                }
+                _ => {
+                    // Default to string for unsupported types
+                    let mut builder = StringBuilder::with_capacity(num_rows, num_rows * 10);
+                    for obj in &objects {
+                        if let Some(map) = obj.as_object() {
+                            if let Some(value) = map.get(field_name) {
+                                builder.append_value(value.to_string());
+                            } else {
+                                builder.append_null();
+                            }
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    arrays.push(Arc::new(builder.finish()) as ArrayRef);
+                }
+            }
+        }
+
+        // Create RecordBatch
+        RecordBatch::try_new(schema, arrays).map_err(|e| {
+            ComputeError::ExecutionFailed(format!("RecordBatch creation failed: {}", e))
+        })
     }
 
     /// Write RecordBatch to JSON format

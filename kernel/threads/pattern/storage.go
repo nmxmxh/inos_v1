@@ -41,6 +41,9 @@ type TieredPatternStorage struct {
 	// Statistics
 	stats StorageStats
 
+	// ID generation
+	nextID uint64
+
 	mu sync.RWMutex
 }
 
@@ -232,6 +235,9 @@ func (tps *TieredPatternStorage) WritePattern(pattern *EnhancedPattern) error {
 		pattern.Header.ID = tps.generatePatternID()
 	}
 
+	// Check if pattern already exists (after ID is set)
+	isNew := !tps.bloom.Contains(pattern.Header.ID)
+
 	// Add to bloom filter
 	tps.bloom.Add(pattern.Header.ID)
 
@@ -247,8 +253,10 @@ func (tps *TieredPatternStorage) WritePattern(pattern *EnhancedPattern) error {
 	// Update indices
 	tps.indices.Add(pattern)
 
-	// Update stats
-	atomic.AddUint64(&tps.stats.TotalPatterns, 1)
+	// Update stats (only increment for new patterns)
+	if isNew {
+		atomic.AddUint64(&tps.stats.TotalPatterns, 1)
+	}
 
 	return nil
 }
@@ -256,40 +264,49 @@ func (tps *TieredPatternStorage) WritePattern(pattern *EnhancedPattern) error {
 // ReadPattern reads a pattern by ID
 func (tps *TieredPatternStorage) ReadPattern(id uint64) (*EnhancedPattern, error) {
 	tps.mu.RLock()
-	defer tps.mu.RUnlock()
 
 	// Check bloom filter first
 	if !tps.bloom.Contains(id) {
+		tps.mu.RUnlock()
 		atomic.AddUint64(&tps.stats.CacheMisses, 1)
 		return nil, fmt.Errorf("pattern %d not found", id)
 	}
 
 	// Try tier 1 (hot)
 	if pattern, err := tps.tier1.Read(id); err == nil {
+		tps.mu.RUnlock()
 		atomic.AddUint64(&tps.stats.CacheHits, 1)
 		return pattern, nil
 	}
 
 	// Try tier 2 (warm)
 	if pattern, err := tps.tier2.Read(id); err == nil {
-		// Promote to tier 1
+		tps.mu.RUnlock()
+		// Promote to tier 1 (need write lock)
+		tps.mu.Lock()
 		tps.promote(pattern, Tier1Hot)
+		tps.mu.Unlock()
 		atomic.AddUint64(&tps.stats.CacheHits, 1)
 		return pattern, nil
 	}
 
 	// Try tier 3 (cold)
 	if pattern, err := tps.tier3.Read(id); err == nil {
-		// Promote to tier 2
+		tps.mu.RUnlock()
+		// Promote to tier 2 (need write lock)
+		tps.mu.Lock()
 		tps.promote(pattern, Tier2Warm)
+		tps.mu.Unlock()
 		return pattern, nil
 	}
 
 	// Try tier 4 (ephemeral)
 	if pattern, err := tps.tier4.Read(id); err == nil {
+		tps.mu.RUnlock()
 		return pattern, nil
 	}
 
+	tps.mu.RUnlock()
 	atomic.AddUint64(&tps.stats.CacheMisses, 1)
 	return nil, fmt.Errorf("pattern %d not found in any tier", id)
 }
@@ -298,12 +315,14 @@ func (tps *TieredPatternStorage) ReadPattern(id uint64) (*EnhancedPattern, error
 func (tps *TieredPatternStorage) SyncFromSAB() error {
 	tps.mu.Lock()
 	defer tps.mu.Unlock()
-	return tps.tier1.SyncFromSAB()
+	return tps.tier1.SyncFromSAB(tps.bloom)
 }
 
 // Helper: Generate pattern ID
 func (tps *TieredPatternStorage) generatePatternID() uint64 {
-	return atomic.AddUint64(&tps.stats.TotalPatterns, 1)
+	// Use a separate counter for ID generation (not TotalPatterns)
+	// IDs start from current time to avoid collisions
+	return uint64(1000000) + atomic.AddUint64(&tps.nextID, 1)
 }
 
 // Helper: Promote pattern to higher tier
@@ -368,7 +387,7 @@ func (hpc *HotPatternCache) Write(pattern *EnhancedPattern) error {
 	}
 
 	// Write to SAB (Source of Truth)
-	hpc.writeToSAB(slot, pattern.Header, dataPtr)
+	hpc.writeToSAB(slot, pattern.Header, dataPtr, uint16(payloadSize))
 
 	// Update LRU
 	hpc.lru.Add(pattern.Header.ID)
@@ -400,7 +419,10 @@ func (hpc *HotPatternCache) allocateArena(size uint32) (uint32, error) {
 }
 
 // SyncFromSAB scans all slots in the SAB hot cache
-func (hpc *HotPatternCache) SyncFromSAB() error {
+func (hpc *HotPatternCache) SyncFromSAB(bloom *BloomFilter) error {
+	hpc.mu.Lock()
+	defer hpc.mu.Unlock()
+
 	// 1024 slots * 64 bytes
 	// We scan for valid magic bytes
 	for slot := uint32(0); slot < hpc.capacity; slot++ {
@@ -425,13 +447,18 @@ func (hpc *HotPatternCache) SyncFromSAB() error {
 				DataPtr:  dataPtr,
 			}
 			hpc.lru.Add(header.ID)
+
+			// Add to bloom filter
+			if bloom != nil {
+				bloom.Add(header.ID)
+			}
 		}
 	}
 	return nil
 }
 
 // Helper: Serialize header to SAB
-func (hpc *HotPatternCache) writeToSAB(slot uint32, header PatternHeader, dataPtr uint32) {
+func (hpc *HotPatternCache) writeToSAB(slot uint32, header PatternHeader, dataPtr uint32, payloadSize uint16) {
 	offset := hpc.baseOffset + (slot * 64) // 64 byte entries
 	if offset+64 > uint32(len(hpc.sab)) {
 		return // Guard against overflow
@@ -452,6 +479,9 @@ func (hpc *HotPatternCache) writeToSAB(slot uint32, header PatternHeader, dataPt
 	binary.LittleEndian.PutUint32(data[46:50], header.AccessCount)
 	binary.LittleEndian.PutUint32(data[50:54], math.Float32bits(header.SuccessRate))
 	binary.LittleEndian.PutUint16(data[54:56], uint16(header.Flags))
+
+	// Store payload size (bytes 56-58)
+	binary.LittleEndian.PutUint16(data[56:58], payloadSize)
 
 	// Store DataPtr at end of slot (bytes 60-64)
 	binary.LittleEndian.PutUint32(data[60:64], dataPtr)
@@ -508,23 +538,14 @@ func (hpc *HotPatternCache) Read(id uint64) (*EnhancedPattern, error) {
 
 	// Read Payload if DataPtr is set
 	if entry.DataPtr > 0 {
-		// We need the size. Standardized approach:
-		// We store size in PatternData.Size (uint16) in the body.
-		// Wait, the header doesn't have size. PatternData does.
-		// Let's assume we store size in the first 4 bytes of the arena allocation?
-		// Or we can add size to the slot.
-		// SLOT: 60 bytes header/metadata, 4 bytes DataPtr.
-		// Wait, Header is quite large. Let's see.
-		// 8+8+2+2+1+1+4+8+8+4+4+4+2 = 56 bytes.
-		// bytes 56-60 can be Size!
-
+		// Read size from SAB slot (bytes 56-58 contain the size)
 		size := binary.LittleEndian.Uint16(hpc.sab[hpc.baseOffset+(slot*64)+56 : hpc.baseOffset+(slot*64)+58])
 		if size > 0 {
-			payload, err := hpc.readArena(entry.DataPtr, uint32(size))
-			if err == nil {
-				pattern.Body.Data.Payload = payload
-				pattern.Body.Data.Size = size
-			}
+			// Read payload from arena using DataPtr
+			payload := make([]byte, size)
+			copy(payload, hpc.sab[entry.DataPtr:entry.DataPtr+uint32(size)])
+			pattern.Body.Data.Payload = payload
+			pattern.Body.Data.Size = size
 		}
 	}
 

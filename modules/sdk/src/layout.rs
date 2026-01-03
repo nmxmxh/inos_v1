@@ -14,7 +14,7 @@ pub const SIZE_ATOMIC_FLAGS: usize = 0x000040;
 
 /// Supervisor Allocation Table (192 bytes)
 pub const OFFSET_SUPERVISOR_ALLOC: usize = 0x000040;
-pub const SIZE_SUPERVISOR_ALLOC: usize = 0x0000C0;
+pub const SIZE_SUPERVISOR_ALLOC: usize = 0x0000B0; // 176 bytes (Ends at 0xF0)
 
 // Registry locking (16 bytes before registry)
 pub const OFFSET_REGISTRY_LOCK: usize = 0x0000F0;
@@ -220,7 +220,8 @@ mod tests {
     fn test_no_region_overlaps() {
         // Verify regions don't overlap
         const { assert!(OFFSET_SUPERVISOR_ALLOC >= OFFSET_ATOMIC_FLAGS + SIZE_ATOMIC_FLAGS) };
-        const { assert!(OFFSET_MODULE_REGISTRY >= OFFSET_SUPERVISOR_ALLOC + SIZE_SUPERVISOR_ALLOC) };
+        const { assert!(OFFSET_REGISTRY_LOCK >= OFFSET_SUPERVISOR_ALLOC + SIZE_SUPERVISOR_ALLOC) };
+        const { assert!(OFFSET_MODULE_REGISTRY >= OFFSET_REGISTRY_LOCK + SIZE_REGISTRY_LOCK) };
         const { assert!(OFFSET_SUPERVISOR_HEADERS >= OFFSET_MODULE_REGISTRY + SIZE_MODULE_REGISTRY) };
         // Syscall Table Check
         const { assert!(OFFSET_SYSCALL_TABLE >= OFFSET_SUPERVISOR_HEADERS + SIZE_SUPERVISOR_HEADERS) };

@@ -40,8 +40,13 @@ pub struct ResourceLimits {
     pub max_output_size: usize,
     pub max_memory_pages: u32,
     pub timeout_ms: u64,
-    #[allow(dead_code)] // Fuel consumption tracking requires instrumentation not yet present
     pub max_fuel: u64,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self::for_image()
+    }
 }
 
 impl ResourceLimits {
@@ -173,7 +178,7 @@ impl ComputeEngine {
         // We use a simple select with delay for now, assuming standard future machinery
         let timeout_duration = std::time::Duration::from_millis(limits.timeout_ms);
 
-        let output =
+        let output: Vec<u8> =
             match tokio::time::timeout(timeout_duration, unit.execute(method, input, params)).await
             {
                 Ok(result) => result?,

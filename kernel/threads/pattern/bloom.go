@@ -52,11 +52,21 @@ func (bf *BloomFilter) Contains(id uint64) bool {
 
 // Helper: Hash function
 func (bf *BloomFilter) hash(id uint64, seed uint8) uint32 {
-	// Simple hash function (FNV-1a variant)
-	hash := uint64(2166136261 + uint64(seed))
-	hash ^= id
-	hash *= 16777619
-	return uint32(hash % uint64(bf.size))
+	// Proper hash mixing for each seed
+	// Use different hash functions for each seed to avoid collisions
+	h := id
+
+	// Mix in the seed
+	h ^= uint64(seed) * 0x9e3779b97f4a7c15 // Golden ratio
+
+	// MurmurHash3-style mixing
+	h ^= h >> 33
+	h *= 0xff51afd7ed558ccd
+	h ^= h >> 33
+	h *= 0xc4ceb9fe1a85ec53
+	h ^= h >> 33
+
+	return uint32(h % uint64(bf.size))
 }
 
 // Clear clears the bloom filter

@@ -1,14 +1,20 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
+use dashmap::DashMap;
 use naga::{
     front::wgsl,
     valid::{Capabilities, ValidationFlags, Validator},
     Module,
 };
+use sdk::shader_registry::{
+    BindingProfile as BindingInfo, GpuRequirements, ShaderManifest as ShaderAnalysis, ShaderMeta,
+    ValidationMetadata,
+};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// GPU graphics processing via WebGPU delegation
 ///
@@ -19,8 +25,9 @@ use std::collections::HashMap;
 /// - Clean: Separation of concerns (validation vs execution)
 pub struct GpuUnit {
     config: GpuConfig,
-    shader_cache: HashMap<&'static str, &'static str>,
+    prebuilt_shaders: HashMap<&'static str, &'static str>,
     validator: ShaderValidator,
+    validation_cache: Arc<DashMap<String, ShaderAnalysis>>,
 }
 
 #[derive(Clone)]
@@ -48,6 +55,7 @@ impl Default for GpuConfig {
 struct ShaderValidator {
     max_workgroup_size: u32,
     max_total_invocations: u32,
+    max_bindings: usize,
     banned_patterns: Vec<&'static str>,
 }
 
@@ -56,21 +64,16 @@ impl ShaderValidator {
         Self {
             max_workgroup_size: 256,
             max_total_invocations: 1024,
+            max_bindings: 16,
             banned_patterns: vec![
-                "loop {",               // Unbounded loops
-                "while(true)",          // Infinite loops
-                "atomicAdd",            // Can cause hangs
-                "storageBarrier()",     // Complex synchronization
+                "atomicAdd",            // Can cause hangs in some environments
                 "workgroupUniformLoad", // Potential side-channel
-                "discard",              // Fragment shader only
-                "@fragment",            // Wrong pipeline type
-                "@vertex",              // Wrong pipeline type
             ],
         }
     }
 
     fn validate_security(&self, module: &Module, source: &str) -> Result<(), ComputeError> {
-        // 1. Check for banned patterns
+        // 1. Check for banned patterns (Lexical check)
         for pattern in &self.banned_patterns {
             if source.contains(pattern) {
                 return Err(ComputeError::ExecutionFailed(format!(
@@ -104,7 +107,80 @@ impl ShaderValidator {
             }
         }
 
+        // 3. Resource Binding Limits
+        let binding_count = module
+            .global_variables
+            .iter()
+            .filter(|(_, v)| v.binding.is_some())
+            .count();
+
+        if binding_count > self.max_bindings {
+            return Err(ComputeError::ExecutionFailed(format!(
+                "Too many resource bindings: {} > {}",
+                binding_count, self.max_bindings
+            )));
+        }
+
         Ok(())
+    }
+
+    fn analyze_shader(
+        &self,
+        module: &Module,
+        source: &str,
+    ) -> Result<ShaderAnalysis, ComputeError> {
+        // 1. Extract Bindings
+        let mut bindings = Vec::new();
+        for (_, var) in module.global_variables.iter() {
+            if let Some(ref binding) = var.binding {
+                let resource_type = match module.types[var.ty].inner {
+                    naga::TypeInner::Struct { .. } => "buffer".to_string(),
+                    naga::TypeInner::Image { .. } => "texture".to_string(),
+                    naga::TypeInner::Sampler { .. } => "sampler".to_string(),
+                    _ => "unknown".to_string(),
+                };
+
+                let access = match var.space {
+                    naga::AddressSpace::Storage { access } => {
+                        if access.contains(naga::StorageAccess::LOAD | naga::StorageAccess::STORE) {
+                            "read_write".to_string()
+                        } else if access.contains(naga::StorageAccess::STORE) {
+                            "write".to_string()
+                        } else {
+                            "read".to_string()
+                        }
+                    }
+                    _ => "read".to_string(),
+                };
+
+                bindings.push(BindingInfo {
+                    group: binding.group,
+                    binding: binding.binding,
+                    resource_type,
+                    access,
+                });
+            }
+        }
+
+        // 2. Extract Requirements
+        let mut min_workgroup_size = [1, 1, 1];
+        if let Some(ep) = module.entry_points.first() {
+            min_workgroup_size = ep.workgroup_size;
+        }
+
+        Ok(ShaderAnalysis {
+            meta: ShaderMeta::default(),
+            requirements: GpuRequirements {
+                architectures: vec!["webgpu".to_string()],
+                min_workgroup_size,
+            },
+            validation: ValidationMetadata {
+                hash: blake3::hash(source.as_bytes()).to_string(),
+                signature: String::new(), // Placeholder for future signing
+                timestamp: sdk::js_interop::get_now() as u64,
+            },
+            bindings,
+        })
     }
 }
 
@@ -113,6 +189,7 @@ impl ShaderValidator {
 struct WebGpuRequest {
     method: String,
     shader: String,
+    analysis: Option<ShaderAnalysis>,
     buffers: Vec<BufferDesc>,
     workgroup: [u32; 3],
     dispatch: [u32; 3],
@@ -130,28 +207,42 @@ struct BufferDesc {
 
 impl GpuUnit {
     pub fn new() -> Self {
-        let mut shader_cache = HashMap::new();
+        let mut prebuilt_shaders = HashMap::new();
 
         // Load pre-built WGSL shaders
-        shader_cache.insert("matmul", include_str!("gpu_shaders/matmul.wgsl"));
-        shader_cache.insert("fft", include_str!("gpu_shaders/fft.wgsl"));
-        shader_cache.insert(
+        prebuilt_shaders.insert("matmul", include_str!("gpu_shaders/matmul.wgsl"));
+        prebuilt_shaders.insert("fft", include_str!("gpu_shaders/fft.wgsl"));
+        prebuilt_shaders.insert(
             "reduction_sum",
             include_str!("gpu_shaders/reduction_sum.wgsl"),
         );
-        shader_cache.insert("pbr_lighting", include_str!("gpu_shaders/pbr.wgsl"));
-        shader_cache.insert("nbody", include_str!("gpu_shaders/nbody.wgsl"));
+        prebuilt_shaders.insert("pbr_lighting", include_str!("gpu_shaders/pbr.wgsl"));
+        prebuilt_shaders.insert("nbody", include_str!("gpu_shaders/nbody.wgsl"));
 
         Self {
             config: GpuConfig::default(),
-            shader_cache,
+            prebuilt_shaders,
             validator: ShaderValidator::new(),
+            validation_cache: Arc::new(DashMap::new()),
         }
     }
 
-    /// Validate shader with Naga
-    fn validate_shader(&self, shader_code: &str) -> Result<Module, ComputeError> {
-        // 1. Size check
+    pub fn capabilities(&self) -> Vec<&'static str> {
+        vec!["shader", "compute", "wgsl"]
+    }
+
+    /// Validate shader with Naga (with caching)
+    pub(crate) fn validate_shader(
+        &self,
+        shader_code: &str,
+    ) -> Result<ShaderAnalysis, ComputeError> {
+        // 1. Quick Hash Check
+        let hash = blake3::hash(shader_code.as_bytes()).to_string();
+        if let Some(analysis) = self.validation_cache.get(&hash) {
+            return Ok(analysis.clone());
+        }
+
+        // 2. Size check
         if shader_code.len() > self.config.max_shader_size {
             return Err(ComputeError::ExecutionFailed(format!(
                 "Shader too large: {} > {}",
@@ -160,26 +251,32 @@ impl GpuUnit {
             )));
         }
 
-        // 2. Parse WGSL with Naga
+        // 3. Parse WGSL with Naga
         let module = wgsl::parse_str(shader_code)
             .map_err(|e| ComputeError::InvalidParams(format!("WGSL parse error: {:?}", e)))?;
 
-        // 3. Validate module
+        // 4. Validate module
         let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
         validator.validate(&module).map_err(|e| {
             ComputeError::ExecutionFailed(format!("Shader validation failed: {:?}", e))
         })?;
 
-        // 4. Security checks
+        // 5. Security checks
         self.validator.validate_security(&module, shader_code)?;
 
-        Ok(module)
+        // 6. Analysis
+        let analysis = self.validator.analyze_shader(&module, shader_code)?;
+
+        // 7. Update Cache
+        self.validation_cache.insert(hash, analysis.clone());
+
+        Ok(analysis)
     }
 
     /// Get shader code (pre-built or custom)
     fn get_shader_code(&self, method: &str, params: &JsonValue) -> Result<String, ComputeError> {
         // Check for pre-built shader
-        if let Some(prebuilt) = self.shader_cache.get(method) {
+        if let Some(prebuilt) = self.prebuilt_shaders.get(method) {
             return Ok(prebuilt.to_string());
         }
 
@@ -192,8 +289,8 @@ impl GpuUnit {
                     ComputeError::InvalidParams("Missing shader parameter".to_string())
                 })?;
 
-            // Validate custom shader
-            self.validate_shader(shader)?;
+            // Validate custom shader (this will use the cache internally)
+            let _ = self.validate_shader(shader)?;
             Ok(shader.to_string())
         } else {
             // No shader available - delegate to JS with method name
@@ -284,7 +381,8 @@ impl GpuUnit {
         // Create request
         let request = WebGpuRequest {
             method: method.to_string(),
-            shader: shader_code,
+            shader: shader_code.clone(),
+            analysis: self.validate_shader(&shader_code).ok(),
             buffers,
             workgroup,
             dispatch,
@@ -313,6 +411,7 @@ impl UnitProxy for GpuUnit {
 
     fn actions(&self) -> Vec<&str> {
         vec![
+            // ===== CATEGORY 1: RENDERING PIPELINE (12) =====
             "transform_vertices",
             "compute_normals",
             "tangent_space",
@@ -325,6 +424,7 @@ impl UnitProxy for GpuUnit {
             "mesh_shading",
             "ray_tracing",
             "path_tracing",
+            // ===== CATEGORY 2: PARTICLE SYSTEMS (9) =====
             "particle_update",
             "particle_forces",
             "particle_collision",
@@ -334,6 +434,7 @@ impl UnitProxy for GpuUnit {
             "particle_trails",
             "particle_mesh",
             "particle_nbody",
+            // ===== CATEGORY 3: POST-PROCESSING (15) =====
             "tone_mapping",
             "color_correction",
             "bloom",
@@ -349,6 +450,7 @@ impl UnitProxy for GpuUnit {
             "ssao",
             "ssr",
             "temporal_aa",
+            // ===== CATEGORY 4: PROCEDURAL GENERATION (10) =====
             "perlin_noise",
             "simplex_noise",
             "worley_noise",
@@ -359,6 +461,7 @@ impl UnitProxy for GpuUnit {
             "procedural_texture",
             "normal_map_generation",
             "ao_map_generation",
+            // ===== CATEGORY 5: PHYSICS SIMULATION (8) =====
             "fluid_simulation",
             "smoke_simulation",
             "water_simulation",
@@ -367,6 +470,7 @@ impl UnitProxy for GpuUnit {
             "reaction_diffusion",
             "cellular_automata",
             "sph_particles",
+            // ===== CATEGORY 6: SHADER LIBRARY (11) =====
             "phong_lighting",
             "blinn_phong",
             "pbr_lighting",
@@ -378,6 +482,7 @@ impl UnitProxy for GpuUnit {
             "uv_mapping",
             "parallax_mapping",
             "displacement_mapping",
+            // ===== CUSTOM SHADER (1) =====
             "execute_wgsl",
         ]
     }

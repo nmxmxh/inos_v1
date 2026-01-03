@@ -15,6 +15,7 @@ import (
 	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh"
+	"github.com/nmxmxh/inos_v1/kernel/core/mesh/transport"
 	"github.com/nmxmxh/inos_v1/kernel/threads"
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/utils"
@@ -94,8 +95,8 @@ func NewKernel() *Kernel {
 
 	// Initialize Mesh Components (Phase 16 Integration)
 	nodeID := utils.GenerateID()
-	transport, _ := mesh.NewWebRTCTransport(nodeID, mesh.DefaultTransportConfig(), nil)
-	m := mesh.NewMeshCoordinator(nodeID, "global", transport, nil)
+	tr, _ := transport.NewWebRTCTransport(nodeID, transport.DefaultTransportConfig(), nil)
+	m := mesh.NewMeshCoordinator(nodeID, "global", tr, nil)
 
 	k := &Kernel{
 		config:          config,
@@ -178,7 +179,7 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 		// Wire Supervisor as StorageProvider
 		k.meshCoordinator.SetStorage(k.supervisor)
 		// Start Mesh Coordinator
-		if err := k.meshCoordinator.Start(); err != nil {
+		if err := k.meshCoordinator.Start(k.ctx); err != nil {
 			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
 		}
 	}
@@ -270,15 +271,12 @@ func jsInitializeSharedMemory(this js.Value, args []js.Value) interface{} {
 	// GUARDIAN: If pointer is 0 (WASM base), we handle it carefully.
 	// WASM memory IS the address space.
 	// The address 'addr' from JS is the absolute offset in linear memory.
-	addr := uintptr(args[0].Int())
-	size := uint32(args[1].Int())
 
 	// We convert the integer address to an unsafe.Pointer.
 	// This is required for interfacing with host memory in WASM.
-	// We use a direct conversion and suppress lint warnings as this is a known, required pattern in WASM.
-	ptr := unsafe.Pointer(addr) //nolint:govet,staticcheck
+	ptr := unsafe.Pointer(uintptr(args[0].Int())) //nolint:all
 
-	if err := kernelInstance.InjectSAB(ptr, size); err != nil {
+	if err := kernelInstance.InjectSAB(ptr, uint32(args[1].Int())); err != nil {
 		return js.ValueOf(map[string]interface{}{"success": false, "error": err.Error()})
 	}
 

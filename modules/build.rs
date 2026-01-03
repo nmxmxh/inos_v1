@@ -19,6 +19,8 @@ fn main() {
         .file("../protocols/schemas/io/v1/actor.capnp")
         // Economy protocols
         .file("../protocols/schemas/economy/v1/ledger.capnp")
+        // Identity protocols
+        .file("../protocols/schemas/identity/v1/identity.capnp")
         .run()
         .expect("Cap'n Proto schema compilation failed");
 

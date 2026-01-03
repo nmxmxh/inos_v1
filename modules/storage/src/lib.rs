@@ -7,6 +7,7 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 use log::{error, info};
 
 // Storage module bare-metal (no wasm-bindgen macros)
+#[derive(Debug)]
 pub struct StorageEngine {
     encryption_key: Key,
 }
@@ -46,9 +47,9 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
-            let module_sab = sdk::sab::SafeSAB::new_shared_view(val.clone(), offset, size);
+            let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
             // 2. Global SAB for registry writes
-            let global_sab = sdk::sab::SafeSAB::new(val.clone());
+            let global_sab = sdk::sab::SafeSAB::new(&val);
 
             sdk::init_logging();
             info!("Vault module initialized with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
@@ -164,4 +165,43 @@ impl StorageEngine {
 
         Ok(decompressed)
     }
+
+    /// Stores data using Content-Addressable Storage (CAS)
+    /// Returns: (BLAKE3 hash, encrypted blob)
+    pub fn store_cas_chunk(&self, data: &[u8]) -> Result<(String, Vec<u8>), String> {
+        // 1. Compute BLAKE3 hash for deduplication
+        let hash = sdk::compression::hash_blake3(data);
+        let hash_str = hex::encode(&hash);
+
+        // 2. Store using standard encryption pipeline
+        let blob = self.store_chunk(data)?;
+
+        Ok((hash_str, blob))
+    }
+
+    /// Retrieves data from CAS by hash (for verification)
+    /// Note: In production, hash would be used for DHT lookup to find nodes
+    pub fn retrieve_cas_chunk(&self, blob: &[u8], expected_hash: &str) -> Result<Vec<u8>, String> {
+        // 1. Retrieve and decrypt
+        let data = self.retrieve_chunk(blob)?;
+
+        // 2. Verify hash matches
+        let actual_hash = sdk::compression::hash_blake3(&data);
+        let actual_hash_str = hex::encode(&actual_hash);
+
+        if actual_hash_str != expected_hash {
+            return Err(format!(
+                "Hash mismatch: expected {}, got {}",
+                expected_hash, actual_hash_str
+            ));
+        }
+
+        Ok(data)
+    }
 }
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod cas_tests;

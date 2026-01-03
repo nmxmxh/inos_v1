@@ -22,7 +22,7 @@ pub struct ArenaAllocator {
 impl ArenaAllocator {
     pub fn new(sab: SafeSAB) -> Self {
         Self {
-            request_epoch: Epoch::new(&sab.buffer, IDX_ARENA_REQUEST),
+            request_epoch: Epoch::new(sab.inner(), IDX_ARENA_REQUEST),
             sab,
             next_request_id: 1,
         }

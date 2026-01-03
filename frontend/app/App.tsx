@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useSystemStore } from '../src/store/system';
-import StoryView from './components/StoryView';
+import './styles/minimal.css';
 
 export default function App() {
   const { status, error, initialize } = useSystemStore();
@@ -13,48 +13,75 @@ export default function App() {
 
   if (error) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          flexDirection: 'column',
-          gap: '1rem',
-          background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%)',
-          color: '#ffffff',
-        }}
-      >
-        <h1 style={{ color: '#ff4444' }}>Kernel Load Error</h1>
-        <p>{error.message}</p>
-        <button
-          onClick={() => window.location.reload()}
+      <div className="minimal-app">
+        <div
           style={{
-            padding: '0.75rem 1.5rem',
-            background: 'rgba(255, 255, 255, 0.1)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '8px',
-            color: '#ffffff',
-            cursor: 'pointer',
-            fontSize: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100vh',
+            flexDirection: 'column',
+            gap: '2rem',
+            padding: '2rem',
           }}
         >
-          Reload
-        </button>
+          <div
+            style={{
+              maxWidth: '600px',
+              width: '100%',
+              padding: '3rem',
+              background: 'var(--paper-white)',
+              border: '2px solid var(--border-medium)',
+              borderRadius: '2px',
+              boxShadow: '0 4px 16px var(--shadow-medium)',
+            }}
+          >
+            <h1
+              style={{
+                fontSize: 'var(--font-h1)',
+                fontWeight: 700,
+                marginBottom: '1rem',
+                color: 'var(--ink-dark)',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              Kernel Load Error
+            </h1>
+            <p
+              style={{
+                fontSize: 'var(--font-body)',
+                color: 'var(--ink-medium)',
+                marginBottom: '2rem',
+                lineHeight: 1.6,
+                fontFamily: 'JetBrains Mono, Fira Code, monospace',
+                padding: '1rem',
+                background: 'var(--paper-off-white)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '2px',
+              }}
+            >
+              {error.message}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="minimal-button primary"
+              style={{ width: '100%' }}
+            >
+              Reload System
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (loading || !ready) {
     return (
-      <>
+      <div className="minimal-app">
         <style>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
           @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.5); opacity: 1; }
           }
         `}</style>
         <div
@@ -64,39 +91,36 @@ export default function App() {
             justifyContent: 'center',
             height: '100vh',
             flexDirection: 'column',
-            gap: '1.5rem',
-            background: 'linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%)',
-            color: '#ffffff',
           }}
         >
+          {/* Minimal Loader */}
           <div
-            style={{
-              width: '60px',
-              height: '60px',
-              border: '4px solid rgba(102, 126, 234, 0.2)',
-              borderTop: '4px solid #667eea',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-            }}
-          />
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-              Loading INOS Kernel
-            </p>
-            <p
+            style={{ position: 'relative', width: '40px', height: '40px', marginBottom: '2rem' }}
+          >
+            <div
               style={{
-                fontSize: '0.875rem',
-                color: 'rgba(255, 255, 255, 0.6)',
-                animation: 'pulse 2s ease-in-out infinite',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                border: '2px solid var(--sepia-accent)',
+                animation: 'pulse 2s infinite ease-in-out',
               }}
-            >
-              Initializing distributed runtime...
-            </p>
+            />
           </div>
+
+          <h2 className="minimal-title" style={{ fontSize: '24px', margin: 0 }}>
+            INOS Kernel
+          </h2>
+          <p className="minimal-text" style={{ fontSize: '14px', marginTop: '1rem' }}>
+            Initializing distributed runtime...
+          </p>
         </div>
-      </>
+      </div>
     );
   }
 
-  return <StoryView />;
+  // When ready, show the manifesto
+  return <div>Ready</div>;
 }
