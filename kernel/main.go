@@ -391,7 +391,26 @@ func main() {
 		return nil
 	}))
 
-	// 4. Boot (Wait for SAB)
+	// 4. Register Shutdown Polling (Atomic Signal from Host)
+	go func() {
+		// Wait for SAB to be initialized
+		for kernelInstance.StateName() != "RUNNING" {
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Polling loop for Atomic shutdown
+		for {
+			// IDX 0 of the system SAB is the shutdown flag
+			if systemSAB[0] == 1 {
+				kernelInstance.logger.Info("!!! ATOMIC SHUTDOWN SIGNAL RECEIVED !!!")
+				kernelInstance.Shutdown()
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}()
+
+	// 5. Boot (Wait for SAB)
 	go kernelInstance.Boot()
 
 	// 5. Block Main Thread (WASM requires this)

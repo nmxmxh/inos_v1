@@ -328,14 +328,6 @@
       "capabilities": [
         "init_population",
         "step_physics",
-        "get_state",
-        "forward_pass",
-        "batch_forward",
-        "calculate_fitness",
-        "step_learning",
-        "set_config",
-        "get_stats",
-        "reset",
         "boids.init_population",
         "boids.step_physics",
         "boids.step_learning",
@@ -801,5 +793,120 @@
       "test-race": "Run tests with race detector",
       "test-watch": "Continuous testing (watch mode)"
     }
+  },
+  "communication": {
+    "biological_metaphors": {
+      "circulatory_system": {
+        "component": "Zero-Copy I/O",
+        "headline": "Data in Motion, Without the Copy.",
+        "metaphor": "Blood flows through the body without stopping at every organ to be transferred into new containers."
+      },
+      "digestive_system": {
+        "component": "Economic Storage Mesh",
+        "headline": "Storage That Pays for Itself.",
+        "metaphor": "The body stores energy efficiently and retrieves it when needed, paying with ATP."
+      },
+      "dna": {
+        "component": "Cap'n Proto Schemas",
+        "headline": "Contracts That Compile.",
+        "metaphor": "DNA defines the blueprint; Cap'n Proto schemas define the contract between components."
+      },
+      "immune_system": {
+        "component": "Reputation Engine \u0026 Gossip Protocol",
+        "headline": "Trust, Verified by the Network.",
+        "metaphor": "The immune system learns, remembers, and protects—identifying and isolating threats automatically."
+      },
+      "nervous_system": {
+        "component": "Reactive Mutation / Epoch Signaling",
+        "headline": "React to Reality, Not to Messages.",
+        "metaphor": "Neurons fire and the body reacts instantly—no waiting for messages to be passed and processed."
+      }
+    },
+    "core_narrative": {
+      "hero": {
+        "description": "A zero-copy, SharedArrayBuffer-native distributed runtime that treats computation like a biological organism.",
+        "name": "INOS: The Biological Runtime",
+        "tagline": "A living system where data flows like blood—without stopping to be copied."
+      },
+      "villain": {
+        "description": "The serialization overhead, memory fragmentation, and latency that plague traditional distributed systems.",
+        "name": "The Copy Tax",
+        "pain_points": [
+          "Copying data between threads wastes CPU cycles",
+          "Serialization/deserialization adds latency",
+          "Memory fragmentation limits scalability",
+          "Traditional message passing creates bottlenecks"
+        ]
+      }
+    },
+    "metrics": {
+      "capability_count": 233,
+      "layer_count": 3,
+      "protocol_count": 9,
+      "unit_count": 10
+    },
+    "one_more_thing": {
+      "call_to_action": "Try the zero-copy difference.",
+      "insight": "What if your entire application could react to change, not just data?",
+      "reveal": "INOS doesn't just share memory—it shares reality. Every component sees the same truth at the same instant."
+    },
+    "rule_of_three": {
+      "layers": [
+        "Layer 1: The Body (Nginx + JS Bridge) — Speed \u0026 Sensors",
+        "Layer 2: The Brain (Go Kernel) — Orchestration \u0026 Policy",
+        "Layer 3: The Muscle (Rust Modules) — Compute \u0026 Storage"
+      ],
+      "outcomes": [
+        "Performance: O(1) memory operations",
+        "Scalability: Self-healing mesh from 5 to 700+ nodes",
+        "Sustainability: Economic incentives ensure long-term viability"
+      ],
+      "principles": [
+        "Zero-Copy: Never duplicate data unnecessarily",
+        "Epoch-Based: Signal changes, don't send messages",
+        "Economic: Every resource has a cost and a reward"
+      ]
+    },
+    "sample_transformations": [
+      {
+        "after": "Imagine a whiteboard that every team member can see and write on simultaneously—no passing notes, no waiting, no translation. That's SharedArrayBuffer: a shared reality where Go, Rust, and JavaScript all see the same truth at the same instant.",
+        "before": "The SharedArrayBuffer provides a mechanism for zero-copy data transfer between WebAssembly modules compiled from different languages."
+      },
+      {
+        "after": "When something changes, the system doesn't send messages—it just updates reality and rings a bell. Everyone who's listening hears the same bell at the same instant.",
+        "before": "The Epoch-based signaling system uses atomic counters to notify observers of state changes."
+      }
+    ],
+    "twitter_headlines": [
+      "Zero copies. Zero waiting. Infinite possibilities.",
+      "Data in Motion, Without the Copy.",
+      "Storage That Pays for Itself.",
+      "React to Reality, Not to Messages.",
+      "The runtime that heals itself.",
+      "Computation as a living system.",
+      "Credits are the ATP of the runtime.",
+      "Trust, verified by the network."
+    ],
+    "value_propositions": {
+      "for_architects": [
+        "Proven patterns for distributed state (CRDT, Gossip)",
+        "Horizontal scaling with self-healing",
+        "Economic incentives align with resource usage",
+        "Protocol-first design ensures compatibility"
+      ],
+      "for_business": [
+        "Reduce infrastructure costs with efficient resource usage",
+        "Built-in economic model for compute marketplaces",
+        "Future-proof architecture for Web3 / decentralized apps",
+        "Lower latency = better user experience"
+      ],
+      "for_developers": [
+        "Eliminate serialization boilerplate",
+        "Write once, run anywhere in the mesh",
+        "Zero-copy IPC between Go, Rust, and JS",
+        "Reactive patterns without callback hell"
+      ]
+    },
+    "workflow_reference": ".agent/workflows/renaissance-communicator.md"
   }
 }

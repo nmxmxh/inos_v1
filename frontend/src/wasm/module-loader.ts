@@ -177,6 +177,12 @@ function handleWbgImport(
 export async function loadAllModules(
   sharedMemory: WebAssembly.Memory
 ): Promise<Record<string, any>> {
+  // Singleton check
+  if (window.inosModules) {
+    console.log('[ModuleLoader] Reusing existing modules singleton');
+    return window.inosModules;
+  }
+
   const moduleNames = ['compute', 'diagnostics']; // drivers and vault are now lazy-loaded
   const loadedModules: Record<string, any> = {};
 

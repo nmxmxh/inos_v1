@@ -1,6 +1,6 @@
 use crate::js_interop::Int32Array;
+use crate::js_interop::JsValue;
 use std::sync::atomic::Ordering;
-use web_sys::wasm_bindgen::JsValue;
 
 /// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety
 ///

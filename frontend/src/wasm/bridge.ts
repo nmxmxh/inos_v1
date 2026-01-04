@@ -152,6 +152,17 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       if (obj && typeof obj.length === 'number') return obj.length;
       return 0;
     },
+
+    inos_js_to_string: (idx: number, ptr: number, maxLen: number) => {
+      const obj = getObject(idx);
+      if (typeof obj !== 'string') return 0;
+      const buffer = getBuffer();
+      const encoded = new TextEncoder().encode(obj);
+      const len = Math.min(encoded.length, maxLen);
+      const dest = new Uint8Array(buffer, ptr, len);
+      dest.set(encoded.subarray(0, len));
+      return len;
+    },
   };
 }
 

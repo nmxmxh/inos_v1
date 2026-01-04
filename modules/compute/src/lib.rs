@@ -95,6 +95,9 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
             sdk::set_module_id(module_id);
 
             sdk::init_logging();
+            // Capture the initial context ID to prevent zombie execution
+            sdk::init_context();
+
             info!("Compute module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
                 module_id, offset, size / 1024 / 1024);
 
@@ -117,6 +120,9 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
 /// External poll entry point for JavaScript
 #[no_mangle]
 pub extern "C" fn compute_poll() {
+    if !sdk::is_context_valid() {
+        return;
+    }
     // High-frequency reactor for Compute
 }
 
@@ -235,6 +241,9 @@ pub extern "C" fn compute_boids_init(bird_count: u32) -> i32 {
 /// Returns the current epoch number, or 0 on error
 #[no_mangle]
 pub extern "C" fn compute_boids_step(bird_count: u32, dt: f32) -> u32 {
+    if !sdk::is_context_valid() {
+        return 0;
+    }
     let sab = match get_cached_sab() {
         Some(s) => s,
         None => return 0,
@@ -512,12 +521,7 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
 }
 
 impl ComputeKernel {
-    pub fn new(
-        sab: &web_sys::wasm_bindgen::JsValue,
-        _offset: u32,
-        _size: u32,
-        node_id: String,
-    ) -> Self {
+    pub fn new(sab: &sdk::JsValue, _offset: u32, _size: u32, node_id: String) -> Self {
         sdk::init_logging();
         info!("Compute Kernel initialized on node {}", node_id);
 

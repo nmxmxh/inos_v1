@@ -8,6 +8,7 @@ pub mod signal;
 pub mod social_graph;
 
 pub mod arena;
+pub mod context;
 pub mod js_interop;
 // pub mod auto_register; // Removed - was wasm-bindgen dependent
 pub mod compression;
@@ -78,6 +79,7 @@ pub mod protocols {
     pub use crate::syscall_capnp as syscall;
 }
 
+pub use context::{init_context, is_valid as is_context_valid};
 pub use credits::{BudgetVerifier, CostTracker, ReplicationIncentive, ReplicationTier};
 pub use identity::{
     get_module_id, set_module_id, IdentityContext, IdentityEntry, IdentityRegistry,
@@ -93,5 +95,5 @@ pub use signal::{
 pub use social_graph::{SocialEntry, SocialGraph};
 
 // Re-export js-sys and JsValue for modules that need JavaScript interop
+pub use crate::js_interop::JsValue;
 pub use js_sys;
-pub use web_sys::wasm_bindgen::JsValue;

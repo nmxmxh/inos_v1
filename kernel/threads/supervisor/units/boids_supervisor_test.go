@@ -74,7 +74,7 @@ func TestSetBirdCount(t *testing.T) {
 	}
 
 	// Test exceeding max
-	supervisor.SetBirdCount(200)
+	supervisor.SetBirdCount(3000)
 	if supervisor.birdCount != MaxBirds {
 		t.Errorf("Expected birdCount capped at %d, got %d", MaxBirds, supervisor.birdCount)
 	}

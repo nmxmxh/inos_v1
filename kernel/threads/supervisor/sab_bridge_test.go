@@ -27,7 +27,7 @@ func createTestSABBridge() (*SABBridge, []byte) {
 		uint32(sabSize),
 		sab_layout.OFFSET_INBOX_BASE,
 		sab_layout.OFFSET_OUTBOX_BASE,
-		sab_layout.IDX_SYSTEM_EPOCH, // Use system epoch for tests
+		0, // Use index 0 for simple tests
 	)
 
 	// Initialize ring buffer pointers

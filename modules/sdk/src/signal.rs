@@ -1,8 +1,8 @@
+use crate::js_interop::JsValue;
 pub use crate::layout::{
     IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_DIRTY, IDX_PANIC_STATE,
     IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH, IDX_SYSTEM_EPOCH, OFFSET_INBOX_OUTBOX, SIZE_INBOX_OUTBOX,
 };
-use web_sys::wasm_bindgen::JsValue;
 
 use crate::ringbuffer::RingBuffer;
 use crate::sab::SafeSAB;
@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn test_epoch_logic() {
-        let sab = JsValue::UNDEFINED;
+        let sab = crate::JsValue::UNDEFINED;
         let mut epoch = Epoch::new(&sab, IDX_SYSTEM_EPOCH);
 
         assert_eq!(epoch.current(), 0);
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_reactor_signals() {
-        let sab = JsValue::UNDEFINED;
+        let sab = crate::JsValue::UNDEFINED;
         let reactor = Reactor::new(&sab);
 
         assert!(!reactor.check_inbox());

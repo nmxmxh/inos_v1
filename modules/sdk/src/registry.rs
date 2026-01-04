@@ -335,7 +335,7 @@ pub fn allocate_arena(sab: &SafeSAB, size: u32) -> Result<u32, String> {
     let buffer = sab.inner();
     let length = crate::js_interop::get_byte_length(buffer);
     let view = crate::js_interop::create_i32_view(buffer, 0, length / 4);
-    let typed_array_val: web_sys::wasm_bindgen::JsValue = view.into();
+    let typed_array_val: crate::JsValue = view.into();
 
     let aligned_size = (size + 3) & !3;
 

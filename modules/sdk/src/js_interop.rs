@@ -1,4 +1,44 @@
-use web_sys::wasm_bindgen::JsValue;
+#[cfg(target_arch = "wasm32")]
+pub use web_sys::wasm_bindgen::JsValue;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct JsValue(u32);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl JsValue {
+    pub const NULL: JsValue = JsValue(0);
+    pub const UNDEFINED: JsValue = JsValue(1);
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
+    }
+    pub fn is_undefined(&self) -> bool {
+        self.0 == 1
+    }
+    pub fn is_string(&self) -> bool {
+        false
+    }
+    pub fn as_f64(&self) -> Option<f64> {
+        None
+    }
+    pub fn as_string(&self) -> Option<String> {
+        None
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<&str> for JsValue {
+    fn from(_s: &str) -> Self {
+        JsValue::UNDEFINED
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<String> for JsValue {
+    fn from(_s: String) -> Self {
+        JsValue::UNDEFINED
+    }
+}
 
 #[cfg(target_arch = "wasm32")]
 pub type Uint8Array = js_sys::Uint8Array;
@@ -98,6 +138,10 @@ extern "C" {
     // Stable name: inos_get_byte_length
     #[link_name = "inos_get_byte_length"]
     fn get_byte_length_raw(val: JsValue) -> u32;
+
+    // Stable name: inos_js_to_string
+    #[link_name = "inos_js_to_string"]
+    fn js_to_string_raw(val: JsValue, ptr: *mut u8, max_len: u32) -> u32;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -155,6 +199,24 @@ mod native_mock {
     }
     pub fn get_performance_now() -> f64 {
         0.0
+    }
+
+    pub fn get_global() -> JsValue {
+        JsValue::UNDEFINED
+    }
+
+    pub fn reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
+        Ok(JsValue::UNDEFINED)
+    }
+
+    pub fn js_to_string(_val: &JsValue) -> Option<String> {
+        None
+    }
+
+    pub fn get_byte_length(_val: &JsValue) -> u32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        buffers[0].len() as u32
     }
 
     pub fn atomic_add(val: &JsValue, index: u32, value: i32) -> i32 {
@@ -261,12 +323,6 @@ mod native_mock {
         if offset + dest.len() <= buf.len() {
             dest.copy_from_slice(&buf[offset..offset + dest.len()]);
         }
-    }
-
-    pub fn get_byte_length(_val: &JsValue) -> u32 {
-        ensure_buffer_initialized();
-        let buffers = BUFFERS.lock().unwrap();
-        buffers[0].len() as u32
     }
 }
 
@@ -462,4 +518,18 @@ pub fn get_byte_length(_val: &JsValue) -> u32 {
     return unsafe { get_byte_length_raw(_val.clone()) };
     #[cfg(not(target_arch = "wasm32"))]
     native_mock::get_byte_length(_val)
+}
+
+pub fn js_to_string(_val: &JsValue) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        let mut buf = [0u8; 128]; // Context IDs are short
+        let len = js_to_string_raw(_val.clone(), buf.as_mut_ptr(), 128);
+        if len == 0 {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&buf[..len as usize]).to_string())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::js_to_string(_val)
 }

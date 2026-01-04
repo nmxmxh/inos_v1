@@ -231,100 +231,112 @@ pub struct ChunkMetadata {
 }
 
 // Helper to convert ChunkMetadata to Object (replaces serde_wasm_bindgen::to_value)
-fn metadata_to_jsvalue(metadata: &ChunkMetadata) -> Result<Object, StorageError> {
-    let obj = Object::new();
-    Reflect::set(
-        &obj,
-        &"hash".into(),
-        &JsString::from(metadata.hash.as_str()).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    Reflect::set(
-        &obj,
-        &"location".into(),
-        &JsString::from(metadata.location.as_str()).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    Reflect::set(
-        &obj,
-        &"size".into(),
-        &js_sys::Number::from(metadata.size as f64).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    Reflect::set(
-        &obj,
-        &"priority".into(),
-        &JsString::from(metadata.priority.as_str()).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    Reflect::set(
-        &obj,
-        &"last_accessed".into(),
-        &js_sys::Number::from(metadata.last_accessed).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    Reflect::set(
-        &obj,
-        &"access_count".into(),
-        &js_sys::Number::from(metadata.access_count as f64).into(),
-    )
-    .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
-    if let Some(ref model_id) = metadata.model_id {
+fn metadata_to_jsvalue(_metadata: &ChunkMetadata) -> Result<sdk::JsValue, StorageError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return Ok(sdk::JsValue::UNDEFINED);
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let obj = Object::new();
         Reflect::set(
             &obj,
-            &"model_id".into(),
-            &JsString::from(model_id.as_str()).into(),
+            &"hash".into(),
+            &JsString::from(_metadata.hash.as_str()).into(),
         )
         .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        Reflect::set(
+            &obj,
+            &"location".into(),
+            &JsString::from(_metadata.location.as_str()).into(),
+        )
+        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        Reflect::set(
+            &obj,
+            &"size".into(),
+            &js_sys::Number::from(_metadata.size as f64).into(),
+        )
+        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        Reflect::set(
+            &obj,
+            &"priority".into(),
+            &JsString::from(_metadata.priority.as_str()).into(),
+        )
+        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        Reflect::set(
+            &obj,
+            &"last_accessed".into(),
+            &js_sys::Number::from(_metadata.last_accessed).into(),
+        )
+        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        Reflect::set(
+            &obj,
+            &"access_count".into(),
+            &js_sys::Number::from(_metadata.access_count as f64).into(),
+        )
+        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        if let Some(ref model_id) = _metadata.model_id {
+            Reflect::set(
+                &obj,
+                &"model_id".into(),
+                &JsString::from(model_id.as_str()).into(),
+            )
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
+        }
+        Ok(obj.into())
     }
-    Ok(obj)
 }
 
 // Helper to convert Object to ChunkMetadata (replaces serde_wasm_bindgen::from_value)
-fn jsvalue_to_metadata(val: &Object) -> Result<ChunkMetadata, StorageError> {
-    let hash = sdk::js_interop::reflect_get(val, &"hash".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
-        .as_string()
-        .ok_or_else(|| StorageError::IndexedDB("hash not a string".into()))?;
-    let location = sdk::js_interop::reflect_get(val, &"location".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
-        .as_string()
-        .ok_or_else(|| StorageError::IndexedDB("location not a string".into()))?;
-    let size = sdk::js_interop::reflect_get(val, &"size".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
-        .and_then(|v| {
-            sdk::js_interop::as_f64(&v)
-                .ok_or_else(|| StorageError::IndexedDB("size not a number".into()))
-        })? as usize;
-    let priority = sdk::js_interop::reflect_get(val, &"priority".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
-        .as_string()
-        .ok_or_else(|| StorageError::IndexedDB("priority not a string".into()))?;
-    let last_accessed = sdk::js_interop::reflect_get(val, &"last_accessed".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
-        .and_then(|v| {
-            sdk::js_interop::as_f64(&v)
-                .ok_or_else(|| StorageError::IndexedDB("last_accessed not a number".into()))
-        })?;
-    let access_count = sdk::js_interop::reflect_get(val, &"access_count".into())
-        .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
-        .and_then(|v| {
-            sdk::js_interop::as_f64(&v)
-                .ok_or_else(|| StorageError::IndexedDB("access_count not a number".into()))
-        })? as u32;
-    let model_id = sdk::js_interop::reflect_get(val, &"model_id".into())
-        .ok()
-        .and_then(|v| v.as_string());
+fn jsvalue_to_metadata(_val: &sdk::JsValue) -> Result<ChunkMetadata, StorageError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return Err(StorageError::NotInitialized);
 
-    Ok(ChunkMetadata {
-        hash,
-        location,
-        size,
-        priority,
-        last_accessed,
-        access_count,
-        model_id,
-    })
+    #[cfg(target_arch = "wasm32")]
+    {
+        let hash = sdk::js_interop::reflect_get(_val, &"hash".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
+            .as_string()
+            .ok_or_else(|| StorageError::IndexedDB("hash not a string".into()))?;
+        let location = sdk::js_interop::reflect_get(_val, &"location".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
+            .as_string()
+            .ok_or_else(|| StorageError::IndexedDB("location not a string".into()))?;
+        let size = sdk::js_interop::reflect_get(_val, &"size".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
+            .and_then(|v| {
+                sdk::js_interop::as_f64(&v)
+                    .ok_or_else(|| StorageError::IndexedDB("size not a number".into()))
+            })? as usize;
+        let priority = sdk::js_interop::reflect_get(_val, &"priority".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
+            .as_string()
+            .ok_or_else(|| StorageError::IndexedDB("priority not a string".into()))?;
+        let last_accessed = sdk::js_interop::reflect_get(_val, &"last_accessed".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
+            .and_then(|v| {
+                sdk::js_interop::as_f64(&v)
+                    .ok_or_else(|| StorageError::IndexedDB("last_accessed not a number".into()))
+            })?;
+        let access_count = sdk::js_interop::reflect_get(_val, &"access_count".into())
+            .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
+            .and_then(|v| {
+                sdk::js_interop::as_f64(&v)
+                    .ok_or_else(|| StorageError::IndexedDB("access_count not a number".into()))
+            })? as u32;
+        let model_id = sdk::js_interop::reflect_get(_val, &"model_id".into())
+            .ok()
+            .and_then(|v| v.as_string());
+
+        Ok(ChunkMetadata {
+            hash,
+            location,
+            size,
+            priority,
+            last_accessed,
+            access_count,
+            model_id,
+        })
+    }
 }
 
 // ========== StorageJob ==========

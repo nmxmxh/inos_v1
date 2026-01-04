@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { initializeKernel } from '../wasm/kernel';
+import { initializeKernel, shutdownKernel } from '../wasm/kernel';
 import { loadAllModules, loadModule } from '../wasm/module-loader';
 import { RegistryReader } from '../wasm/registry';
 
@@ -21,10 +21,12 @@ export interface UnitState {
   capabilities: string[];
 }
 
+export type SystemStatus = 'uninitialized' | 'initializing' | 'booting' | 'ready' | 'error';
+
 export interface SystemStore {
-  status: 'initializing' | 'booting' | 'ready' | 'error';
+  status: SystemStatus;
   units: Record<string, UnitState>;
-  moduleExports: Record<string, any>;
+  moduleExports: Record<string, any> | undefined;
   stats: KernelStats;
   error: Error | null;
 
@@ -38,6 +40,7 @@ export interface SystemStore {
   signalModule: (name: string) => void;
   pollAll: () => void;
   setMetric: (name: keyof KernelStats, value: number) => void;
+  cleanup: () => void;
 }
 
 let registryReader: RegistryReader | null = null;
@@ -90,11 +93,17 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
       // 1. Initialize kernel
       const { memory } = await initializeKernel();
+      const currentContext = window.__INOS_CONTEXT_ID__;
       (window as any).__INOS_MEM__ = memory;
-      console.log('[System] ✅ Kernel initialized');
+      console.log(`[System] ✅ Kernel initialized (Context: ${currentContext})`);
 
       // 2. Start registry scanning
-      setInterval(() => {
+      const scannerId = setInterval(() => {
+        if (window.__INOS_CONTEXT_ID__ !== currentContext) {
+          console.log(`[System] 💀 Killing stale scanner: ${currentContext}`);
+          clearInterval(scannerId);
+          return;
+        }
         get().scanRegistry(memory);
       }, 2000);
 
@@ -129,6 +138,12 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       let frames = 0;
 
       const loop = () => {
+        if (window.__INOS_CONTEXT_ID__ !== currentContext) {
+          console.log(`[System] 💀 Killing stale loop: ${currentContext}`);
+          (window as any).__INOS_LOOP_ACTIVE__ = false;
+          return;
+        }
+        if (!get().moduleExports) return; // Cleanup check
         const now = performance.now();
         frames++;
 
@@ -140,10 +155,13 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           lastTime = now;
         }
 
-        requestAnimationFrame(loop);
+        (window as any).__INOS_RAF_ID__ = requestAnimationFrame(loop);
       };
 
-      loop();
+      if (!(window as any).__INOS_LOOP_ACTIVE__) {
+        (window as any).__INOS_LOOP_ACTIVE__ = true;
+        loop();
+      }
 
       console.log('[System] ✅ INOS ready');
     } catch (error) {
@@ -155,7 +173,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
   loadModule: async (name: string) => {
     const { status, moduleExports } = get();
     if (status !== 'ready') return;
-    if (moduleExports[name]) return; // Already loaded
+    if (moduleExports && moduleExports[name]) return; // Already loaded
 
     try {
       console.log(`[System] Lazy loading module: ${name}...`);
@@ -212,6 +230,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
   pollAll: () => {
     const { moduleExports } = get();
+    if (!moduleExports) return;
 
     for (const moduleName in moduleExports) {
       const exports = moduleExports[moduleName];
@@ -232,5 +251,17 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         [name]: value,
       },
     }));
+  },
+
+  cleanup: () => {
+    if ((window as any).__INOS_RAF_ID__) {
+      cancelAnimationFrame((window as any).__INOS_RAF_ID__);
+      (window as any).__INOS_RAF_ID__ = null;
+    }
+    (window as any).__INOS_LOOP_ACTIVE__ = false;
+    // Signal shutdown to Go kernel
+    shutdownKernel();
+    // Clear modules to allow GC
+    set({ moduleExports: undefined, status: 'uninitialized' });
   },
 }));

@@ -1,7 +1,7 @@
+use crate::js_interop::JsValue;
 use crate::sab::SafeSAB;
 use crate::signal::Epoch;
 use std::time::Instant;
-use web_sys::wasm_bindgen::JsValue;
 
 /// Architectural Benchmarks for zero-copy SAB and Epoch signaling
 #[cfg(test)]
