@@ -320,6 +320,8 @@ impl ApiProxy {
 }
 
 /// Trait for decentralized shader discovery and registration
+/// Note: Currently implemented but not actively called - reserved for future P2P shader registry
+#[allow(dead_code)]
 #[async_trait(?Send)]
 pub trait ShaderFetcher {
     async fn fetch_shader(&self, url: &str) -> Result<String, String>;

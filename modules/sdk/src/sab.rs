@@ -14,7 +14,6 @@ use web_sys::wasm_bindgen::JsValue;
 type BufferHandle = web_sys::wasm_bindgen::JsValue;
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 pub(crate) struct BufferHandle(u32);
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -25,8 +24,9 @@ unsafe impl Send for BufferHandle {}
 /// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety
 #[derive(Clone)]
 pub struct SafeSAB {
-    #[allow(dead_code)]
     pub(crate) buffer: BufferHandle,
+    /// Persistent view for memory barriers to prevent JS object bloat
+    pub(crate) barrier_view: JsValue,
     base_offset: usize,
     capacity: usize,
 }
@@ -39,11 +39,20 @@ impl SafeSAB {
         #[cfg(not(target_arch = "wasm32"))]
         let capacity = crate::js_interop::get_byte_length(&JsValue::UNDEFINED) as usize;
 
+        // PRE-CACHE full-buffer barrier view for zero-copy efficiency
+        // We always use a view starting at 0 so that abs_offset indexing is consistent
+        #[cfg(target_arch = "wasm32")]
+        let barrier_view: JsValue =
+            crate::js_interop::create_i32_view(_buffer, 0, (capacity / 4) as u32).into();
+        #[cfg(not(target_arch = "wasm32"))]
+        let barrier_view = JsValue::UNDEFINED;
+
         Self {
             #[cfg(target_arch = "wasm32")]
             buffer: _buffer.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             buffer: BufferHandle(0),
+            barrier_view,
             base_offset: 0,
             capacity,
         }
@@ -51,11 +60,25 @@ impl SafeSAB {
 
     /// Create a new SafeSAB as a view into a sub-region of a SharedArrayBuffer
     pub fn new_shared_view(_buffer: &JsValue, offset: u32, size: u32) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let total_capacity = crate::js_interop::get_byte_length(_buffer) as u32;
+        #[cfg(not(target_arch = "wasm32"))]
+        let total_capacity = size;
+
+        // PRE-CACHE full-buffer barrier view for zero-copy efficiency
+        // Even for shared views, we use a full-buffer view for barriers to simplify indexing
+        #[cfg(target_arch = "wasm32")]
+        let barrier_view: JsValue =
+            crate::js_interop::create_i32_view(_buffer, 0, total_capacity / 4).into();
+        #[cfg(not(target_arch = "wasm32"))]
+        let barrier_view = JsValue::UNDEFINED;
+
         Self {
             #[cfg(target_arch = "wasm32")]
             buffer: _buffer.clone(),
             #[cfg(not(target_arch = "wasm32"))]
             buffer: BufferHandle(0),
+            barrier_view,
             base_offset: offset as usize,
             capacity: size as usize,
         }
@@ -70,6 +93,7 @@ impl SafeSAB {
         #[cfg(not(target_arch = "wasm32"))]
         Self {
             buffer: BufferHandle(0),
+            barrier_view: JsValue::UNDEFINED,
             base_offset: 0,
             capacity: size,
         }
@@ -113,6 +137,38 @@ impl SafeSAB {
         Ok(data.len())
     }
 
+    /// Bulk read from buffer with single pair of memory barriers
+    pub fn read_raw(&self, offset: usize, dest: &mut [u8]) -> Result<(), String> {
+        self.bounds_check(offset, dest.len())?;
+
+        // Acquire barrier once for the whole block
+        self.memory_barrier_acquire(offset);
+
+        let abs_offset = self.base_offset + offset;
+        crate::js_interop::copy_from_sab(self.as_js(), abs_offset as u32, dest);
+
+        // Release barrier once for the whole block
+        self.memory_barrier_release(offset);
+
+        Ok(())
+    }
+
+    /// Bulk write to buffer with single pair of memory barriers
+    pub fn write_raw(&self, offset: usize, data: &[u8]) -> Result<(), String> {
+        self.bounds_check(offset, data.len())?;
+
+        // Acquire barrier once for the whole block
+        self.memory_barrier_acquire(offset);
+
+        let abs_offset = self.base_offset + offset;
+        crate::js_interop::copy_to_sab(self.as_js(), abs_offset as u32, data);
+
+        // Release barrier once for the whole block
+        self.memory_barrier_release(offset);
+
+        Ok(())
+    }
+
     fn bounds_check(&self, offset: usize, length: usize) -> Result<(), String> {
         if offset + length > self.capacity {
             return Err(format!(
@@ -124,35 +180,23 @@ impl SafeSAB {
     }
 
     fn memory_barrier_acquire(&self, offset: usize) {
-        // Use custom atomic_load via stable ABI
-        // We use the first word of the buffer as a barrier for now,
-        // OR we use the actual offset if we have a view.
+        // Use cached barrier_view to avoid JS object creation
         let abs_offset = self.base_offset + offset;
-        let view = crate::js_interop::create_i32_view(self.as_js(), (abs_offset & !3) as u32, 1);
-        let _ = crate::js_interop::atomic_load(&view.into(), 0);
+        let index = (abs_offset / 4) as u32;
+        let _ = crate::js_interop::atomic_load(&self.barrier_view, index);
     }
 
     fn memory_barrier_release(&self, offset: usize) {
-        // Use custom atomic_store via stable ABI
+        // Use cached barrier_view to avoid JS object creation
         let abs_offset = self.base_offset + offset;
-        let view = crate::js_interop::create_i32_view(self.as_js(), (abs_offset & !3) as u32, 1);
-        // FIXED: Use atomic_load instead of atomic_store to avoid data corruption
-        let _ = crate::js_interop::atomic_load(&view.into(), 0);
+        let index = (abs_offset / 4) as u32;
+        // RELEASE is technically an atomic_load for our memory model
+        let _ = crate::js_interop::atomic_load(&self.barrier_view, index);
     }
 
-    /// Get raw inner buffer (use with caution)
+    /// Get raw inner buffer handle (for interop with other SDK components)
     pub fn inner(&self) -> &JsValue {
-        #[cfg(target_arch = "wasm32")]
-        return &self.buffer;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use once_cell::sync::Lazy;
-            struct SyncJsValue(JsValue);
-            unsafe impl Sync for SyncJsValue {}
-            unsafe impl Send for SyncJsValue {}
-            static UNDEFINED: Lazy<SyncJsValue> = Lazy::new(|| SyncJsValue(JsValue::UNDEFINED));
-            &UNDEFINED.0
-        }
+        self.as_js()
     }
 
     fn as_js(&self) -> &JsValue {

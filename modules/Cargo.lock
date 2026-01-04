@@ -1042,6 +1042,7 @@ dependencies = [
  "log",
  "naga",
  "num_cpus",
+ "once_cell",
  "parquet",
  "pbkdf2",
  "rand 0.8.5",

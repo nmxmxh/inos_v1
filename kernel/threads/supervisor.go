@@ -197,7 +197,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 
 	s.logger.Info("Initializing compute units with shared SAB")
 
-	loader := NewUnitLoader(s.sab, s.patterns, s.knowledge, s.registry, s.credits)
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
 	units, bridge := loader.LoadUnits()
 	s.bridge = bridge
 

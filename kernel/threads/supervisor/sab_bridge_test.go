@@ -24,9 +24,10 @@ func createTestSABBridge() (*SABBridge, []byte) {
 
 	bridge := NewSABBridge(
 		unsafe.Pointer(&sab[0]),
+		uint32(sabSize),
 		sab_layout.OFFSET_INBOX_BASE,
 		sab_layout.OFFSET_OUTBOX_BASE,
-		sab_layout.OFFSET_ATOMIC_FLAGS, // Base of atomic flags
+		sab_layout.IDX_SYSTEM_EPOCH, // Use system epoch for tests
 	)
 
 	// Initialize ring buffer pointers

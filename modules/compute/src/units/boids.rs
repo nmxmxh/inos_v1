@@ -18,24 +18,6 @@ use std::sync::atomic::{AtomicU32, Ordering};
 ///
 /// Epoch signaling: Written to SAB offset 0x0000
 
-// Constants for memory layout
-const SAB_OFFSET_BOIDS: usize = 0x400000;
-const BYTES_PER_BIRD: usize = 232;
-
-// Physics constants
-const FLOCK_RADIUS: f32 = 10.0;
-const SEPARATION_WEIGHT: f32 = 1.2;
-const ALIGNMENT_WEIGHT: f32 = 0.5;
-const DAMPING: f32 = 0.98;
-const BOUNDARY_X: f32 = 30.0;
-const BOUNDARY_Y: f32 = 15.0;
-const BOUNDARY_Z: f32 = 30.0;
-const BOUNDARY_SPRING: f32 = 0.5;
-
-// Animation constants
-const WING_FREQ_BASE: f32 = 5.0;
-const WING_AMPLITUDE: f32 = 0.6;
-
 /// Global epoch counter for signaling state changes
 static EPOCH_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -46,32 +28,47 @@ pub struct BoidUnit {
 
 #[derive(Clone)]
 struct BoidConfig {
+    _max_birds: u32,
     _bird_count: u32,
-    _sab_offset: usize,
+    _learning_rate: f32,
+    _mutation_rate: f32,
+    _bird_offset: usize,
+}
+
+impl Default for BoidConfig {
+    fn default() -> Self {
+        Self {
+            _max_birds: 10000,
+            _bird_count: 1000,
+            _learning_rate: 0.01,
+            _mutation_rate: 0.1,
+            _bird_offset: 0x400000, // 4MB offset
+        }
+    }
 }
 
 impl BoidUnit {
-    pub fn new(bird_count: u32, sab_offset: usize) -> Self {
+    pub fn new() -> Self {
         Self {
-            _config: BoidConfig {
-                _bird_count: bird_count,
-                _sab_offset: sab_offset,
-            },
+            _config: BoidConfig::default(),
         }
     }
 
     /// Step boids physics in SAB (called from lib.rs)
     /// Returns the current epoch number
-    pub fn step_physics_sab(
-        sab: &SafeSAB,
-        bird_count: u32,
-        dt: f32,
-        elapsed_time: f32,
-    ) -> Result<u32, String> {
+    /// Step boids physics in SAB (called from lib.rs)
+    /// Returns the current epoch number
+    pub fn step_physics_sab(sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
+        const OFFSET: usize = 0x400000;
+        const STRIDE: usize = 232; // 58 floats
+
+        // Ensure logging is initialized (idempotent)
+        sdk::init_logging();
+
         // Increment and retrieve epoch
         let epoch = EPOCH_COUNTER.fetch_add(1, Ordering::SeqCst);
 
-        // Standardized Global Epoch at 0x0000 (used for all reactivity)
+        // Standardized Global Epoch at 0x0000
         sab.write(0, &epoch.to_le_bytes())
             .map_err(|e| format!("Failed to write epoch: {}", e))?;
 
@@ -79,121 +76,152 @@ impl BoidUnit {
         sab.write(0x20, &epoch.to_le_bytes())
             .map_err(|e| format!("Failed to write bird epoch: {}", e))?;
 
-        // Physics simulation
+        static mut GLOBAL_TIME: f32 = 0.0;
+        unsafe {
+            GLOBAL_TIME += dt;
+        }
+        let time = unsafe { GLOBAL_TIME };
+
+        // Diagnostic log every 100 steps
+        if epoch % 100 == 0 {
+            log::info!(
+                "[Boids] Step {} | Count: {} | DT: {:.4}",
+                epoch,
+                bird_count,
+                dt
+            );
+        }
+
+        // --- BULK IO OPTIMIZATION ---
+        // Read the entire population block at once
+        let total_bytes = bird_count as usize * STRIDE;
+        let mut population_data = vec![0u8; total_bytes];
+        sab.read_raw(OFFSET, &mut population_data)?;
+
         for i in 0..bird_count as usize {
-            let base = SAB_OFFSET_BOIDS + i * BYTES_PER_BIRD;
+            let base = i * STRIDE;
 
-            // Read current state
-            let mut pos = Self::read_vec3(sab, base, 0)?;
-            let mut vel = Self::read_vec3(sab, base, 12)?;
-
-            // 1. Core Biological Flocking (Vector-based)
-            let mut flock_force = [0.0f32; 3];
-            let mut neighbors = 0;
-
-            for other in 0..bird_count as usize {
-                if other == i {
-                    continue;
-                }
-
-                let other_base = SAB_OFFSET_BOIDS + other * BYTES_PER_BIRD;
-                let other_pos = Self::read_vec3(sab, other_base, 0)?;
-
-                let dx = other_pos[0] - pos[0];
-                let dy = other_pos[1] - pos[1];
-                let dz = other_pos[2] - pos[2];
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-
-                if dist_sq < FLOCK_RADIUS && dist_sq > 0.001 {
-                    let dist = dist_sq.sqrt();
-                    let inv_dist = 1.0 / dist;
-
-                    // Separation: Inverse-square repulsion
-                    flock_force[0] -= dx * inv_dist * SEPARATION_WEIGHT;
-                    flock_force[1] -= dy * inv_dist * SEPARATION_WEIGHT;
-                    flock_force[2] -= dz * inv_dist * SEPARATION_WEIGHT;
-
-                    // Alignment: Match velocity
-                    let other_vel = Self::read_vec3(sab, other_base, 12)?;
-                    flock_force[0] += other_vel[0] * ALIGNMENT_WEIGHT;
-                    flock_force[1] += other_vel[1] * ALIGNMENT_WEIGHT;
-                    flock_force[2] += other_vel[2] * ALIGNMENT_WEIGHT;
-
-                    neighbors += 1;
-                }
-            }
-
-            // 2. Biological Rhythm (Breathing/Oscillation)
-            // Gently pull towards center with a biological rhythm
-            let center_pull = [-pos[0] * 0.01, -pos[1] * 0.02, -pos[2] * 0.01];
-            let rhythm = (elapsed_time * 0.2 + i as f32 * 0.1).sin() * 0.05;
-
-            // 3. Integrate Velocity
-            vel[0] = vel[0] * DAMPING + (flock_force[0] + center_pull[0]) * dt;
-            vel[1] = vel[1] * DAMPING + (flock_force[1] + center_pull[1] + rhythm) * dt;
-            vel[2] = vel[2] * DAMPING + (flock_force[2] + center_pull[2]) * dt;
-
-            // 4. Update Position
-            pos[0] += vel[0] * dt * 2.0;
-            pos[1] += vel[1] * dt * 2.0;
-            pos[2] += vel[2] * dt * 2.0;
-
-            // 5. Soft Boundaries
-            let bounds = [BOUNDARY_X, BOUNDARY_Y, BOUNDARY_Z];
+            // Read position [0-2] and velocity [3-5] from local buffer
+            let mut pos = [0.0f32; 3];
+            let mut vel = [0.0f32; 3];
             for j in 0..3 {
-                if pos[j].abs() > bounds[j] {
-                    vel[j] -= pos[j].signum() * BOUNDARY_SPRING;
-                }
+                let p_idx = base + j * 4;
+                let v_idx = base + 12 + j * 4;
+                pos[j] = f32::from_le_bytes([
+                    population_data[p_idx],
+                    population_data[p_idx + 1],
+                    population_data[p_idx + 2],
+                    population_data[p_idx + 3],
+                ]);
+                vel[j] = f32::from_le_bytes([
+                    population_data[v_idx],
+                    population_data[v_idx + 1],
+                    population_data[v_idx + 2],
+                    population_data[v_idx + 3],
+                ]);
             }
 
-            // --- Write Visual State ---
-            Self::write_vec3(sab, base, 0, &pos)?;
-            Self::write_vec3(sab, base, 12, &vel)?;
+            // --- Technical Painting Motion ---
+            // Combine flocking logic with some rhythmic, swirling motion
+            let noise_x = (time * 0.5 + i as f32 * 0.1).sin() * 0.2;
+            let noise_y = (time * 0.8 + i as f32 * 0.1).cos() * 0.1;
+            let noise_z = (time * 0.3 + i as f32 * 0.2).sin() * 0.2;
 
-            // Facing direction (Rotation)
-            let speed_sq = vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
-            if speed_sq > 0.0001 {
+            // Swirl center
+            let tx = -pos[2] * 0.3;
+            let tz = pos[0] * 0.3;
+
+            // Apply forces
+            vel[0] = vel[0] * 0.97 + (tx + noise_x) * 0.03;
+            vel[1] = vel[1] * 0.95 + noise_y * 0.05;
+            vel[2] = vel[2] * 0.97 + (tz + noise_z) * 0.03;
+
+            // Vertical oscillation for "technical sketch" rhythm
+            vel[1] += (time * 1.2 + i as f32 * 0.5).sin() * 0.05;
+
+            // Update Position
+            pos[0] += vel[0] * dt;
+            pos[1] += vel[1] * dt;
+            pos[2] += vel[2] * dt;
+
+            // Soft boundaries (smooth return)
+            if pos[0].abs() > 25.0 {
+                vel[0] -= pos[0] * 0.01;
+            }
+            if pos[1].abs() > 12.0 {
+                vel[1] -= pos[1] * 0.02;
+            }
+            if pos[2].abs() > 20.0 {
+                vel[2] -= pos[2] * 0.01;
+            }
+
+            // Write back Pos and Vel to local buffer
+            for j in 0..3 {
+                population_data[base + j * 4..base + j * 4 + 4]
+                    .copy_from_slice(&pos[j].to_le_bytes());
+                population_data[base + 12 + j * 4..base + 16 + j * 4]
+                    .copy_from_slice(&vel[j].to_le_bytes());
+            }
+
+            // --- Pose Updates ---
+            let speed = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
+            if speed > 0.005 {
                 let rot_y = vel[0].atan2(vel[2]);
-                let bank_z = -vel[0] * 0.3; // Subtle banking for biological feel
-
-                sab.write(base + 24, &rot_y.to_le_bytes())?;
-                sab.write(base + 28, &bank_z.to_le_bytes())?;
+                let bank_z = -vel[0] * 0.4;
+                population_data[base + 24..base + 28].copy_from_slice(&rot_y.to_le_bytes());
+                population_data[base + 28..base + 32].copy_from_slice(&bank_z.to_le_bytes());
             }
 
-            // Biological Wing Rhythm
-            let wing_freq = WING_FREQ_BASE + (i % 5) as f32; // Organic variation
-            let flap = (elapsed_time * wing_freq + i as f32).sin() * WING_AMPLITUDE;
+            // Wing Flapping
+            let phase = (i as f32) * 2.1;
+            let base_flap = 6.0 + (i % 8) as f32;
+            let flap = (time * base_flap + phase).sin() * 0.7;
 
-            sab.write(base + 44, &flap.to_le_bytes())?; // Synchronized wing pair
-            sab.write(base + 52, &(flap * 0.2).to_le_bytes())?; // Rhythmic tail
+            population_data[base + 44..base + 48].copy_from_slice(&(-flap).to_le_bytes()); // wing_left
+            population_data[base + 48..base + 52].copy_from_slice(&flap.to_le_bytes()); // wing_right
+            let tail_angle = (time * 3.0 + phase).cos() * 0.15;
+            population_data[base + 52..base + 56].copy_from_slice(&tail_angle.to_le_bytes()); // tail_angle
 
             // Fitness signaling (for Go GA)
-            let fitness = 0.5 + (speed_sq.sqrt() * 0.1).min(0.5);
-            sab.write(base + 56, &fitness.to_le_bytes())?;
+            let fitness = 0.5 + (speed * 0.1).min(0.5);
+            population_data[base + 56..base + 60].copy_from_slice(&fitness.to_le_bytes());
         }
+
+        // Write the entire population block back in one go
+        sab.write_raw(OFFSET, &population_data)?;
 
         Ok(epoch)
     }
 
     /// Initialize population in SAB (called from lib.rs)
     pub fn init_population_sab(sab: &SafeSAB, bird_count: u32) -> Result<(), String> {
-        // Golden angle spiral distribution
+        const OFFSET: usize = 0x400000;
+        const STRIDE: usize = 232;
+
+        sdk::init_logging();
+        log::info!(
+            "[Boids] Initializing population: {} birds at 0x{:X}",
+            bird_count,
+            OFFSET
+        );
+
         for i in 0..bird_count as usize {
-            let base = SAB_OFFSET_BOIDS + i * BYTES_PER_BIRD;
-
-            let phi = i as f32 * 2.39996; // Golden angle
+            let base = OFFSET + i * STRIDE;
+            // Use golden ratio or spiral for initial distribution (painterly)
             let r = (i as f32).sqrt() * 1.5;
+            let theta = i as f32 * 2.39996; // Golden angle
 
-            let pos = [r * phi.cos(), (i as f32 * 0.2).sin() * 4.0, r * phi.sin()];
-
-            let vel = [
-                phi.sin() * 0.1,
-                (i as f32 * 0.1).cos() * 0.05,
-                phi.cos() * 0.1,
+            let pos = [
+                r * theta.cos(),
+                (i as f32 * 0.1).sin() * 3.0,
+                r * theta.sin(),
             ];
+            let vel: [f32; 3] = [0.1, 0.0, 0.1];
 
-            Self::write_vec3(sab, base, 0, &pos)?;
-            Self::write_vec3(sab, base, 12, &vel)?;
+            for j in 0..3 {
+                sab.write(base + j * 4, &pos[j].to_le_bytes())?;
+                sab.write(base + 12 + j * 4, &vel[j].to_le_bytes())?;
+            }
 
             // Initialize neural weights
             for w in 0..44 {
@@ -202,23 +230,6 @@ impl BoidUnit {
             }
         }
 
-        Ok(())
-    }
-
-    // Helper functions for safe SAB access
-    fn read_vec3(sab: &SafeSAB, base: usize, offset: usize) -> Result<[f32; 3], String> {
-        let mut vec = [0.0f32; 3];
-        for i in 0..3 {
-            let bytes = sab.read(base + offset + i * 4, 4)?;
-            vec[i] = f32::from_le_bytes(bytes.try_into().map_err(|_| "Invalid byte array length")?);
-        }
-        Ok(vec)
-    }
-
-    fn write_vec3(sab: &SafeSAB, base: usize, offset: usize, vec: &[f32; 3]) -> Result<(), String> {
-        for i in 0..3 {
-            sab.write(base + offset + i * 4, &vec[i].to_le_bytes())?;
-        }
         Ok(())
     }
 

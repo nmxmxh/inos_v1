@@ -227,10 +227,6 @@ impl GpuUnit {
         }
     }
 
-    pub fn capabilities(&self) -> Vec<&'static str> {
-        vec!["shader", "compute", "wgsl"]
-    }
-
     /// Validate shader with Naga (with caching)
     pub(crate) fn validate_shader(
         &self,

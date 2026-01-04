@@ -25,11 +25,17 @@ mod tests {
     #[test]
     fn test_gpu_unit_capabilities() {
         let unit = GpuUnit::new(); // Removed .expect()
-        let caps = unit.capabilities();
+        let caps = unit.actions();
 
         assert!(!caps.is_empty(), "GpuUnit should have capabilities");
-        assert!(caps.contains(&"shader"), "GpuUnit should support shaders");
-        assert!(caps.contains(&"compute"), "GpuUnit should support compute");
+        assert!(
+            caps.contains(&"execute_wgsl"),
+            "GpuUnit should support shaders"
+        );
+        assert!(
+            caps.contains(&"pbr_material"),
+            "GpuUnit should support compute"
+        );
     }
 
     #[test]

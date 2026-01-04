@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { useSystemStore } from '../src/store/system';
+import ArchitecturalBoids from './components/ArchitecturalBoids';
+import ArchitecturalBlog from './components/ArchitecturalBlog';
 import './styles/minimal.css';
 
 export default function App() {
@@ -53,7 +55,7 @@ export default function App() {
                 color: 'var(--ink-medium)',
                 marginBottom: '2rem',
                 lineHeight: 1.6,
-                fontFamily: 'JetBrains Mono, Fira Code, monospace',
+                fontFamily: 'var(--font-typewriter)',
                 padding: '1rem',
                 background: 'var(--paper-off-white)',
                 border: '1px solid var(--border-subtle)',
@@ -121,6 +123,11 @@ export default function App() {
     );
   }
 
-  // When ready, show the manifesto
-  return <div>Ready</div>;
+  // When ready, show the manifesto with the boids background
+  return (
+    <div className="minimal-app">
+      <ArchitecturalBoids />
+      <ArchitecturalBlog />
+    </div>
+  );
 }

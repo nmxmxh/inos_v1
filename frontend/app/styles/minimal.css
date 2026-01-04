@@ -1,6 +1,22 @@
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterDisplay-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/InterDisplay-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --font-main: 'Inter', -apple-system, system-ui, sans-serif;
-  --font-typewriter: 'JetBrains Mono', 'Courier Prime', monospace;
+  --font-typewriter: 'Inter', ui-monospace, monospace;
 
   --paper-cream: #f4f1ea;
   --paper-white: #ffffff;
@@ -188,13 +204,71 @@ body::before {
   font-weight: bold;
 }
 
-.minimal-app {
-  min-height: 100vh;
+.blog-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 8rem 2rem;
+  position: relative;
+  z-index: 10;
 }
 
-.minimal-metric-value {
-  font-family: var(--font-main);
+.blog-header {
+  margin-bottom: 6rem;
+  text-align: center;
+}
+
+.blog-section {
+  margin-bottom: 6rem;
+}
+
+.blog-section p {
+  font-size: 1.2rem;
+  color: var(--ink-medium);
+  margin-bottom: 1.5rem;
+  line-height: 1.8;
+}
+
+.blog-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 2rem;
+  margin: initial;
+  background: var(--paper-white);
+  padding: 2rem;
+  border: 1px solid var(--border-subtle);
+  box-shadow: 10px 10px 0 var(--sepia-dim);
+}
+
+.blog-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.blog-metric-label {
+  font-family: var(--font-typewriter);
+  color: var(--sepia-accent);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+.blog-metric-value {
+  font-size: 2.5rem;
   font-weight: 800;
-  font-size: 3rem;
-  color: var(--ink-dark);
+  margin: 0.5rem 0;
+}
+
+.blog-footer {
+  margin-top: 8rem;
+  padding-top: 4rem;
+  border-top: 1px solid var(--border-subtle);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+.minimal-app {
+  min-height: 100vh;
+  overflow-y: auto;
 }

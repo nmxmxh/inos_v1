@@ -18,6 +18,7 @@ import (
 // SABBridge provides non-blocking SAB communication
 type SABBridge struct {
 	sab          unsafe.Pointer // Pointer to SAB
+	sabSize      uint32         // Actual capacity
 	inboxOffset  uint32
 	outboxOffset uint32
 	epochOffset  uint32
@@ -28,9 +29,10 @@ type SABBridge struct {
 }
 
 // NewSABBridge creates a new SAB bridge
-func NewSABBridge(sab unsafe.Pointer, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
+func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
 	return &SABBridge{
 		sab:          sab,
+		sabSize:      size,
 		inboxOffset:  inboxOffset,
 		outboxOffset: outboxOffset,
 		epochOffset:  epochOffset,
@@ -313,6 +315,9 @@ func (sb *SABBridge) readRawRing(baseOffset, headerSize, capacity, readIdx uint3
 // WriteRaw writes raw bytes to SAB at the specified offset (no length prefix)
 // Use this for Zero-Copy data transfer to Arena regions
 func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
+	if offset+uint32(len(data)) > sb.sabSize {
+		return fmt.Errorf("out of bounds write: 0x%x + %d > 0x%x", offset, len(data), sb.sabSize)
+	}
 	ptr := unsafe.Add(sb.sab, offset)
 	copy(unsafe.Slice((*byte)(ptr), len(data)), data)
 	return nil
@@ -321,6 +326,9 @@ func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
 // ReadRaw reads raw bytes from SAB at the specified offset (no length prefix)
 // Checks boundaries implicitly by construction of slice, but caller should validate offset
 func (sb *SABBridge) ReadRaw(offset uint32, size uint32) ([]byte, error) {
+	if offset+size > sb.sabSize {
+		return nil, fmt.Errorf("out of bounds read: 0x%x + %d > 0x%x", offset, size, sb.sabSize)
+	}
 	ptr := unsafe.Add(sb.sab, offset)
 	data := make([]byte, size)
 	copy(data, unsafe.Slice((*byte)(ptr), size))

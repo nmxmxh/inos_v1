@@ -18,12 +18,14 @@ type UnitLoader struct {
 	knowledge *intelligence.KnowledgeGraph
 	registry  *registry.ModuleRegistry
 	credits   *supervisor.CreditSupervisor
+	sabSize   uint32
 }
 
 // NewUnitLoader creates a new unit loader
-func NewUnitLoader(sab unsafe.Pointer, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor) *UnitLoader {
+func NewUnitLoader(sab unsafe.Pointer, size uint32, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor) *UnitLoader {
 	return &UnitLoader{
 		sab:       sab,
+		sabSize:   size,
 		patterns:  patterns,
 		knowledge: knowledge,
 		registry:  registry,
@@ -34,8 +36,8 @@ func NewUnitLoader(sab unsafe.Pointer, patterns *pattern.TieredPatternStorage, k
 // LoadUnits creates all unit supervisors sharing a single SAB bridge
 // Returns a map of supervisor name to Supervisor interface AND the shared bridge
 func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge) {
-	// Use standardized layout constants for cross-layer consistency
-	sharedBridge := supervisor.NewSABBridge(ul.sab, sab_layout.OFFSET_INBOX_BASE, sab_layout.OFFSET_OUTBOX_BASE, sab_layout.IDX_SYSTEM_EPOCH)
+	// Use actual injected size for the bridge safety hardening
+	sharedBridge := supervisor.NewSABBridge(ul.sab, ul.sabSize, sab_layout.OFFSET_INBOX_BASE, sab_layout.OFFSET_OUTBOX_BASE, sab_layout.IDX_SYSTEM_EPOCH)
 
 	loaded := make(map[string]interface{})
 
@@ -71,6 +73,8 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 			loaded[name] = units.NewCryptoSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "data":
 			loaded[name] = units.NewDataSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
+		case "boids":
+			loaded[name] = units.NewBoidsSupervisor(sharedBridge, ul.patterns, ul.knowledge, capabilities)
 		case "driver":
 
 			loaded[name] = units.NewDriverSupervisor(sharedBridge, ul.credits, ul.patterns, ul.knowledge, capabilities)

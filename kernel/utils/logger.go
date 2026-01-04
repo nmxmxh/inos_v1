@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall/js"
 	"time"
 )
 
@@ -206,7 +207,32 @@ func (l *Logger) log(level LogLevel, msg string, fields ...Field) {
 	builder.WriteString("\n")
 
 	// Write to output
-	l.output.Write([]byte(builder.String()))
+	logLine := builder.String()
+	l.output.Write([]byte(logLine))
+
+	// Also redirect to JS console if in WASM
+	if runtime.GOOS == "js" {
+		console := js.Global().Get("console")
+		if !isValueNil(console) {
+			method := "log"
+			switch level {
+			case DEBUG:
+				method = "debug"
+			case INFO:
+				method = "info"
+			case WARN:
+				method = "warn"
+			case ERROR, FATAL:
+				method = "error"
+			}
+			console.Call(method, logLine)
+		}
+	}
+}
+
+// isValueNil helper for js.Value
+func isValueNil(v js.Value) bool {
+	return v.Type() == js.TypeNull || v.Type() == js.TypeUndefined
 }
 
 // Field represents a key-value pair for structured logging

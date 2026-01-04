@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 const (
@@ -20,7 +22,7 @@ const (
 	BoidSABOffset = 0x400000 // 4MB offset for boid data
 	FloatsPerBird = 58       // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
 	BytesPerBird  = FloatsPerBird * 4
-	MaxBirds      = 100
+	MaxBirds      = 2048
 
 	// Evolution parameters
 	DefaultMutationRate   = 0.1
@@ -108,7 +110,7 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	// Start learning loop
 	go s.learningLoop(ctx)
 
-	s.Log("INFO", "Boids supervisor started")
+	utils.Info("Boids supervisor started")
 	return nil
 }
 
@@ -128,11 +130,6 @@ func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
 	}
 }
 
-// Log logs a message
-func (s *BoidsSupervisor) Log(level, msg string) {
-	fmt.Printf("[%s] boids: %s\n", level, msg)
-}
-
 // SetBirdCount updates the active bird count
 func (s *BoidsSupervisor) SetBirdCount(count int) {
 	s.mu.Lock()
@@ -143,7 +140,7 @@ func (s *BoidsSupervisor) SetBirdCount(count int) {
 	}
 
 	s.birdCount = count
-	s.Log("INFO", fmt.Sprintf("Bird count set to %d", count))
+	utils.Info("Bird count updated", utils.Int("count", count))
 }
 
 // SetMeshNodes updates the P2P mesh node count for learning boost
@@ -154,7 +151,7 @@ func (s *BoidsSupervisor) SetMeshNodes(count int) {
 	s.meshNodesActive = count
 	boost := 1.0 + math.Log2(float64(count+1))*0.5
 
-	s.Log("INFO", fmt.Sprintf("Mesh nodes: %d, learning boost: %.2fx", count, boost))
+	utils.Info("Mesh nodes updated", utils.Int("count", count), utils.Float64("boost", boost))
 }
 
 // checkEvolution determines if it's time to evolve and executes genetic algorithm
@@ -171,14 +168,24 @@ func (s *BoidsSupervisor) checkEvolution() {
 		return // Not time yet
 	}
 
+	// Log evolution start
+	utils.Info("Starting Evolution Cycle", utils.Int("gen", s.generation+1))
+	startTime := time.Now()
+
 	// Execute genetic algorithm
 	if err := s.evolveGeneration(); err != nil {
-		s.Log("ERROR", fmt.Sprintf("Evolution failed: %v", err))
+		utils.Error("Evolution failed", utils.Err(err))
 		return
 	}
 
 	s.generation++
 	s.lastEvolutionTime = time.Now()
+	duration := time.Since(startTime)
+
+	// Log evolution complete
+	utils.Info("Evolution Cycle Complete",
+		utils.Int("gen", s.generation),
+		utils.Duration("took", duration))
 
 	// Signal epoch update to frontend
 	s.SignalEpoch()
@@ -186,6 +193,8 @@ func (s *BoidsSupervisor) checkEvolution() {
 
 // evolveGeneration executes genetic algorithm on bird population in SAB
 func (s *BoidsSupervisor) evolveGeneration() error {
+	utils.Debug("Reading population from SAB", utils.Int("count", s.birdCount))
+
 	// 1. Read current population from SAB
 	population, err := s.ReadPopulation()
 	if err != nil {
@@ -195,10 +204,17 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 	// Sort by fitness (descending)
 	SortByFitness(population)
 
-	// Log best fitness
-	if len(population) > 0 {
-		s.Log("INFO", fmt.Sprintf("Best fitness: %.2f (bird %d)", population[0].Fitness, population[0].BirdID))
-	}
+	// Calculate statistics
+	avgFit := avgFitness(population)
+	minFit := population[len(population)-1].Fitness
+	maxFit := population[0].Fitness
+
+	// Log fitness statistics
+	utils.Info("Generation Statistics",
+		utils.Int("gen", s.generation),
+		utils.Float64("best", maxFit),
+		utils.Float64("avg", avgFit),
+		utils.Float64("min", minFit))
 
 	// Selection: keep top 25%
 	survivalCount := max(2, s.birdCount/4)
@@ -208,6 +224,11 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 	newPopulation := make([]BirdGenes, s.birdCount)
 
 	for i := 0; i < s.birdCount; i++ {
+		// Yield execution every 50 birds to prevent UI stutter
+		if i%50 == 0 {
+			runtime.Gosched()
+		}
+
 		if i < len(survivors) {
 			// Keep elites
 			newPopulation[i] = survivors[i]
@@ -225,12 +246,28 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 		}
 	}
 
+	utils.Debug("Writing evolved population to SAB",
+		utils.Int("elites", len(survivors)),
+		utils.Int("offspring", s.birdCount-len(survivors)))
+
 	// Write new population back to SAB
 	if err := s.WritePopulation(newPopulation); err != nil {
 		return fmt.Errorf("failed to write population: %w", err)
 	}
 
 	return nil
+}
+
+// avgFitness calculates average fitness of population
+func avgFitness(pop []BirdGenes) float64 {
+	if len(pop) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, b := range pop {
+		sum += b.Fitness
+	}
+	return sum / float64(len(pop))
 }
 
 // TournamentSelect selects a parent using tournament selection
@@ -263,9 +300,19 @@ func (s *BoidsSupervisor) Crossover(parent1, parent2 BirdGenes) BirdGenes {
 }
 
 // Mutate applies Gaussian mutation to genes
+// Added "Neural Glitches": Rare extreme mutation events
 func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 	// Adjust mutation rate based on mesh nodes (more nodes = less mutation)
 	effectiveMutationRate := s.mutationRate / (1.0 + math.Log2(float64(s.meshNodesActive+1)))
+
+	// --- NEURAL GLITCH: Chaos Mutation ---
+	// 0.1% chance to become a "Chaos Boid" with totally random weights
+	if rand.Float64() < 0.001 {
+		for i := 0; i < 44; i++ {
+			genes.Weights[i] = rand.Float32()*10.0 - 5.0
+		}
+		return genes
+	}
 
 	for i := 0; i < 44; i++ {
 		if rand.Float64() < effectiveMutationRate {
@@ -284,36 +331,35 @@ func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 	return genes
 }
 
-// ReadPopulation reads all bird genes from SAB
+// ReadPopulation reads all bird genes from SAB in a single BULK OPERATION
 func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	population := make([]BirdGenes, s.birdCount)
 
+	// --- BULK READ: 1 interop call instead of 2*N ---
+	totalSize := uint32(s.birdCount * BytesPerBird)
+	data, err := s.bridge.ReadRaw(uint32(s.boidDataOffset), totalSize)
+	if err != nil {
+		return nil, fmt.Errorf("bulk read failed: %w", err)
+	}
+
 	for i := 0; i < s.birdCount; i++ {
-		offset := s.boidDataOffset + i*BytesPerBird
+		birdBase := i * BytesPerBird
 
-		// Read fitness (offset 14 floats into bird data)
-		fitnessOffset := uint32(offset + 14*4)
-		fitnessBytes, err := s.bridge.ReadRaw(fitnessOffset, 4)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read fitness at offset %d: %w", fitnessOffset, err)
-		}
-		fitness := math.Float32frombits(binary.LittleEndian.Uint32(fitnessBytes))
+		// Fitness at float index 14
+		fitnessOffset := 14 * 4
+		fitness := math.Float32frombits(binary.LittleEndian.Uint32(data[birdBase+fitnessOffset : birdBase+fitnessOffset+4]))
 
-		// Read weights (offset 15-58 floats)
-		weightsOffset := uint32(offset + 15*4)
-		weightsBytes, err := s.bridge.ReadRaw(weightsOffset, 44*4)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read weights at offset %d: %w", weightsOffset, err)
-		}
-
+		// Weights at float index 15-58 (44 floats)
+		weightsOffset := 15 * 4
 		var weights [44]float32
 		for j := 0; j < 44; j++ {
-			weights[j] = math.Float32frombits(binary.LittleEndian.Uint32(weightsBytes[j*4 : (j+1)*4]))
+			bits := binary.LittleEndian.Uint32(data[birdBase+weightsOffset+j*4 : birdBase+weightsOffset+(j+1)*4])
+			weights[j] = math.Float32frombits(bits)
 		}
 
 		population[i] = BirdGenes{
 			Weights: weights,
-			Fitness: float64(fitness), // Convert float32 to float64
+			Fitness: float64(fitness),
 			BirdID:  i,
 		}
 	}
@@ -321,31 +367,43 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	return population, nil
 }
 
-// WritePopulation writes evolved genes back to SAB
+// WritePopulation writes evolved genes back to SAB in a single BULK OPERATION
 func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
+	totalSize := s.birdCount * BytesPerBird
+	bulkData := make([]byte, totalSize)
+
+	// Since we are writing to an existing population, we might want to read existing data first
+	// if we were only updating some fields. But here we update fitness and weights for EVERY bird.
+	// However, we must NOT stomp on bird position/velocity.
+	// SO: We MUST read the current data first, patch it, then write back.
+
+	currentData, err := s.bridge.ReadRaw(uint32(s.boidDataOffset), uint32(totalSize))
+	if err != nil {
+		return fmt.Errorf("bulk read for patch failed: %w", err)
+	}
+	copy(bulkData, currentData)
+
+	// Apply "Species Drift" - subtle global shift in weights for all birds
+	drift := float32(rand.NormFloat64() * 0.01)
+
 	for i, bird := range population {
-		offset := i * 58 * 4
+		birdBase := i * BytesPerBird
 
-		// Correct global offset logic
-		globalOffset := uint32(s.boidDataOffset + offset)
+		// Patch fitness
+		fitnessOffset := 14 * 4
+		binary.LittleEndian.PutUint32(bulkData[birdBase+fitnessOffset:], math.Float32bits(float32(bird.Fitness)))
 
-		// Write fitness (index 14)
-		fitnessBytes := make([]byte, 4)
-		binary.LittleEndian.PutUint32(fitnessBytes, math.Float32bits(float32(bird.Fitness)))
-		if err := s.bridge.WriteRaw(globalOffset+14*4, fitnessBytes); err != nil {
-			return fmt.Errorf("failed to write fitness for bird %d: %w", i, err)
-		}
-
-		// Write weights (index 15-58)
-		weightsBytes := make([]byte, 44*4)
+		// Patch weights with drift
+		weightsOffset := 15 * 4
 		for w := 0; w < 44; w++ {
-			bits := math.Float32bits(bird.Weights[w])
-			binary.LittleEndian.PutUint32(weightsBytes[w*4:], bits)
+			val := bird.Weights[w] + drift
+			binary.LittleEndian.PutUint32(bulkData[birdBase+weightsOffset+w*4:], math.Float32bits(val))
 		}
+	}
 
-		if err := s.bridge.WriteRaw(globalOffset+15*4, weightsBytes); err != nil {
-			return fmt.Errorf("failed to write weights for bird %d: %w", i, err)
-		}
+	// --- BULK WRITE: 1 interop call ---
+	if err := s.bridge.WriteRaw(uint32(s.boidDataOffset), bulkData); err != nil {
+		return fmt.Errorf("bulk write failed: %w", err)
 	}
 
 	return nil
@@ -359,23 +417,24 @@ func (s *BoidsSupervisor) SignalEpoch() {
 	// Read current epoch from offset
 	epochBytes, err := s.bridge.ReadRaw(offset, 4)
 	if err != nil {
-		s.Log("ERROR", fmt.Sprintf("Failed to read epoch: %v", err))
+		utils.Error("Failed to read epoch", utils.Err(err))
 		return
 	}
 	currentEpoch := binary.LittleEndian.Uint32(epochBytes)
 
 	// Increment
 	newEpoch := currentEpoch + 1
+	runtime.Gosched() // Yield execution
 	newBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(newBytes, newEpoch)
 
 	// Write back
 	if err := s.bridge.WriteRaw(offset, newBytes); err != nil {
-		s.Log("ERROR", fmt.Sprintf("Failed to write epoch: %v", err))
+		utils.Error("Failed to write epoch", utils.Err(err))
 		return
 	}
 
-	s.Log("DEBUG", fmt.Sprintf("Epoch signaled: %d -> %d", currentEpoch, newEpoch))
+	utils.Debug("Epoch signaled", utils.Uint64("old", uint64(currentEpoch)), utils.Uint64("new", uint64(newEpoch)))
 }
 
 // SortByFitness sorts bird population by fitness descending

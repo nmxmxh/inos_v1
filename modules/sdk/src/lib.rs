@@ -1,3 +1,6 @@
+// Suppress expected warning for WASM threading atomics (required for SharedArrayBuffer)
+#![allow(unstable_features)]
+
 pub mod credits;
 pub mod identity;
 mod logging;

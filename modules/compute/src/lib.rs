@@ -13,6 +13,22 @@ use units::{
     StorageUnit,
 };
 
+// --- PERSISTENT SAB CACHE ---
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+static GLOBAL_SAB: Lazy<Mutex<Option<sdk::sab::SafeSAB>>> = Lazy::new(|| Mutex::new(None));
+
+fn set_cached_sab(sab: sdk::sab::SafeSAB) {
+    if let Ok(mut cache) = GLOBAL_SAB.lock() {
+        *cache = Some(sab);
+    }
+}
+
+fn get_cached_sab() -> Option<sdk::sab::SafeSAB> {
+    GLOBAL_SAB.lock().ok()?.clone()
+}
+
 fn initialize_engine() -> ComputeEngine {
     let mut engine = ComputeEngine::new();
 
@@ -81,6 +97,9 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
             sdk::init_logging();
             info!("Compute module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
                 module_id, offset, size / 1024 / 1024);
+
+            // CACHE THE SAB for high-frequency access
+            set_cached_sab(global_sab.clone());
 
             // Trigger registration of capabilities using GLOBAL SAB
             register_compute_capabilities(&global_sab);
@@ -201,16 +220,11 @@ pub extern "C" fn compute_nbody_step(particle_count: u32, dt: f32) -> i32 {
 /// Initialize Boids population in SAB
 #[no_mangle]
 pub extern "C" fn compute_boids_init(bird_count: u32) -> i32 {
-    use sdk::js_interop;
-
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => return 0,
+    let sab = match get_cached_sab() {
+        Some(s) => s,
+        None => return 0,
     };
 
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
     match units::boids::BoidUnit::init_population_sab(&sab, bird_count) {
         Ok(_) => 1,
         Err(_) => 0,
@@ -220,18 +234,13 @@ pub extern "C" fn compute_boids_init(bird_count: u32) -> i32 {
 /// Step Boids physics in SAB
 /// Returns the current epoch number, or 0 on error
 #[no_mangle]
-pub extern "C" fn compute_boids_step(bird_count: u32, dt: f32, elapsed_time: f32) -> u32 {
-    use sdk::js_interop;
-
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => return 0,
+pub extern "C" fn compute_boids_step(bird_count: u32, dt: f32) -> u32 {
+    let sab = match get_cached_sab() {
+        Some(s) => s,
+        None => return 0,
     };
 
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
-    match units::boids::BoidUnit::step_physics_sab(&sab, bird_count, dt, elapsed_time) {
+    match units::boids::BoidUnit::step_physics_sab(&sab, bird_count, dt) {
         Ok(epoch) => epoch,
         Err(_) => 0,
     }
