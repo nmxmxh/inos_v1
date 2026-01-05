@@ -6,43 +6,46 @@ use std::cell::RefCell;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use thiserror::Error;
 use web_sys::{window, IdbDatabase, IdbFactory, IdbRequest, IdbTransactionMode};
-// Note: wasm_bindgen types are available through web-sys
+// StorageUnit uses raw web_sys types (NOT SDK wrappers) because it's main-thread-only
+// and not registered with the thread-safe ComputeEngine
 use web_sys::wasm_bindgen::{closure::Closure, JsCast, JsValue};
 
-// Custom Promise-to-Future adapter (no wasm-bindgen dependency)
+// Custom Promise-to-Future adapter (thread-safe)
 struct PromiseFuture {
-    _promise: Promise,
-    result: Rc<RefCell<Option<Result<Object, Object>>>>,
-    waker: Rc<RefCell<Option<Waker>>>,
+    _promise: JsValue,
+    result: Arc<Mutex<Option<Result<JsValue, JsValue>>>>,
+    waker: Arc<Mutex<Option<Waker>>>,
 }
 
 impl PromiseFuture {
     fn new(promise: Promise) -> Self {
         Self {
-            _promise: promise,
-            result: Rc::new(RefCell::new(None)),
-            waker: Rc::new(RefCell::new(None)),
+            _promise: promise.into(),
+            result: Arc::new(Mutex::new(None)),
+            waker: Arc::new(Mutex::new(None)),
         }
     }
 }
 
 impl Future for PromiseFuture {
-    type Output = Result<Object, Object>;
+    type Output = Result<JsValue, JsValue>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if let Some(result) = self.result.borrow_mut().take() {
+        let mut res_guard = self.result.lock().unwrap();
+        if let Some(result) = res_guard.take() {
             return Poll::Ready(result);
         }
-        *self.waker.borrow_mut() = Some(cx.waker().clone());
+        *self.waker.lock().unwrap() = Some(cx.waker().clone());
         Poll::Pending
     }
 }
 
 // Helper function to replace await_promise()
-async fn await_promise(promise: Promise) -> Result<Object, Object> {
+async fn await_promise(promise: Promise) -> Result<JsValue, JsValue> {
     PromiseFuture::new(promise).await
 }
 
@@ -101,11 +104,31 @@ impl From<Object> for StorageError {
     }
 }
 
-// ========== LibraryProxy Implementation ==========
+impl From<JsValue> for StorageError {
+    fn from(val: JsValue) -> Self {
+        let msg = val
+            .as_string()
+            .or_else(|| {
+                js_sys::JSON::stringify(&val)
+                    .ok()
+                    .and_then(|s| s.as_string())
+            })
+            .unwrap_or_else(|| "Unknown JS error".to_string());
+        StorageError::IndexedDB(msg)
+    }
+}
 
+// ========== LibraryProxy Implementation ==========
+// NOTE: StorageUnit is NOT registered with ComputeEngine due to browser API
+// constraints (IndexedDB/OPFS are non-Send). It's called directly via the
+// StorageSupervisor which handles dispatch via SAB bridge.
+
+#[allow(dead_code)]
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 
-#[async_trait(?Send)]
+/*
+// Disabled: StorageUnit cannot implement Send+Sync UnitProxy due to browser APIs
+#[async_trait]
 impl UnitProxy for StorageUnit {
     fn service_name(&self) -> &str {
         "compute"
@@ -193,6 +216,7 @@ impl UnitProxy for StorageUnit {
         }
     }
 }
+*/
 
 // WASM is single-threaded in browser context, so these are safe
 // Even with SharedArrayBuffer, access is serialized through the event loop
@@ -230,10 +254,10 @@ pub struct ChunkMetadata {
     pub model_id: Option<String>,
 }
 
-// Helper to convert ChunkMetadata to Object (replaces serde_wasm_bindgen::to_value)
-fn metadata_to_jsvalue(_metadata: &ChunkMetadata) -> Result<sdk::JsValue, StorageError> {
+// Helper to convert ChunkMetadata to Object (uses raw web_sys types)
+fn metadata_to_jsvalue(_metadata: &ChunkMetadata) -> Result<JsValue, StorageError> {
     #[cfg(not(target_arch = "wasm32"))]
-    return Ok(sdk::JsValue::UNDEFINED);
+    return Ok(JsValue::UNDEFINED);
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -286,44 +310,44 @@ fn metadata_to_jsvalue(_metadata: &ChunkMetadata) -> Result<sdk::JsValue, Storag
     }
 }
 
-// Helper to convert Object to ChunkMetadata (replaces serde_wasm_bindgen::from_value)
-fn jsvalue_to_metadata(_val: &sdk::JsValue) -> Result<ChunkMetadata, StorageError> {
+// Helper to convert Object to ChunkMetadata (uses js_sys::Reflect directly)
+fn jsvalue_to_metadata(val: &JsValue) -> Result<ChunkMetadata, StorageError> {
     #[cfg(not(target_arch = "wasm32"))]
     return Err(StorageError::NotInitialized);
 
     #[cfg(target_arch = "wasm32")]
     {
-        let hash = sdk::js_interop::reflect_get(_val, &"hash".into())
+        let hash = Reflect::get(val, &"hash".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
             .as_string()
             .ok_or_else(|| StorageError::IndexedDB("hash not a string".into()))?;
-        let location = sdk::js_interop::reflect_get(_val, &"location".into())
+        let location = Reflect::get(val, &"location".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
             .as_string()
             .ok_or_else(|| StorageError::IndexedDB("location not a string".into()))?;
-        let size = sdk::js_interop::reflect_get(_val, &"size".into())
+        let size = Reflect::get(val, &"size".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
             .and_then(|v| {
-                sdk::js_interop::as_f64(&v)
+                v.as_f64()
                     .ok_or_else(|| StorageError::IndexedDB("size not a number".into()))
             })? as usize;
-        let priority = sdk::js_interop::reflect_get(_val, &"priority".into())
+        let priority = Reflect::get(val, &"priority".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?
             .as_string()
             .ok_or_else(|| StorageError::IndexedDB("priority not a string".into()))?;
-        let last_accessed = sdk::js_interop::reflect_get(_val, &"last_accessed".into())
+        let last_accessed = Reflect::get(val, &"last_accessed".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
             .and_then(|v| {
-                sdk::js_interop::as_f64(&v)
+                v.as_f64()
                     .ok_or_else(|| StorageError::IndexedDB("last_accessed not a number".into()))
             })?;
-        let access_count = sdk::js_interop::reflect_get(_val, &"access_count".into())
+        let access_count = Reflect::get(val, &"access_count".into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))
             .and_then(|v| {
-                sdk::js_interop::as_f64(&v)
+                v.as_f64()
                     .ok_or_else(|| StorageError::IndexedDB("access_count not a number".into()))
             })? as u32;
-        let model_id = sdk::js_interop::reflect_get(_val, &"model_id".into())
+        let model_id = Reflect::get(val, &"model_id".into())
             .ok()
             .and_then(|v| v.as_string());
 
@@ -658,7 +682,7 @@ impl StorageUnit {
             let obj: Object = value
                 .dyn_into()
                 .map_err(|_| StorageError::IndexedDB("Value is not an object".to_string()))?;
-            let metadata: ChunkMetadata = jsvalue_to_metadata(&obj)
+            let metadata: ChunkMetadata = jsvalue_to_metadata(&obj.into())
                 .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
             results.push(metadata);
         }
@@ -724,7 +748,7 @@ impl StorageUnit {
             let obj: Object = val
                 .dyn_into()
                 .map_err(|_| StorageError::IndexedDB("Value is not an object".to_string()))?;
-            let metadata: ChunkMetadata = jsvalue_to_metadata(&obj)
+            let metadata: ChunkMetadata = jsvalue_to_metadata(&obj.into())
                 .map_err(|e| StorageError::IndexedDB(format!("Deserialization failed: {:?}", e)))?;
             total_size += metadata.size;
             chunks.push(metadata);
@@ -792,7 +816,7 @@ impl StorageUnit {
             return Err(StorageError::NotFound(hash.to_string()));
         }
 
-        let metadata: ChunkMetadata = jsvalue_to_metadata(&result)
+        let metadata: ChunkMetadata = jsvalue_to_metadata(&result.into())
             .map_err(|e| StorageError::IndexedDB(format!("{:?}", e)))?;
         Ok(metadata)
     }
@@ -1059,7 +1083,7 @@ fn sanitize_path(path: &str) -> Result<String, StorageError> {
 // ========== Helper to await IdbRequest ==========
 
 #[allow(dead_code)]
-async fn await_request(request: IdbRequest) -> Result<Object, StorageError> {
+async fn await_request(request: IdbRequest) -> Result<JsValue, StorageError> {
     let promise = js_sys::Promise::new(&mut |resolve, reject| {
         let onsuccess = Closure::once(move |event: web_sys::Event| {
             let target = event.target().unwrap();

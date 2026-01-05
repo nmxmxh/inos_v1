@@ -1038,7 +1038,7 @@ impl Default for DataUnit {
 }
 
 // UnitProxy implementation
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for DataUnit {
     fn service_name(&self) -> &str {
         "compute" // Standardizing Data processing under "compute" service

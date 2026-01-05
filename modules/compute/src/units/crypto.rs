@@ -653,7 +653,7 @@ impl Default for CryptoUnit {
 }
 
 // UnitProxy implementation
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for CryptoUnit {
     fn service_name(&self) -> &str {
         "crypto"

@@ -1,15 +1,18 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Core compute engine implementing the Unit Proxy pattern
+/// Thread-safe: Can be used in static context with multi-threading
 pub struct ComputeEngine {
-    units: HashMap<String, Box<dyn UnitProxy>>,
+    units: HashMap<String, Arc<dyn UnitProxy + Send + Sync>>,
 }
 
 /// Trait that all compute units must implement
-#[async_trait(?Send)]
-pub trait UnitProxy {
+/// Must be Send + Sync for multi-threaded WASM support
+#[async_trait]
+pub trait UnitProxy: Send + Sync {
     /// Service name (e.g., "compute", "crypto", "audio")
     fn service_name(&self) -> &str;
 
@@ -129,7 +132,7 @@ impl ComputeEngine {
     }
 
     /// Register a unit proxy
-    pub fn register(&mut self, unit: Box<dyn UnitProxy>) {
+    pub fn register(&mut self, unit: Arc<dyn UnitProxy + Send + Sync>) {
         let name = unit.name().to_string();
         self.units.insert(name, unit);
     }
@@ -250,7 +253,7 @@ mod tests {
 
     struct MockUnit;
 
-    #[async_trait(?Send)]
+    #[async_trait]
     impl UnitProxy for MockUnit {
         fn service_name(&self) -> &str {
             "mock"
@@ -284,7 +287,7 @@ mod tests {
     #[test]
     fn test_engine_registration() {
         let mut engine = ComputeEngine::new();
-        engine.register(Box::new(MockUnit));
+        engine.register(Arc::new(MockUnit));
 
         let registry = engine.generate_capability_registry();
         assert!(registry.contains(&"mock:echo:v1".to_string()));
@@ -294,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_engine_execution() {
         let mut engine = ComputeEngine::new();
-        engine.register(Box::new(MockUnit));
+        engine.register(Arc::new(MockUnit));
 
         let input = b"hello";
         let result = engine.execute("mock", "echo", input, b"{}").await.unwrap();
@@ -311,7 +314,7 @@ mod tests {
     #[tokio::test]
     async fn test_input_too_large() {
         let mut engine = ComputeEngine::new();
-        engine.register(Box::new(MockUnit));
+        engine.register(Arc::new(MockUnit));
 
         let large_input = vec![0u8; 20 * 1024 * 1024]; // 20MB
         let result = engine.execute("mock", "echo", &large_input, b"{}").await;
@@ -324,7 +327,7 @@ mod tests {
         // but fail in the unit if the unit expects JSON.
         // MockUnit ignores params.
         let mut engine = ComputeEngine::new();
-        engine.register(Box::new(MockUnit));
+        engine.register(Arc::new(MockUnit));
 
         let result = engine.execute("mock", "echo", b"test", b"{}").await; // Valid JSON
         assert!(result.is_ok());

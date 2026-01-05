@@ -9,8 +9,8 @@ use engine::ComputeEngine;
 use log::{info, warn};
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
 use units::{
-    ApiProxy, AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, PhysicsEngine,
-    StorageUnit,
+    ApiProxy, AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MathUnit,
+    PhysicsEngine, StorageUnit,
 };
 
 // --- PERSISTENT SAB CACHE ---
@@ -30,20 +30,22 @@ fn get_cached_sab() -> Option<sdk::sab::SafeSAB> {
 }
 
 fn initialize_engine() -> ComputeEngine {
+    use std::sync::Arc;
     let mut engine = ComputeEngine::new();
 
-    // Register Unit Proxies
-    engine.register(Box::new(ImageUnit::new()));
-    engine.register(Box::new(CryptoUnit::new()));
-    engine.register(Box::new(DataUnit::new()));
-    engine.register(Box::new(AudioUnit::new()));
-    engine.register(Box::new(GpuUnit::new()));
-    engine.register(Box::new(
-        StorageUnit::new().expect("Failed to initialize StorageUnit"),
-    ));
-    engine.register(Box::new(PhysicsEngine::new()));
-    engine.register(Box::new(BoidUnit::new()));
-    engine.register(Box::new(ApiProxy::new()));
+    // Register Unit Proxies (Arc for thread-safety)
+    engine.register(Arc::new(ImageUnit::new()));
+    engine.register(Arc::new(CryptoUnit::new()));
+    engine.register(Arc::new(DataUnit::new()));
+    engine.register(Arc::new(AudioUnit::new()));
+    engine.register(Arc::new(GpuUnit::new()));
+    engine.register(Arc::new(PhysicsEngine::new()));
+    engine.register(Arc::new(BoidUnit::new()));
+    // NOTE: ApiProxy is NOT registered here - it's handled separately
+    // due to browser API constraints (HTTP/WebSocket use non-Send types)
+    engine.register(Arc::new(MathUnit::new()));
+    // NOTE: StorageUnit is NOT registered here - it's handled separately via
+    // StorageSupervisor due to browser API constraints (IndexedDB/OPFS are non-Send)
 
     engine
 }
@@ -124,6 +126,103 @@ pub extern "C" fn compute_poll() {
         return;
     }
     // High-frequency reactor for Compute
+}
+
+// --- GENERIC UNIT DISPATCHER ---
+// This allows JS to call ANY registered unit method via a single entry point
+
+/// Cached compute engine instance
+static COMPUTE_ENGINE: Lazy<Mutex<ComputeEngine>> = Lazy::new(|| Mutex::new(initialize_engine()));
+
+/// Generic compute execution dispatcher
+/// Allows JavaScript to call any registered unit via:
+///   compute_execute("math", "matrix_multiply", input_ptr, input_len, params_ptr, params_len)
+///
+/// Returns: pointer to result buffer (first 4 bytes = length, rest = data), or 0 on error
+///
+/// Example usage from JS:
+///   const result = compute_execute("math", "matrix_identity", 0, 0, paramsPtr, paramsLen);
+#[no_mangle]
+pub extern "C" fn compute_execute(
+    library_ptr: *const u8,
+    library_len: usize,
+    method_ptr: *const u8,
+    method_len: usize,
+    input_ptr: *const u8,
+    input_len: usize,
+    params_ptr: *const u8,
+    params_len: usize,
+) -> *mut u8 {
+    if !sdk::is_context_valid() {
+        return std::ptr::null_mut();
+    }
+
+    // Safety: Read string slices from pointers
+    let library = unsafe {
+        if library_ptr.is_null() || library_len == 0 {
+            return std::ptr::null_mut();
+        }
+        match std::str::from_utf8(std::slice::from_raw_parts(library_ptr, library_len)) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
+
+    let method = unsafe {
+        if method_ptr.is_null() || method_len == 0 {
+            return std::ptr::null_mut();
+        }
+        match std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        }
+    };
+
+    let input = unsafe {
+        if input_ptr.is_null() || input_len == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(input_ptr, input_len)
+        }
+    };
+
+    let params = unsafe {
+        if params_ptr.is_null() || params_len == 0 {
+            b"{}"
+        } else {
+            std::slice::from_raw_parts(params_ptr, params_len)
+        }
+    };
+
+    // Execute via the compute engine
+    let engine = match COMPUTE_ENGINE.lock() {
+        Ok(e) => e,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    // Run the async execute in a blocking context
+    // Note: In WASM, we use wasm_bindgen_futures or block_on equivalent
+    let result = futures::executor::block_on(engine.execute(library, method, input, params));
+
+    match result {
+        Ok(output) => {
+            // Allocate result buffer: 4 bytes for length + output data
+            let total_len = 4 + output.len();
+            let mut buffer = Vec::with_capacity(total_len);
+            buffer.extend_from_slice(&(output.len() as u32).to_le_bytes());
+            buffer.extend_from_slice(&output);
+
+            let ptr = buffer.as_mut_ptr();
+            std::mem::forget(buffer);
+            ptr
+        }
+        Err(e) => {
+            // Log error and return null
+            let msg = format!("[compute_execute] Error: {}", e);
+            sdk::js_interop::console_log(&msg, 1);
+            std::ptr::null_mut()
+        }
+    }
 }
 
 /// N-body particle physics step

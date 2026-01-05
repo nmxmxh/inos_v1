@@ -5,6 +5,7 @@ pub mod crypto;
 pub mod data;
 pub mod gpu;
 pub mod image;
+pub mod math;
 pub mod physics;
 pub mod storage;
 
@@ -19,5 +20,6 @@ pub use crypto::CryptoUnit;
 pub use data::DataUnit;
 pub use gpu::GpuUnit;
 pub use image::ImageUnit;
+pub use math::MathUnit;
 pub use physics::PhysicsEngine;
 pub use storage::StorageUnit;

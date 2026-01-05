@@ -254,7 +254,7 @@ impl BoidUnit {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for BoidUnit {
     fn service_name(&self) -> &str {
         "boids"

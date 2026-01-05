@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 /// 4. Rust-side safe borrowing
 // Removed wasm_bindgen attribute
 #[cfg(target_arch = "wasm32")]
-type BufferHandle = web_sys::wasm_bindgen::JsValue;
+type BufferHandle = crate::js_interop::JsValue;
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Default)]
 pub(crate) struct BufferHandle(u32);

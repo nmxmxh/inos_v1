@@ -758,7 +758,7 @@ impl Default for AudioUnit {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for AudioUnit {
     fn service_name(&self) -> &str {
         "audio"

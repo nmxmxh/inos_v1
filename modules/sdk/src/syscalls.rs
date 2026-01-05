@@ -183,7 +183,7 @@ impl SyscallClient {
         loop {
             // compare_exchange(expected=0, replacement=1)
             if crate::js_interop::atomic_compare_exchange(
-                &flags.clone().into(),
+                &flags,
                 crate::layout::IDX_OUTBOX_MUTEX,
                 0,
                 1,
@@ -204,20 +204,16 @@ impl SyscallClient {
 
         if let Err(e) = write_result {
             // Unlock and return error
-            crate::js_interop::atomic_store(
-                &flags.clone().into(),
-                crate::layout::IDX_OUTBOX_MUTEX,
-                0,
-            );
+            crate::js_interop::atomic_store(&flags, crate::layout::IDX_OUTBOX_MUTEX, 0);
             return Err(e);
         }
 
         // Signal Kernel (Consistency: Kernel watches IDX_OUTBOX_DIRTY at index 2)
         // See kernel/threads/supervisor/sab_bridge.go: ReadOutboxSequence -> offset 8
-        crate::js_interop::atomic_add(&flags.clone().into(), crate::layout::IDX_OUTBOX_DIRTY, 1);
+        crate::js_interop::atomic_add(&flags, crate::layout::IDX_OUTBOX_DIRTY, 1);
 
         // RELEASE OUTBOX LOCK
-        crate::js_interop::atomic_store(&flags.clone().into(), crate::layout::IDX_OUTBOX_MUTEX, 0);
+        crate::js_interop::atomic_store(&flags, crate::layout::IDX_OUTBOX_MUTEX, 0);
 
         Ok(())
     }

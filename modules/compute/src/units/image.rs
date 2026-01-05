@@ -294,7 +294,7 @@ impl ImageUnit {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for ImageUnit {
     fn service_name(&self) -> &str {
         "compute"

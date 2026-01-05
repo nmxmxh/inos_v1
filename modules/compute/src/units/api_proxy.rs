@@ -96,6 +96,8 @@ impl ApiProxy {
     }
 
     async fn handle_http(&self, request: ApiRequest) -> Result<ApiResponse, String> {
+        use gloo_net::http::Request;
+
         let base_url = match request.provider.as_str() {
             "openai" => "https://api.openai.com/v1",
             "anthropic" => "https://api.anthropic.com/v1",
@@ -106,43 +108,45 @@ impl ApiProxy {
         let url = format!("{}/{}", base_url, request.endpoint);
         log::info!("HTTP API call to {}: {}", request.provider, url);
 
-        let opts = RequestInit::new();
-        opts.set_method(&request.method);
-        opts.set_mode(RequestMode::Cors);
+        // Build request using gloo-net's builder pattern
+        let req_builder = match request.method.as_str() {
+            "GET" => gloo_net::http::Request::get(&url),
+            "POST" => gloo_net::http::Request::post(&url),
+            "PUT" => gloo_net::http::Request::put(&url),
+            "DELETE" => gloo_net::http::Request::delete(&url),
+            _ => gloo_net::http::Request::get(&url),
+        };
 
-        if !request.body.is_empty() {
-            let body_js = unsafe { js_sys::Uint8Array::view(&request.body) };
-            opts.set_body(&body_js);
-        }
-
-        let request_js = Request::new_with_str_and_init(&url, &opts)
-            .map_err(|e| format!("Failed to create request: {:?}", e))?;
-
+        // Add headers
+        let mut req_builder = req_builder;
         for (key, value) in &request.headers {
-            request_js
-                .headers()
-                .set(key, value)
-                .map_err(|e| format!("Failed to set header {}: {:?}", key, e))?;
+            req_builder = req_builder.header(key, value);
         }
 
-        let window = web_sys::window().ok_or("No window found")?;
-        let resp_value = JsFuture::from(window.fetch_with_request(&request_js))
+        // Send request (with or without body)
+        let resp = if !request.body.is_empty() {
+            req_builder
+                .body(request.body.clone())
+                .map_err(|e| format!("Body error: {:?}", e))?
+                .send()
+                .await
+                .map_err(|e| format!("Fetch failed: {:?}", e))?
+        } else {
+            req_builder
+                .send()
+                .await
+                .map_err(|e| format!("Fetch failed: {:?}", e))?
+        };
+
+        let status = resp.status();
+        let body = resp
+            .binary()
             .await
-            .map_err(|e| format!("Fetch failed: {:?}", e))?;
-
-        let resp: Response = resp_value.dyn_into().unwrap();
-
-        let body_value = JsFuture::from(resp.array_buffer().map_err(|e| format!("{:?}", e))?)
-            .await
-            .map_err(|e| format!("Buffer failed: {:?}", e))?;
-
-        let body_array = js_sys::Uint8Array::new(&body_value);
-        let mut body = vec![0; body_array.length() as usize];
-        body_array.copy_to(&mut body);
+            .map_err(|e| format!("Failed to get body: {:?}", e))?;
 
         Ok(ApiResponse {
-            status: resp.status(),
-            headers: HashMap::new(), // TODO: Extract headers from resp
+            status,
+            headers: HashMap::new(),
             body,
         })
     }
@@ -322,13 +326,16 @@ impl ApiProxy {
 /// Trait for decentralized shader discovery and registration
 /// Note: Currently implemented but not actively called - reserved for future P2P shader registry
 #[allow(dead_code)]
-#[async_trait(?Send)]
+// NOTE: ShaderFetcher trait impl commented out - ApiProxy not registered with ComputeEngine
+// due to browser API constraints (HTTP/WebSocket use non-Send types)
+/*
+#[async_trait]
 pub trait ShaderFetcher {
     async fn fetch_shader(&self, url: &str) -> Result<String, String>;
     async fn register_shader(&self, manifest: ShaderManifest) -> Result<(), String>;
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ShaderFetcher for ApiProxy {
     async fn fetch_shader(&self, url: &str) -> Result<String, String> {
         let request = ApiRequest {
@@ -351,8 +358,11 @@ impl ShaderFetcher for ApiProxy {
         Ok(())
     }
 }
+*/
 
-#[async_trait(?Send)]
+// NOTE: UnitProxy impl commented out - ApiProxy not registered with ComputeEngine
+/*
+#[async_trait]
 impl UnitProxy for ApiProxy {
     fn service_name(&self) -> &str {
         "compute"
@@ -455,6 +465,7 @@ impl UnitProxy for ApiProxy {
         }
     }
 }
+*/
 
 impl Default for ApiProxy {
     fn default() -> Self {

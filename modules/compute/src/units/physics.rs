@@ -246,7 +246,7 @@ impl Default for PhysicsEngine {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl UnitProxy for PhysicsEngine {
     fn service_name(&self) -> &str {
         "physics"

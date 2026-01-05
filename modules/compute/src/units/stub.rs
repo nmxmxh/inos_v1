@@ -12,7 +12,7 @@ impl StubJob {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl ComputeJob for StubJob {
     async fn execute(&self, input: &[u8]) -> Result<Vec<u8>> {
         let message = format!(
