@@ -1,11 +1,9 @@
-/**
- * WASM import/export bridge utilities.
- * Provides stable ABI implementations and wasm-bindgen placeholders.
- */
-
 import { WasmHeap } from './heap';
 
 type GetBufferFn = () => ArrayBuffer;
+
+// Cached decoder to avoid allocation on every call
+const textDecoder = new TextDecoder();
 
 export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
   const addHeapObject = (obj: any) => heap.add(obj);
@@ -17,7 +15,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       if (!buffer || buffer.byteLength === 0) return;
       const view = new Uint8Array(buffer, ptr, len);
-      const msg = new TextDecoder().decode(view.slice());
+      const msg = textDecoder.decode(view); // Reuse cached decoder
       const methods = ['error', 'warn', 'info', 'debug', 'trace'];
       (console as any)[methods[level] || 'log'](msg);
     },
@@ -26,7 +24,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       if (!buffer || buffer.byteLength === 0) return;
       const view = new Uint8Array(buffer, ptr, len);
-      const msg = new TextDecoder().decode(view.slice());
+      const msg = textDecoder.decode(view); // Reuse cached decoder
       const prefix = ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'][level] || 'LOG';
 
       if (level === 0) console.warn(`[WASM-${prefix}] ${msg}`);
@@ -62,14 +60,16 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const key = getObject(keyIdx);
 
       if (target === undefined || target === null) {
-        return addHeapObject(undefined);
+        return 0; // Return primitive heap index for undefined
       }
 
       try {
         const result = Reflect.get(target, key);
+        if (result === undefined) return 0; // Primitive index for undefined
+        if (result === null) return 1; // Primitive index for null
         return addHeapObject(result);
       } catch (e) {
-        return addHeapObject(undefined);
+        return 0; // Primitive index for undefined
       }
     },
 
@@ -83,7 +83,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       if (!buffer || buffer.byteLength === 0) return addHeapObject('');
       const view = new Uint8Array(buffer, ptr, len);
-      const str = new TextDecoder().decode(view.slice());
+      const str = textDecoder.decode(view); // Reuse cached decoder
       return addHeapObject(str);
     },
 
@@ -157,11 +157,10 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const obj = getObject(idx);
       if (typeof obj !== 'string') return 0;
       const buffer = getBuffer();
-      const encoded = new TextEncoder().encode(obj);
-      const len = Math.min(encoded.length, maxLen);
-      const dest = new Uint8Array(buffer, ptr, len);
-      dest.set(encoded.subarray(0, len));
-      return len;
+      // Use encodeInto for zero-copy write directly to WASM memory
+      const dest = new Uint8Array(buffer, ptr, maxLen);
+      const { written } = new TextEncoder().encodeInto(obj, dest);
+      return written;
     },
   };
 }
@@ -176,7 +175,7 @@ export function createPlaceholders(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       if (!buffer || buffer.byteLength === 0) throw new Error('WASM memory not ready');
       const view = new Uint8Array(buffer, ptr, len);
-      const msg = new TextDecoder().decode(view.slice());
+      const msg = textDecoder.decode(view); // Reuse cached decoder
       throw new Error(`WASM panic: ${msg}`);
     },
 
@@ -189,7 +188,7 @@ export function createPlaceholders(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       if (!buffer || buffer.byteLength === 0) return addHeapObject('');
       const view = new Uint8Array(buffer, ptr, len);
-      const str = new TextDecoder().decode(view.slice());
+      const str = textDecoder.decode(view); // Reuse cached decoder
       return addHeapObject(str);
     },
 

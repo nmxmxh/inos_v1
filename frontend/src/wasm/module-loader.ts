@@ -1,6 +1,7 @@
 /**
  * Module loader for INOS Rust WASM modules.
  * Handles compilation, import bridge construction, and initialization.
+ * Uses caching to prevent duplicate module instantiation on hot-reload.
  */
 
 import { WasmHeap } from './heap';
@@ -10,6 +11,8 @@ declare global {
   interface Window {
     __INOS_MODULE_ID__: number;
     inosModules?: Record<string, any>;
+    __INOS_COMPILED_MODULES__?: Map<string, WebAssembly.Module>;
+    __INOS_MODULE_INSTANCES__?: Map<string, ModuleLoadResult>;
   }
 }
 
@@ -25,15 +28,51 @@ export interface ModuleLoadResult {
   capabilities: string[];
 }
 
+// Module compilation cache (survives hot-reload)
+function getCompiledModuleCache(): Map<string, WebAssembly.Module> {
+  if (!window.__INOS_COMPILED_MODULES__) {
+    window.__INOS_COMPILED_MODULES__ = new Map();
+  }
+  return window.__INOS_COMPILED_MODULES__;
+}
+
+// Module instance cache (survives hot-reload)
+function getModuleInstanceCache(): Map<string, ModuleLoadResult> {
+  if (!window.__INOS_MODULE_INSTANCES__) {
+    window.__INOS_MODULE_INSTANCES__ = new Map();
+  }
+  return window.__INOS_MODULE_INSTANCES__;
+}
+
 export async function loadModule(
   name: string,
   sharedMemory: WebAssembly.Memory
 ): Promise<ModuleLoadResult> {
-  const response = await fetch(`/modules/${name}.wasm?t=${Date.now()}`);
-  if (!response.ok) throw new Error(`Failed to load ${name}.wasm`);
+  // Check instance cache first (full singleton)
+  const instanceCache = getModuleInstanceCache();
+  if (instanceCache.has(name)) {
+    console.log(`[ModuleLoader] Reusing cached instance: ${name}`);
+    return instanceCache.get(name)!;
+  }
 
-  const bytes = await response.arrayBuffer();
-  const compiledModule = await WebAssembly.compile(bytes);
+  // Check compiled module cache
+  const compiledCache = getCompiledModuleCache();
+  let compiledModule: WebAssembly.Module;
+
+  if (compiledCache.has(name)) {
+    console.log(`[ModuleLoader] Reusing compiled module: ${name}`);
+    compiledModule = compiledCache.get(name)!;
+  } else {
+    // Fetch and compile only once (no cache-busting timestamp)
+    const response = await fetch(`/modules/${name}.wasm`);
+    if (!response.ok) throw new Error(`Failed to load ${name}.wasm`);
+
+    const bytes = await response.arrayBuffer();
+    compiledModule = await WebAssembly.compile(bytes);
+    compiledCache.set(name, compiledModule);
+    console.log(`[ModuleLoader] Compiled and cached: ${name}`);
+  }
+
   const imports = WebAssembly.Module.imports(compiledModule);
 
   // Setup heap and memory access
@@ -104,10 +143,16 @@ export async function loadModule(
     }
   }
 
-  return {
+  const loadResult: ModuleLoadResult = {
     exports,
     capabilities: [], // Capabilities will be read from registry
   };
+
+  // Cache the instance for reuse on hot-reload
+  instanceCache.set(name, loadResult);
+  console.log(`[ModuleLoader] Instance cached: ${name}`);
+
+  return loadResult;
 }
 
 function handleNewImport(

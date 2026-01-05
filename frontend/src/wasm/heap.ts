@@ -2,6 +2,8 @@
  * Production-grade WASM Heap implementation.
  * Standardized at indices 0-3 for wasm-bindgen compatibility.
  * Manages object lifecycle with high-performance free-list allocation.
+ *
+ * CRITICAL: NO COMPACTION - Indices are used as handles by WASM modules.
  */
 export class WasmHeap {
   private objects: any[];
@@ -17,7 +19,7 @@ export class WasmHeap {
     this.objects[2] = true;
     this.objects[3] = false;
 
-    // Initialize free list
+    // Initialize free list (linked in objects array - no separate buffer)
     for (let i = 4; i < initialCapacity - 1; i++) {
       this.objects[i] = i + 1;
     }
@@ -70,5 +72,11 @@ export class WasmHeap {
       peak: this.peakUsage,
       allocations: this.totalAllocations,
     };
+  }
+
+  // Log heap stats for debugging memory issues
+  logStats(label: string = 'WasmHeap') {
+    const stats = this.getStats();
+    console.log(`[${label}] size=${stats.current} peak=${stats.peak} allocs=${stats.allocations}`);
   }
 }
