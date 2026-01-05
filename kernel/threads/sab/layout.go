@@ -125,8 +125,9 @@ const (
 	IDX_OUTBOX_MUTEX    = 9  // Mutex for outbox synchronization
 	IDX_INBOX_MUTEX     = 10 // Mutex for inbox synchronization
 	IDX_METRICS_EPOCH   = 11
+	IDX_BOIDS_COUNT     = 12 // Current population count for Go supervisor discovery
 
-	// Reserved for future system extensions (12-31)
+	// Reserved for future system extensions (13-31)
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = 32

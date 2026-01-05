@@ -150,10 +150,68 @@ useFrame(() => {
 
 ---
 
+## 11. FFI Bulk I/O Optimization
+
+### The Problem: Per-Entity SAB Calls
+Calling `sab.read()` or `sab.write()` for each float creates massive FFI overhead:
+- 1000 birds × 14 floats = **14,000 reads per frame**
+- 1000 birds × 8 parts × 16 matrix floats = **128,000 writes per frame**
+
+### The Solution: Bulk Read/Write
+Use `sab.read_raw()` and `sab.write_raw()` to read/write entire buffers at once:
+
+```rust
+// Before: 142,000 FFI calls per frame (BAD)
+for i in 0..count {
+    for j in 0..14 {
+        sab.read(offset + j * 4, 4);  // 14,000 calls
+    }
+    for k in 0..128 {
+        sab.write(out_offset + k * 4, 4);  // 128,000 calls
+    }
+}
+
+// After: 2 FFI calls per frame (GOOD)
+let mut input_data = vec![0u8; count * BYTES_PER_BIRD];
+sab.read_raw(src_off, &mut input_data)?;  // 1 call
+
+// ... process data in local buffer ...
+
+sab.write_raw(dst_off, &output_data)?;    // 1 call
+```
+
+**Result**: Matrix computation dropped from ~30ms to ~1ms per frame.
+
+---
+
+## 12. Euler Angle Conventions
+
+### THREE.js vs nalgebra Mapping
+
+| THREE.js | nalgebra | Meaning |
+|----------|----------|---------|
+| `rotation.set(x, y, z)` | `from_euler_angles(roll, pitch, yaw)` | Both use intrinsic XYZ order |
+| x | roll | Rotation around X-axis |
+| y | pitch | Rotation around Y-axis |
+| z | yaw | Rotation around Z-axis |
+
+### Correct Mapping for Bird Orientation
+```rust
+// Bird physics writes:
+// view[6] = heading (rotation around Y that makes bird face velocity)
+// view[7] = bank (rotation around Z for banking into turns)
+
+// OLD JS: rotation.set(0, view[6], view[7])
+// Rust:   from_euler_angles(0.0, heading, bank)
+```
+
+---
+
 ## Reference Implementation
 - **Kernel Bridge**: `kernel/threads/supervisor/sab_bridge.go`
 - **SDK Memory Management**: `modules/sdk/src/sab.rs`
 - **Simulation Loop**: `modules/compute/src/units/boids.rs`
+- **Matrix Computation**: `modules/compute/src/units/math.rs`
 - **Singleton Kernel**: `frontend/src/wasm/kernel.ts`
 - **Zero-Allocation Frontend**: `frontend/app/components/ArchitecturalBoids.tsx`
 
@@ -163,5 +221,5 @@ useFrame(() => {
 - [ ] **Allocations**: Is the JS Heap allocation rate 0KB/sec during active animation?
 - [ ] **Persistence**: Are all `TypedArray` views and `Matrix` scratchpads pre-allocated?
 - [ ] **Instancing**: Is the GPU using instancing to handle Entity counts > 100?
-- [ ] **FFI**: Are we calling WASM functions for individual entities? (Antipattern).
+- [ ] **FFI Bulk I/O**: Are SAB operations using `read_raw`/`write_raw` instead of per-float calls?
 - [ ] **Matrix Source**: Are matrices generated in Rust when entity count > 100?

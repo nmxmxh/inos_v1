@@ -166,24 +166,48 @@ impl BoidUnit {
             // --- Pose Updates ---
             let speed = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
             if speed > 0.005 {
+                // Heading: face velocity direction in XZ plane
                 let rot_y = vel[0].atan2(vel[2]);
-                let bank_z = -vel[0] * 0.4;
+                // Bank: gentle tilt into turns (±11° max)
+                let bank_z = (-vel[0] * 0.2).clamp(-0.2, 0.2);
                 population_data[base + 24..base + 28].copy_from_slice(&rot_y.to_le_bytes());
                 population_data[base + 28..base + 32].copy_from_slice(&bank_z.to_le_bytes());
             }
 
-            // Wing Flapping
+            // ========== NEURAL WEIGHT INTEGRATION ==========
+            // Read evolved neural weights from Go genetic algorithm
+            // Weights are at indices 15-58 (bytes 60-236)
+            let read_weight = |idx: usize| -> f32 {
+                let offset = base + 60 + idx * 4;
+                f32::from_le_bytes([
+                    population_data[offset],
+                    population_data[offset + 1],
+                    population_data[offset + 2],
+                    population_data[offset + 3],
+                ])
+            };
+
+            // weight[0]: Flap speed modifier (-2.0 to +2.0 range, clamped)
+            let flap_modifier = read_weight(0).clamp(-2.0, 2.0);
+            // weight[1]: Turn aggressiveness (affects banking)
+            let turn_modifier = read_weight(1).clamp(0.2, 1.5);
+            // weight[2]: Vertical oscillation intensity
+            let oscillation_modifier = read_weight(2).clamp(0.5, 2.0);
+
+            // Wing Flapping - now influenced by evolved weights!
             let phase = (i as f32) * 2.1;
-            let base_flap = 6.0 + (i % 8) as f32;
+            let base_flap = 6.0 + (i % 8) as f32 + flap_modifier;
             let flap = (time * base_flap + phase).sin() * 0.7;
 
             population_data[base + 44..base + 48].copy_from_slice(&(-flap).to_le_bytes()); // wing_left
             population_data[base + 48..base + 52].copy_from_slice(&flap.to_le_bytes()); // wing_right
-            let tail_angle = (time * 3.0 + phase).cos() * 0.15;
+
+            // Tail - influenced by turn modifier
+            let tail_angle = (time * 3.0 + phase).cos() * 0.15 * turn_modifier;
             population_data[base + 52..base + 56].copy_from_slice(&tail_angle.to_le_bytes()); // tail_angle
 
-            // Fitness signaling (for Go GA)
-            let fitness = 0.5 + (speed * 0.1).min(0.5);
+            // Fitness signaling - now considers oscillation behavior
+            let fitness = 0.5 + (speed * 0.1 * oscillation_modifier).min(0.5);
             population_data[base + 56..base + 60].copy_from_slice(&fitness.to_le_bytes());
         }
 

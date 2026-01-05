@@ -305,13 +305,7 @@ pub extern "C" fn compute_execute(
         }
     };
 
-    let debug_end = format!(
-        "[compute_execute] Done: {}::{} (success: {})",
-        library,
-        method,
-        result.is_ok()
-    );
-    sdk::js_interop::console_log(&debug_end, 3);
+    // Debug logging removed - was running 120+ times/sec at 60 FPS
 
     match result {
         Ok(output) => {

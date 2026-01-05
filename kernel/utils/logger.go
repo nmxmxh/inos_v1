@@ -171,10 +171,15 @@ func (l *Logger) log(level LogLevel, msg string, fields ...Field) {
 
 	builder.WriteString("\n")
 	logLine := builder.String()
-	l.output.Write([]byte(logLine))
 
-	// Platform-specific redirection
-	l.redirectLogToBridge(level, logLine)
+	// Platform-specific redirection (WASM JS Console)
+	// If redirected successfully, we skip writing to l.output (which is usually os.Stdout)
+	// to avoid double logging in the browser console.
+	if l.redirectLogToBridge(level, logLine) {
+		return
+	}
+
+	l.output.Write([]byte(logLine))
 }
 
 // Field represents a key-value pair for structured logging

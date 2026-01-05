@@ -556,9 +556,13 @@ impl UnitProxy for MathUnit {
                         let tail_yaw = read_f32(13) as f64;
 
                         // Bird Matrix = Translation * Rotation
-                        // THREE.js: rotation.set(x=0, y=heading, z=bank).order = 'XYZ'
-                        // nalgebra: from_euler_angles(roll, pitch, yaw) applies roll(X), pitch(Y), yaw(Z)
-                        // Mapping: roll=0, pitch=heading(Y), yaw=bank(Z)
+                        // OLD JS: rotation.set(0, view[6], view[7]) with default 'XYZ' Euler order
+                        // THREE.js XYZ intrinsic: first X, then local Y, then local Z
+                        // Matrix result: R = Rz * Ry * Rx (column-major)
+                        // nalgebra from_euler_angles(roll, pitch, yaw) = intrinsic XYZ order
+                        // roll=X, pitch=Y, yaw=Z
+                        // OLD JS: x=0, y=view[6](heading), z=view[7](bank)
+                        // So: from_euler_angles(0.0, heading, bank)
                         let bird_matrix = Matrix4::new_translation(&pos)
                             * Rotation3::from_euler_angles(0.0, heading, bank).to_homogeneous();
 

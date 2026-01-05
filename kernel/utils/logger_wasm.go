@@ -6,7 +6,8 @@ package utils
 import "syscall/js"
 
 // redirectLogToBridge redirects kernel logs to the browser's JS console
-func (l *Logger) redirectLogToBridge(level LogLevel, logLine string) {
+// Returns true if redirection was successful
+func (l *Logger) redirectLogToBridge(level LogLevel, logLine string) bool {
 	console := js.Global().Get("console")
 	if !isValueNil(console) {
 		method := "log"
@@ -21,7 +22,9 @@ func (l *Logger) redirectLogToBridge(level LogLevel, logLine string) {
 			method = "error"
 		}
 		console.Call(method, logLine)
+		return true
 	}
+	return false
 }
 
 // isValueNil helper for js.Value

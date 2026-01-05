@@ -5,7 +5,7 @@ import { useSystemStore } from '../../src/store/system';
 import { dispatch } from '../../src/wasm/dispatch';
 
 const CONFIG = {
-  BIRD_COUNT: 1000,
+  BIRD_COUNT: 1500,
   SAB_OFFSET: 0x400000,
   BYTES_PER_BIRD: 236,
 };
