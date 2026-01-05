@@ -11,7 +11,6 @@ This directory contains the "Muscle" of the system. Unlike the Kernel (written i
 |--------|---------|---------------|
 | `sdk` | **The Bridge**. Common utilities for SAB access, logging, and signaling. | `wasm-bindgen`, `js-sys`, `capnp` |
 | `compute` | **General Purpose**. WebGPU accelerated compute shaders. | `wgpu` |
-| `ml` | **Intelligence**. Distributed inference and training. | `burn`, `candle-core` |
 | `mining` | **Economy**. Background Yield & Arbitrage. Mining Bitcoin/SHA-256 during idle cycles to subsidize node costs. | `sha2`, `blake3` |
 | `physics` | **Simulation**. Deterministic rigid-body dynamics. | `rapier3d` |
 | `storage` | **Data Backbone**. Compression (`brotli`) and CAS (`blake3`). | `brotli`, `blake3` |
@@ -100,13 +99,12 @@ pub fn mine_block(header: &[u8], target: u32) -> Option<u64> {
 ## 📚 Stack & Libraries
 
 *   **`wgpu`**: The "Universal Hardware Interface". Allows capsules to run compute shaders on Metal/Vulkan/DX12.
-*   **`burn`**: The "Intelligence Engine". Runs Tensor operations via `wgpu`, enabling distributed inference.
 *   **`rapier3d`**: The "Consistency Engine". Guarantees bit-exact determinism for world states.
 *   **`capnp`**: The "Memory Lens". Provides typed views over raw SharedArrayBuffer bytes.
 
 ## 🧪 Verification Standards
 
 1.  **Determinism**: `Physics` must produce bit-exact output across all architectures.
-2.  **Performance**: `Mining`/`ML` must be within 90% of native speed (validating SIMD usage).
+2.  **Performance**: `Mining` must be within 90% of native speed (validating SIMD usage).
 3.  **Memory Safety**: Fuzz test `sdk` raw pointer logic.
 4.  **Budget Compliance**: **MUST** stop execution if credits run out.

@@ -13,7 +13,7 @@ pub mod storage;
 mod tests;
 
 // Re-export unit types for convenience
-pub use api_proxy::ApiProxy;
+// pub use api_proxy::ApiProxy;
 pub use audio::AudioUnit;
 pub use boids::BoidUnit;
 pub use crypto::CryptoUnit;
@@ -22,4 +22,4 @@ pub use gpu::GpuUnit;
 pub use image::ImageUnit;
 pub use math::MathUnit;
 pub use physics::PhysicsEngine;
-pub use storage::StorageUnit;
+// pub use storage::StorageUnit;

@@ -1,13 +1,7 @@
-use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
-use async_trait::async_trait;
-use sdk::shader_registry::ShaderManifest;
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use wasm_bindgen_futures::JsFuture;
-use web_sys::{
-    wasm_bindgen::JsCast, Request, RequestInit, RequestMode, Response, RtcConfiguration,
-    RtcIceServer, RtcPeerConnection,
-};
+use web_sys::{RtcConfiguration, RtcIceServer, RtcPeerConnection};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TransportProtocol {
@@ -96,8 +90,6 @@ impl ApiProxy {
     }
 
     async fn handle_http(&self, request: ApiRequest) -> Result<ApiResponse, String> {
-        use gloo_net::http::Request;
-
         let base_url = match request.provider.as_str() {
             "openai" => "https://api.openai.com/v1",
             "anthropic" => "https://api.anthropic.com/v1",

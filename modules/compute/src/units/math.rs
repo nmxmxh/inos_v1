@@ -22,6 +22,7 @@ pub struct MathUnit {
 #[derive(Clone)]
 struct MathConfig {
     max_batch_size: usize,
+    #[allow(dead_code)]
     max_matrix_count: usize,
 }
 
@@ -95,6 +96,7 @@ impl MathUnit {
     }
 
     /// Validate Quaternion structure
+    #[allow(dead_code)]
     fn validate_quaternion(&self, quat: &JsonValue, name: &str) -> Result<(), ComputeError> {
         if let Some(obj) = quat.as_object() {
             for comp in ["x", "y", "z", "w"] {
@@ -289,7 +291,7 @@ impl UnitProxy for MathUnit {
                     .ok_or_else(|| ComputeError::InvalidParams("Missing euler".to_string()))?;
                 self.validate_euler(euler, "euler")?;
 
-                use nalgebra::{Matrix4, Rotation3};
+                use nalgebra::Rotation3;
                 let x = euler
                     .get("x")
                     .or_else(|| euler.get("pitch"))
@@ -481,7 +483,7 @@ impl UnitProxy for MathUnit {
             "batch_compose_matrices" => {
                 self.validate_batch_params(&params)?;
 
-                let positions = params.get("positions").ok_or_else(|| {
+                let _positions = params.get("positions").ok_or_else(|| {
                     ComputeError::InvalidParams("Missing positions array".to_string())
                 })?;
 
@@ -494,9 +496,149 @@ impl UnitProxy for MathUnit {
             "compute_instance_matrices" => {
                 self.validate_batch_params(&params)?;
 
-                // This is the key method for GPU-ready matrix generation
-                // Validates and proxies - production would compute directly in SAB
-                self.proxy_response(method, params)
+                let count = params["count"].as_u64().unwrap_or(0) as usize;
+                let source_offset = params["source_offset"].as_u64().map(|v| v as usize);
+                let target_offset = params["target_offset"].as_u64().map(|v| v as usize);
+
+                // If we have SAB access, we can do zero-copy compute
+                if let (Some(sab), Some(src_off), Some(dst_off)) =
+                    (crate::get_cached_sab(), source_offset, target_offset)
+                {
+                    use nalgebra::{Matrix4, Rotation3, Vector3};
+
+                    // Bird-specific data layout (based on ArchitecturalBoids.tsx)
+                    // Each bird consumes BYTES_PER_BIRD (236 bytes = 59 floats)
+                    // view indices (float32): 0:x, 1:y, 2:z, 6:yaw, 7:pitch/bank, 11:flap, 13:tail_yaw
+                    const BYTES_PER_BIRD: usize = 236;
+
+                    // Pivots for parts (could be passed in params, but hardcoding for boids-specific perf for now)
+                    // Format: [tx, ty, tz, rx, ry, rz]
+                    let _pivots = params["pivots"]
+                        .as_array()
+                        .ok_or_else(|| ComputeError::InvalidParams("Missing pivots".to_string()))?;
+
+                    // ========== BULK I/O OPTIMIZATION ==========
+                    // Read ALL bird base data in one call (avoid 14,000 individual reads)
+                    let input_size = count * BYTES_PER_BIRD;
+                    let mut input_data = vec![0u8; input_size];
+                    sab.read_raw(src_off, &mut input_data)
+                        .map_err(|e| ComputeError::ExecutionFailed(e))?;
+
+                    // Pre-allocate output buffer for 8 parts × count birds × 64 bytes per matrix
+                    const PARTS: usize = 8;
+                    let output_size = PARTS * count * 64;
+                    let mut output_data = vec![0u8; output_size];
+
+                    for i in 0..count {
+                        let bird_base = i * BYTES_PER_BIRD;
+
+                        // Read floats from local buffer (zero FFI calls)
+                        let read_f32 = |idx: usize| -> f32 {
+                            let offset = bird_base + idx * 4;
+                            f32::from_le_bytes([
+                                input_data[offset],
+                                input_data[offset + 1],
+                                input_data[offset + 2],
+                                input_data[offset + 3],
+                            ])
+                        };
+
+                        let pos = Vector3::new(
+                            read_f32(0) as f64,
+                            read_f32(1) as f64,
+                            read_f32(2) as f64,
+                        );
+                        // view[6] = heading (rotation around Y, makes bird face velocity)
+                        // view[7] = bank (rotation around Z, banking into turns)
+                        let heading = read_f32(6) as f64; // Y-axis rotation in THREE.js
+                        let bank = read_f32(7) as f64; // Z-axis rotation in THREE.js
+                        let flap = read_f32(11) as f64;
+                        let tail_yaw = read_f32(13) as f64;
+
+                        // Bird Matrix = Translation * Rotation
+                        // THREE.js: rotation.set(x=0, y=heading, z=bank).order = 'XYZ'
+                        // nalgebra: from_euler_angles(roll, pitch, yaw) applies roll(X), pitch(Y), yaw(Z)
+                        // Mapping: roll=0, pitch=heading(Y), yaw=bank(Z)
+                        let bird_matrix = Matrix4::new_translation(&pos)
+                            * Rotation3::from_euler_angles(0.0, heading, bank).to_homogeneous();
+
+                        // Write matrix to local buffer (zero FFI calls)
+                        let mut write_mat = |mat: &Matrix4<f64>, part_idx: usize| {
+                            let write_off = (part_idx * count * 64) + (i * 64);
+                            for (m_idx, &val) in mat.iter().enumerate() {
+                                let bytes = (val as f32).to_le_bytes();
+                                let dest = write_off + m_idx * 4;
+                                output_data[dest..dest + 4].copy_from_slice(&bytes);
+                            }
+                        };
+
+                        // 0. Body: Base * [R: PI/2, 0, 0]
+                        let body_mat = bird_matrix
+                            * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+                                .to_homogeneous();
+                        write_mat(&body_mat, 0);
+
+                        // 1. Head: Base * T(0, 0, 0.18)
+                        let head_mat =
+                            bird_matrix * Matrix4::new_translation(&Vector3::new(0.0, 0.0, 0.18));
+                        write_mat(&head_mat, 1);
+
+                        // 2. Beak: Base * T(0, 0, 0.26) * R(PI/2, 0, 0)
+                        let beak_mat = bird_matrix
+                            * Matrix4::new_translation(&Vector3::new(0.0, 0.0, 0.26))
+                            * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+                                .to_homogeneous();
+                        write_mat(&beak_mat, 2);
+
+                        // 3. Left Wing
+                        let lw_p1 = Matrix4::new_translation(&Vector3::new(-0.04, 0.0, 0.05))
+                            * Rotation3::from_euler_angles(0.0, 0.0, flap).to_homogeneous();
+                        let lw_p2 = Matrix4::new_translation(&Vector3::new(-0.15, 0.0, 0.0));
+                        let lw_m2 = bird_matrix * lw_p1;
+                        let lw_mat = lw_m2 * lw_p2;
+                        write_mat(&lw_mat, 3);
+
+                        // 4. Left Wing Tip
+                        let lwt_p3 = Matrix4::new_translation(&Vector3::new(-0.3, 0.0, 0.0))
+                            * Rotation3::from_euler_angles(0.0, 0.0, flap * 0.5).to_homogeneous();
+                        let lwt_p4 = Matrix4::new_translation(&Vector3::new(-0.12, 0.0, -0.05));
+                        let lwt_mat = lw_m2 * lwt_p3 * lwt_p4;
+                        write_mat(&lwt_mat, 4);
+
+                        // 5. Right Wing (Mirror of LW)
+                        let rw_p1 = Matrix4::new_translation(&Vector3::new(0.04, 0.0, 0.05))
+                            * Rotation3::from_euler_angles(0.0, 0.0, -flap).to_homogeneous();
+                        let rw_p2 = Matrix4::new_translation(&Vector3::new(0.15, 0.0, 0.0));
+                        let rw_m2 = bird_matrix * rw_p1;
+                        let rw_mat = rw_m2 * rw_p2;
+                        write_mat(&rw_mat, 5);
+
+                        // 6. Right Wing Tip
+                        let rwt_p3 = Matrix4::new_translation(&Vector3::new(0.3, 0.0, 0.0))
+                            * Rotation3::from_euler_angles(0.0, 0.0, -flap * 0.5).to_homogeneous();
+                        let rwt_p4 = Matrix4::new_translation(&Vector3::new(0.12, 0.0, -0.05));
+                        let rwt_mat = rw_m2 * rwt_p3 * rwt_p4;
+                        write_mat(&rwt_mat, 6);
+
+                        // 7. Tail
+                        let tail_p1 = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -0.15))
+                            * Rotation3::from_euler_angles(0.0, tail_yaw, 0.0).to_homogeneous();
+                        let tail_p2 = Matrix4::new_translation(&Vector3::new(0.0, 0.0, -0.1));
+                        let tail_mat = bird_matrix * tail_p1 * tail_p2;
+                        write_mat(&tail_mat, 7);
+                    }
+
+                    // Write ALL matrices in one call (avoid 128,000 individual writes)
+                    sab.write_raw(dst_off, &output_data)
+                        .map_err(|e| ComputeError::ExecutionFailed(e))?;
+
+                    Ok(serde_json::to_vec(
+                        &serde_json::json!({ "status": "matrices_updated", "count": count }),
+                    )
+                    .unwrap())
+                } else {
+                    self.proxy_response(method, params)
+                }
             }
 
             // Proxy other methods for future implementation
@@ -736,6 +878,91 @@ mod tests {
         let result = unit.execute("matrix_invert", &[], &params).await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_compute_instance_matrices() {
+        let unit = MathUnit::new();
+        let sab_size = 10 * 1024 * 1024; // 10MB
+        let sab_inner = sdk::sab::SafeSAB::with_size(sab_size);
+        crate::set_cached_sab(sab_inner.clone());
+
+        const BYTES_PER_BIRD: usize = 232;
+        let count = 2;
+        let source_offset = 0x400000;
+        let target_offset = 0x500000;
+
+        // 1. Setup bird data in mocked SAB
+        // Bird 0: At origin, facing forward
+        // View: [x,y,z, vx,vy,vz, yaw,pitch, ...]
+        let mut bird0 = [0.0f32; 14];
+        bird0[0] = 0.0;
+        bird0[1] = 0.0;
+        bird0[2] = 0.0; // pos
+        bird0[6] = 0.0;
+        bird0[7] = 0.0; // rot
+        bird0[11] = 0.5; // flap
+        bird0[13] = 0.2; // tail_yaw
+
+        for j in 0..14 {
+            let _ = sab_inner.write(source_offset + j * 4, &bird0[j].to_le_bytes());
+        }
+
+        // 2. Call compute_instance_matrices
+        let params = serde_json::to_vec(&serde_json::json!({
+            "count": count,
+            "source_offset": source_offset,
+            "target_offset": target_offset,
+            "pivots": [] // Hardcoded in Rust for boids
+        }))
+        .unwrap();
+
+        let result = unit
+            .execute("compute_instance_matrices", &[], &params)
+            .await;
+        assert!(result.is_ok(), "Compute matrices should succeed");
+
+        // 3. Verify Body Matrix (Part 0, Bird 0)
+        // Body is Base * Rotation(PI/2, 0, 0)
+        // Since base is Identity, Body should be Rotation(PI/2, 0, 0)
+        let mut mat_bytes = [0u8; 64];
+        let bytes = sab_inner.read(target_offset, 64).unwrap();
+        mat_bytes.copy_from_slice(&bytes);
+
+        let mut mat = [0.0f32; 16];
+        for i in 0..16 {
+            mat[i] = f32::from_le_bytes([
+                mat_bytes[i * 4],
+                mat_bytes[i * 4 + 1],
+                mat_bytes[i * 4 + 2],
+                mat_bytes[i * 4 + 3],
+            ]);
+        }
+
+        // Element (1,1) of matrix rotated PI/2 around X should be cos(PI/2) = 0
+        assert!(mat[5].abs() < 1e-6);
+        // Element (2,1) should be sin(PI/2) = 1 (index 6 is row 2, col 1)
+        assert!((mat[6] - 1.0).abs() < 1e-6);
+        // Element (1,2) should be -sin(PI/2) = -1 (index 9 is row 1, col 2)
+        assert!((mat[9] - (-1.0)).abs() < 1e-6);
+
+        // 4. Verify Head Matrix (Part 1, Bird 0)
+        // Head is Base * Translation(0, 0, 0.18)
+        let bytes = sab_inner
+            .read(target_offset + (1 * count * 64), 64)
+            .unwrap();
+        for i in 0..16 {
+            mat[i] = f32::from_le_bytes([
+                bytes[i * 4],
+                bytes[i * 4 + 1],
+                bytes[i * 4 + 2],
+                bytes[i * 4 + 3],
+            ]);
+        }
+        // Translation should be in the last column (index 12, 13, 14, 15 is 4x4 layout in nalgebra)
+        // nalgebra is column-major? Wait.
+        // Matrix4 in nalgebra: 0,1,2,3 is first column. 12,13,14,15 is last column.
+        assert!((mat[14] - 0.18).abs() < 1e-6);
     }
 
     #[tokio::test]

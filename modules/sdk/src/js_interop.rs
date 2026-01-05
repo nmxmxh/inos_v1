@@ -37,12 +37,8 @@ mod wasm_send_safe {
     pub type Uint8Array = SendWrap<RawUint8Array>;
     pub type Int32Array = SendWrap<RawInt32Array>;
 
-    // Support various conversions for JsValue
-    impl From<RawJsValue> for JsValue {
-        fn from(val: RawJsValue) -> Self {
-            SendWrap(val)
-        }
-    }
+    // Identity conversions for JsValue, Uint8Array, and Int32Array are handled by the blanket
+    // From<T> for SendWrap<T> implementation in line 30.
 
     impl From<JsValue> for RawJsValue {
         fn from(val: JsValue) -> Self {
@@ -50,18 +46,23 @@ mod wasm_send_safe {
         }
     }
 
-    impl From<RawUint8Array> for Uint8Array {
-        fn from(val: RawUint8Array) -> Self {
-            SendWrap(val)
+    // Specialized "downcasting" conversions for bridge return types.
+    // Since our bridge functions return RawJsValue, we need these to cast into our wrapped aliases.
+    impl From<RawJsValue> for Uint8Array {
+        fn from(val: RawJsValue) -> Self {
+            use web_sys::wasm_bindgen::JsCast;
+            SendWrap(val.unchecked_into())
         }
     }
 
-    impl From<RawInt32Array> for Int32Array {
-        fn from(val: RawInt32Array) -> Self {
-            SendWrap(val)
+    impl From<RawJsValue> for Int32Array {
+        fn from(val: RawJsValue) -> Self {
+            use web_sys::wasm_bindgen::JsCast;
+            SendWrap(val.unchecked_into())
         }
     }
 
+    // Cross-type conversions (Raw -> Wrapped)
     impl From<RawUint8Array> for JsValue {
         fn from(val: RawUint8Array) -> Self {
             SendWrap(val.into())
@@ -71,6 +72,19 @@ mod wasm_send_safe {
     impl From<RawInt32Array> for JsValue {
         fn from(val: RawInt32Array) -> Self {
             SendWrap(val.into())
+        }
+    }
+
+    // Wrapped Cross-type conversions (Wrapped -> Wrapped)
+    impl From<Uint8Array> for JsValue {
+        fn from(val: Uint8Array) -> Self {
+            SendWrap(val.0.clone().into())
+        }
+    }
+
+    impl From<Int32Array> for JsValue {
+        fn from(val: Int32Array) -> Self {
+            SendWrap(val.0.clone().into())
         }
     }
 

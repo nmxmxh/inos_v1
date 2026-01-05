@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 /// Boid learning simulation - skeletal birds learning to fly
 ///
 /// SAB Layout (offset 0x400000, 64KB reserved):
-/// Per-bird state (58 floats = 232 bytes):
+/// Per-bird state (59 floats = 236 bytes):
 ///   [0-2]   position (x, y, z)
 ///   [3-5]   velocity (vx, vy, vz)
 ///   [6-9]   rotation quaternion (x, y, z, w)
@@ -60,7 +60,7 @@ impl BoidUnit {
     /// Returns the current epoch number
     pub fn step_physics_sab(sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
         const OFFSET: usize = 0x400000;
-        const STRIDE: usize = 232; // 58 floats
+        const STRIDE: usize = 236; // 59 floats (15 base + 44 weights)
 
         // Ensure logging is initialized (idempotent)
         sdk::init_logging();
@@ -196,7 +196,7 @@ impl BoidUnit {
     /// Initialize population in SAB (called from lib.rs)
     pub fn init_population_sab(sab: &SafeSAB, bird_count: u32) -> Result<(), String> {
         const OFFSET: usize = 0x400000;
-        const STRIDE: usize = 232;
+        const STRIDE: usize = 236; // 59 floats
 
         sdk::init_logging();
         log::info!(
@@ -205,8 +205,11 @@ impl BoidUnit {
             OFFSET
         );
 
+        let total_bytes = bird_count as usize * STRIDE;
+        let mut population_data = vec![0u8; total_bytes];
+
         for i in 0..bird_count as usize {
-            let base = OFFSET + i * STRIDE;
+            let base = i * STRIDE;
             // Use golden ratio or spiral for initial distribution (painterly)
             let r = (i as f32).sqrt() * 1.5;
             let theta = i as f32 * 2.39996; // Golden angle
@@ -218,18 +221,30 @@ impl BoidUnit {
             ];
             let vel: [f32; 3] = [0.1, 0.0, 0.1];
 
+            // Position
             for j in 0..3 {
-                sab.write(base + j * 4, &pos[j].to_le_bytes())?;
-                sab.write(base + 12 + j * 4, &vel[j].to_le_bytes())?;
+                population_data[base + j * 4..base + j * 4 + 4]
+                    .copy_from_slice(&pos[j].to_le_bytes());
+            }
+            // Velocity
+            for j in 0..3 {
+                population_data[base + 12 + j * 4..base + 12 + j * 4 + 4]
+                    .copy_from_slice(&vel[j].to_le_bytes());
             }
 
-            // Initialize neural weights
+            // Initialize neural weights (offsets 60-232)
             for w in 0..44 {
                 let weight = ((i * 137 + w * 997) % 1000) as f32 * 0.002 - 0.001;
-                sab.write(base + 60 + w * 4, &weight.to_le_bytes())?;
+                population_data[base + 60 + w * 4..base + 60 + w * 4 + 4]
+                    .copy_from_slice(&weight.to_le_bytes());
             }
         }
 
+        // Write the entire population block back in one go
+        sab.write_raw(OFFSET, &population_data)
+            .map_err(|e| format!("SAB write failed: {}", e))?;
+
+        log::info!("[Boids] Population initialization complete");
         Ok(())
     }
 
@@ -237,7 +252,15 @@ impl BoidUnit {
         let bird_count = params
             .get("bird_count")
             .and_then(|v| v.as_u64())
-            .unwrap_or(150) as u32;
+            .unwrap_or(1000) as u32;
+
+        let sab = crate::get_cached_sab().ok_or_else(|| {
+            ComputeError::ExecutionFailed("SAB not available for initialization".to_string())
+        })?;
+
+        Self::init_population_sab(&sab, bird_count)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Failed to init boids: {}", e)))?;
+
         Ok(serde_json::json!({
             "action": "init_population",
             "bird_count": bird_count,
@@ -246,9 +269,22 @@ impl BoidUnit {
     }
 
     fn step_physics_impl(&self, params: &JsonValue) -> Result<JsonValue, ComputeError> {
-        let _dt = params.get("dt").and_then(|v| v.as_f64()).unwrap_or(0.016) as f32;
+        let bird_count = params
+            .get("bird_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000) as u32;
+        let dt = params.get("dt").and_then(|v| v.as_f64()).unwrap_or(0.016) as f32;
+
+        let sab = crate::get_cached_sab().ok_or_else(|| {
+            ComputeError::ExecutionFailed("SAB not available for physics step".to_string())
+        })?;
+
+        let epoch = Self::step_physics_sab(&sab, bird_count, dt)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Boids step failed: {}", e)))?;
+
         Ok(serde_json::json!({
             "action": "step_physics",
+            "epoch": epoch,
             "status": "success"
         }))
     }

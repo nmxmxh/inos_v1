@@ -9,24 +9,84 @@ use engine::ComputeEngine;
 use log::{info, warn};
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
 use units::{
-    ApiProxy, AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MathUnit,
-    PhysicsEngine, StorageUnit,
+    AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MathUnit, PhysicsEngine,
 };
 
 // --- PERSISTENT SAB CACHE ---
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
+use std::cell::UnsafeCell;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-static GLOBAL_SAB: Lazy<Mutex<Option<sdk::sab::SafeSAB>>> = Lazy::new(|| Mutex::new(None));
+pub struct SpinLock<T> {
+    lock: AtomicBool,
+    data: UnsafeCell<T>,
+}
 
-fn set_cached_sab(sab: sdk::sab::SafeSAB) {
-    if let Ok(mut cache) = GLOBAL_SAB.lock() {
-        *cache = Some(sab);
+unsafe impl<T: Sync> Sync for SpinLock<T> {}
+unsafe impl<T: Send> Send for SpinLock<T> {}
+
+impl<T> SpinLock<T> {
+    pub const fn new(data: T) -> Self {
+        Self {
+            lock: AtomicBool::new(false),
+            data: UnsafeCell::new(data),
+        }
+    }
+
+    pub fn lock(&self) -> SpinLockGuard<'_, T> {
+        while self
+            .lock
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            std::hint::spin_loop();
+        }
+        SpinLockGuard { lock: self }
     }
 }
 
-fn get_cached_sab() -> Option<sdk::sab::SafeSAB> {
-    GLOBAL_SAB.lock().ok()?.clone()
+pub struct SpinLockGuard<'a, T> {
+    lock: &'a SpinLock<T>,
+}
+
+impl<'a, T> std::ops::Deref for SpinLockGuard<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.lock.data.get() }
+    }
+}
+
+impl<'a, T> std::ops::DerefMut for SpinLockGuard<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<'a, T> Drop for SpinLockGuard<'a, T> {
+    fn drop(&mut self) {
+        self.lock.lock.store(false, Ordering::Release);
+    }
+}
+
+// Use SpinLock instead of Mutex to avoid Atomics.wait on main thread
+static GLOBAL_SAB: SpinLock<Option<sdk::sab::SafeSAB>> = SpinLock::new(None);
+
+pub(crate) fn set_cached_sab(sab: sdk::sab::SafeSAB) {
+    *GLOBAL_SAB.lock() = Some(sab);
+}
+
+pub(crate) fn get_cached_sab() -> Option<sdk::sab::SafeSAB> {
+    GLOBAL_SAB.lock().clone()
+}
+
+// Use SpinLock for engine to avoid Once/Mutex atomic wait on main thread
+static COMPUTE_ENGINE: SpinLock<Option<ComputeEngine>> = SpinLock::new(None);
+
+fn get_engine<'a>() -> SpinLockGuard<'a, Option<ComputeEngine>> {
+    let mut guard = COMPUTE_ENGINE.lock();
+    if guard.is_none() {
+        *guard = Some(initialize_engine());
+    }
+    guard
 }
 
 fn initialize_engine() -> ComputeEngine {
@@ -57,6 +117,16 @@ pub extern "C" fn compute_alloc(size: usize) -> *mut u8 {
     let ptr = buf.as_mut_ptr();
     std::mem::forget(buf);
     ptr
+}
+
+/// Standardized Memory Deallocator for WebAssembly
+#[no_mangle]
+pub extern "C" fn compute_free(ptr: *mut u8, size: usize) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = Vec::from_raw_parts(ptr, 0, size);
+        }
+    }
 }
 
 /// Standardized Initialization with SharedArrayBuffer
@@ -131,9 +201,6 @@ pub extern "C" fn compute_poll() {
 // --- GENERIC UNIT DISPATCHER ---
 // This allows JS to call ANY registered unit method via a single entry point
 
-/// Cached compute engine instance
-static COMPUTE_ENGINE: Lazy<Mutex<ComputeEngine>> = Lazy::new(|| Mutex::new(initialize_engine()));
-
 /// Generic compute execution dispatcher
 /// Allows JavaScript to call any registered unit via:
 ///   compute_execute("math", "matrix_multiply", input_ptr, input_len, params_ptr, params_len)
@@ -153,28 +220,56 @@ pub extern "C" fn compute_execute(
     params_ptr: *const u8,
     params_len: usize,
 ) -> *mut u8 {
+    // 0. Context Validation
     if !sdk::is_context_valid() {
+        sdk::js_interop::console_log(
+            "[compute_execute] FAILED: Context is invalid (Zombie Module)",
+            2,
+        );
         return std::ptr::null_mut();
     }
 
-    // Safety: Read string slices from pointers
+    // 1. Marshall library name
     let library = unsafe {
         if library_ptr.is_null() || library_len == 0 {
+            sdk::js_interop::console_log(
+                "[compute_execute] FAILED: library_ptr is null or len=0",
+                1,
+            );
             return std::ptr::null_mut();
         }
-        match std::str::from_utf8(std::slice::from_raw_parts(library_ptr, library_len)) {
+        let bytes = std::slice::from_raw_parts(library_ptr, library_len);
+        match std::str::from_utf8(bytes) {
             Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
+            Err(_) => {
+                let bytes_hex: Vec<String> =
+                    bytes.iter().take(8).map(|b| format!("{:02x}", b)).collect();
+                let msg = format!("[compute_execute] FAILED: library name not valid UTF-8. Ptr: {:p}, Len: {}, Bytes(8): {:?}", 
+                    library_ptr, library_len, bytes_hex);
+                sdk::js_interop::console_log(&msg, 1);
+                return std::ptr::null_mut();
+            }
         }
     };
 
+    // 2. Marshall method name
     let method = unsafe {
         if method_ptr.is_null() || method_len == 0 {
+            sdk::js_interop::console_log(
+                "[compute_execute] FAILED: method_ptr is null or len=0",
+                1,
+            );
             return std::ptr::null_mut();
         }
         match std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)) {
             Ok(s) => s,
-            Err(_) => return std::ptr::null_mut(),
+            Err(_) => {
+                sdk::js_interop::console_log(
+                    "[compute_execute] FAILED: method name is not valid UTF-8",
+                    1,
+                );
+                return std::ptr::null_mut();
+            }
         }
     };
 
@@ -194,19 +289,34 @@ pub extern "C" fn compute_execute(
         }
     };
 
-    // Execute via the compute engine
-    let engine = match COMPUTE_ENGINE.lock() {
-        Ok(e) => e,
-        Err(_) => return std::ptr::null_mut(),
+    // Run the async execute in a synchronous context by polling it once
+    // We CANNOT use block_on because it uses Atomics.wait which is forbidden on main thread
+
+    // Initialize engine if needed (thread-safe spinlock)
+    let engine_guard = get_engine();
+    let engine = engine_guard.as_ref().unwrap();
+
+    let result = match poll_sync(engine.execute(library, method, input, params)) {
+        Ok(res) => res,
+        Err(e) => {
+            let msg = format!("[compute_execute] Sync Execution Failed: {}", e);
+            sdk::js_interop::console_log(&msg, 1);
+            return std::ptr::null_mut();
+        }
     };
 
-    // Run the async execute in a blocking context
-    // Note: In WASM, we use wasm_bindgen_futures or block_on equivalent
-    let result = futures::executor::block_on(engine.execute(library, method, input, params));
+    let debug_end = format!(
+        "[compute_execute] Done: {}::{} (success: {})",
+        library,
+        method,
+        result.is_ok()
+    );
+    sdk::js_interop::console_log(&debug_end, 3);
 
     match result {
         Ok(output) => {
-            // Allocate result buffer: 4 bytes for length + output data
+            let output: Vec<u8> = output; // Explicit type annotation
+                                          // Allocate result buffer: 4 bytes for length + output data
             let total_len = 4 + output.len();
             let mut buffer = Vec::with_capacity(total_len);
             buffer.extend_from_slice(&(output.len() as u32).to_le_bytes());
@@ -218,337 +328,47 @@ pub extern "C" fn compute_execute(
         }
         Err(e) => {
             // Log error and return null
-            let msg = format!("[compute_execute] Error: {}", e);
+            let msg = format!("[compute_execute] Logic Error: {}", e);
             sdk::js_interop::console_log(&msg, 1);
             std::ptr::null_mut()
         }
     }
 }
 
-/// N-body particle physics step
-/// Reads particles from SAB at 0x200000, applies forces, writes back
-#[no_mangle]
-pub extern "C" fn compute_nbody_step(particle_count: u32, dt: f32) -> i32 {
-    use sdk::js_interop;
+/// Helper to poll a future once synchronously
+/// Panics or errors if the future yields (is not ready immediately)
+fn poll_sync<T>(future: impl std::future::Future<Output = T>) -> Result<T, String> {
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    // Get SAB
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => {
-            js_interop::console_log("[compute] compute_nbody_step: SAB not available", 1);
-            return 0;
-        }
-    };
-
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
-
-    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
-    const PARTICLE_SIZE: usize = 32; // 8 floats per particle
-    const G: f32 = 5.0;
-    const SOFTENING: f32 = 15.0;
-    const DAMPING: f32 = 1.0;
-
-    // Read all particles
-    let mut particles: Vec<[f32; 8]> = Vec::with_capacity(particle_count as usize);
-    for i in 0..particle_count as usize {
-        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
-        let mut particle = [0.0f32; 8];
-        for j in 0..8 {
-            if let Ok(bytes) = sab.read(offset + j * 4, 4) {
-                particle[j] = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            }
-        }
-        particles.push(particle);
+    unsafe fn clone(_: *const ()) -> RawWaker {
+        RawWaker::new(std::ptr::null(), &VTABLE)
     }
+    unsafe fn wake(_: *const ()) {}
+    unsafe fn wake_by_ref(_: *const ()) {}
+    unsafe fn drop(_: *const ()) {}
 
-    // Apply N-body forces
-    for i in 0..particle_count as usize {
-        let mut fx = 0.0f32;
-        let mut fy = 0.0f32;
+    static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
 
-        let p1 = particles[i];
-        let mass1 = p1[6];
+    // Safety: we are single-threaded on WASM main thread usually, or this is just a dummy waker
+    let raw_waker = RawWaker::new(std::ptr::null(), &VTABLE);
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = Context::from_waker(&waker);
 
-        for j in 0..particle_count as usize {
-            if i == j {
-                continue;
-            }
-
-            let p2 = particles[j];
-            let dx = p2[0] - p1[0];
-            let dy = p2[1] - p1[1];
-            let dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
-            let inv_dist = 1.0 / dist_sq.sqrt();
-            let inv_dist_cube = inv_dist * inv_dist * inv_dist;
-
-            let force = G * mass1 * p2[6] * inv_dist_cube;
-            fx += dx * force;
-            fy += dy * force;
+    let mut pinned = Box::pin(future);
+    match pinned.as_mut().poll(&mut cx) {
+        Poll::Ready(val) => Ok(val),
+        Poll::Pending => {
+            Err("Future yielded! compute_execute requires synchronous completion.".to_string())
         }
-
-        // Update velocity
-        let ax = fx / mass1;
-        let ay = fy / mass1;
-        particles[i][3] += ax * dt;
-        particles[i][4] += ay * dt;
-        particles[i][3] *= DAMPING;
-        particles[i][4] *= DAMPING;
-
-        // Update position
-        particles[i][0] += particles[i][3] * dt;
-        particles[i][1] += particles[i][4] * dt;
-    }
-
-    // Write back to SAB
-    for i in 0..particle_count as usize {
-        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
-        for j in 0..8 {
-            let bytes = particles[i][j].to_le_bytes();
-            let _ = sab.write(offset + j * 4, &bytes);
-        }
-    }
-
-    // Increment system epoch
-    let flags_offset = 0;
-    let epoch_idx = 7; // IDX_SYSTEM_EPOCH
-    if let Ok(bytes) = sab.read(flags_offset + epoch_idx * 4, 4) {
-        let current = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let new_epoch = (current + 1).to_le_bytes();
-        let _ = sab.write(flags_offset + epoch_idx * 4, &new_epoch);
-    }
-
-    1 // success
-}
-
-/// Initialize Boids population in SAB
-#[no_mangle]
-pub extern "C" fn compute_boids_init(bird_count: u32) -> i32 {
-    let sab = match get_cached_sab() {
-        Some(s) => s,
-        None => return 0,
-    };
-
-    match units::boids::BoidUnit::init_population_sab(&sab, bird_count) {
-        Ok(_) => 1,
-        Err(_) => 0,
     }
 }
-
-/// Step Boids physics in SAB
-/// Returns the current epoch number, or 0 on error
-#[no_mangle]
-pub extern "C" fn compute_boids_step(bird_count: u32, dt: f32) -> u32 {
-    if !sdk::is_context_valid() {
-        return 0;
-    }
-    let sab = match get_cached_sab() {
-        Some(s) => s,
-        None => return 0,
-    };
-
-    match units::boids::BoidUnit::step_physics_sab(&sab, bird_count, dt) {
-        Ok(epoch) => epoch,
-        Err(_) => 0,
-    }
-}
-
-/// Initialize enhanced N-body simulation with particle types and parameters
-/// Particle types: 0=normal, 1=star, 2=black hole, 3=dark matter
-#[no_mangle]
-pub extern "C" fn compute_init_nbody_enhanced(
-    particle_count: u32,
-    force_law: u32,
-    enable_collisions: u32,
-) -> i32 {
-    use sdk::js_interop;
-
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => {
-            js_interop::console_log("[compute] init_nbody_enhanced: SAB not available", 1);
-            return 0;
-        }
-    };
-
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
-
-    const PARAMS_OFFSET: usize = 0x300000;
-
-    js_interop::console_log(
-        &format!(
-            "[compute] Initializing enhanced N-body: {} particles, force_law={}, collisions={}",
-            particle_count, force_law, enable_collisions
-        ),
-        3,
-    );
-
-    // Initialize simulation parameters at 0x300000
-    let params = [
-        5.0f32, // G
-        0.016,  // dt
-        particle_count as f32,
-        15.0, // softening
-        force_law as f32,
-        0.5, // dark_matter_factor
-        0.0, // cosmic_expansion
-        enable_collisions as f32,
-        1.2,    // merge_threshold
-        0.3,    // restitution
-        1.0,    // tidal_forces
-        0.01,   // drag_coefficient
-        0.1,    // turbulence_strength
-        0.05,   // turbulence_scale
-        0.05,   // magnetic_strength
-        0.01,   // radiation_pressure
-        1000.0, // universe_radius
-        0.1,    // background_density
-        0.0,    // time (will be updated each frame)
-    ];
-
-    for (i, &param) in params.iter().enumerate() {
-        let bytes = param.to_le_bytes();
-        let _ = sab.write(PARAMS_OFFSET + i * 4, &bytes);
-    }
-
-    js_interop::console_log("[compute] Enhanced N-body initialized successfully", 3);
-    1
-}
-
-/// Enhanced N-body step with full particle structure (64 bytes per particle)
-/// Layout: position(12) + velocity(12) + acceleration(12) + mass(4) + radius(4) +
-///         color(16) + temperature(4) + luminosity(4) + type(4) + lifetime(4) + angular_vel(12)
-#[no_mangle]
-pub extern "C" fn compute_nbody_step_enhanced(particle_count: u32, dt: f32) -> i32 {
-    use sdk::js_interop;
-
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => return 0,
-    };
-
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
-
-    const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
-    const PARTICLE_SIZE: usize = 88;
-    const G: f32 = 5.0;
-    const SOFTENING: f32 = 15.0;
-    const DAMPING: f32 = 1.0;
-
-    // Read all particles (simplified structure for CPU fallback)
-    let mut particles: Vec<[f32; 22]> = Vec::with_capacity(particle_count as usize);
-    for i in 0..particle_count as usize {
-        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
-        let mut particle = [0.0f32; 22];
-        for j in 0..22 {
-            if let Ok(bytes) = sab.read(offset + j * 4, 4) {
-                particle[j] = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-            }
-        }
-        particles.push(particle);
-    }
-
-    // Apply N-body forces (full 3D)
-    for i in 0..particle_count as usize {
-        let mut fx = 0.0f32;
-        let mut fy = 0.0f32;
-        let mut fz = 0.0f32;
-
-        let p1 = particles[i];
-        let mass1 = p1[9]; // mass at index 9
-
-        for j in 0..particle_count as usize {
-            if i == j {
-                continue;
-            }
-
-            let p2 = particles[j];
-            let dx = p2[0] - p1[0]; // position x
-            let dy = p2[1] - p1[1]; // position y
-            let dz = p2[2] - p1[2]; // position z
-
-            let dist_sq = dx * dx + dy * dy + dz * dz + SOFTENING * SOFTENING;
-            let inv_dist = 1.0 / dist_sq.sqrt();
-            let inv_dist_cube = inv_dist * inv_dist * inv_dist;
-
-            let force = G * mass1 * p2[9] * inv_dist_cube;
-            fx += dx * force;
-            fy += dy * force;
-            fz += dz * force;
-        }
-
-        // Update velocity
-        let ax = fx / mass1;
-        let ay = fy / mass1;
-        let az = fz / mass1;
-        particles[i][3] += ax * dt; // velocity x
-        particles[i][4] += ay * dt; // velocity y
-        particles[i][5] += az * dt; // velocity z
-
-        particles[i][3] *= DAMPING;
-        particles[i][4] *= DAMPING;
-        particles[i][5] *= DAMPING;
-
-        // Update position
-        particles[i][0] += particles[i][3] * dt;
-        particles[i][1] += particles[i][4] * dt;
-        particles[i][2] += particles[i][5] * dt;
-
-        // Update temperature from velocity (collisional heating)
-        let speed_sq = particles[i][3] * particles[i][3]
-            + particles[i][4] * particles[i][4]
-            + particles[i][5] * particles[i][5];
-        particles[i][14] = particles[i][14] * 0.9 + speed_sq * 0.01 * 0.1; // temperature at index 14
-    }
-
-    // Write back to SAB
-    for i in 0..particle_count as usize {
-        let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
-        for j in 0..22 {
-            let bytes = particles[i][j].to_le_bytes();
-            let _ = sab.write(offset + j * 4, &bytes);
-        }
-    }
-
-    // Increment system epoch
-    let flags_offset = 0;
-    let epoch_idx = 7;
-    if let Ok(bytes) = sab.read(flags_offset + epoch_idx * 4, 4) {
-        let current = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let new_epoch = (current + 1).to_le_bytes();
-        let _ = sab.write(flags_offset + epoch_idx * 4, &new_epoch);
-    }
-
-    1
-}
-
-/// Set simulation parameters at runtime
-#[no_mangle]
-pub extern "C" fn compute_set_sim_params(param_index: u32, value: f32) -> i32 {
-    use sdk::js_interop;
-
-    let global = js_interop::get_global();
-    let sab_key = js_interop::create_string("__INOS_SAB__");
-    let sab_val = match js_interop::reflect_get(&global, &sab_key) {
-        Ok(val) if !val.is_undefined() && !val.is_null() => val,
-        _ => return 0,
-    };
-
-    let sab = sdk::sab::SafeSAB::new(&sab_val);
-    const PARAMS_OFFSET: usize = 0x300000;
-
-    let offset = PARAMS_OFFSET + (param_index as usize) * 4;
-    let bytes = value.to_le_bytes();
-    match sab.write(offset, &bytes) {
-        Ok(_) => 1,
-        Err(_) => 0,
-    }
-}
+// ======================================================================
+// LEGACY EXPORTS REMOVED
+// ======================================================================
+// All compute operations now use compute_execute() for consistency.
+// The previous direct exports (compute_boids_step, compute_nbody_step, etc.)
+// are now routed through the ComputeEngine via their respective units.
+// ======================================================================
 
 pub struct ComputeKernel {
     reactor: Reactor,

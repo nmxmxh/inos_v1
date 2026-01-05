@@ -254,6 +254,10 @@ impl UnitProxy for PhysicsEngine {
 
     fn actions(&self) -> Vec<&str> {
         vec![
+            // N-Body Simulation (Custom)
+            "nbody_init",
+            "nbody_step",
+            "nbody_step_enhanced",
             // Rigid Body Management
             "create_rigid_body",
             "remove_rigid_body",
@@ -319,6 +323,193 @@ impl UnitProxy for PhysicsEngine {
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
         match method {
+            // N-Body Methods (Migrated from legacy exports)
+            "nbody_init" => {
+                let particle_count = params
+                    .get("particle_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(100) as u32;
+                let force_law = params
+                    .get("force_law")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+
+                let sab = crate::get_cached_sab().ok_or_else(|| {
+                    ComputeError::ExecutionFailed("SAB not available for nbody_init".to_string())
+                })?;
+
+                const PARAMS_OFFSET: usize = 0x300000;
+                let sim_params = [
+                    5.0f32, // G
+                    0.016,  // dt
+                    particle_count as f32,
+                    15.0, // softening
+                    force_law as f32,
+                    0.5,  // dark_matter_factor
+                    0.0,  // cosmic_expansion
+                    0.0,  // enable_collisions
+                    1.2,  // merge_threshold
+                    0.3,  // restitution
+                    1.0,  // tidal_forces
+                    0.01, // drag_coefficient
+                ];
+
+                for (i, &param) in sim_params.iter().enumerate() {
+                    sab.write(PARAMS_OFFSET + i * 4, &param.to_le_bytes())
+                        .map_err(|e| {
+                            ComputeError::ExecutionFailed(format!("SAB write error: {}", e))
+                        })?;
+                }
+
+                Ok(serde_json::to_vec(
+                    &serde_json::json!({ "status": "initialized", "count": particle_count }),
+                )
+                .unwrap())
+            }
+
+            "nbody_step" => {
+                let particle_count = params
+                    .get("particle_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(100) as u32;
+                let dt = params.get("dt").and_then(|v| v.as_f64()).unwrap_or(0.016) as f32;
+
+                let sab = crate::get_cached_sab().ok_or_else(|| {
+                    ComputeError::ExecutionFailed("SAB not available for nbody_step".to_string())
+                })?;
+
+                // (Logic migrated from lib.rs)
+                const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
+                const PARTICLE_SIZE: usize = 32;
+                const G: f32 = 5.0;
+                const SOFTENING: f32 = 15.0;
+                const DAMPING: f32 = 1.0;
+
+                let mut particles: Vec<[f32; 8]> = Vec::with_capacity(particle_count as usize);
+                for i in 0..particle_count as usize {
+                    let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+                    let mut particle = [0.0f32; 8];
+                    for j in 0..8 {
+                        if let Ok(bytes) = sab.read(offset + j * 4, 4) {
+                            particle[j] =
+                                f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                        }
+                    }
+                    particles.push(particle);
+                }
+
+                for i in 0..particle_count as usize {
+                    let mut fx = 0.0f32;
+                    let mut fy = 0.0f32;
+                    let p1 = particles[i];
+                    for j in 0..particle_count as usize {
+                        if i == j {
+                            continue;
+                        }
+                        let p2 = particles[j];
+                        let dx = p2[0] - p1[0];
+                        let dy = p2[1] - p1[1];
+                        let dist_sq = dx * dx + dy * dy + SOFTENING * SOFTENING;
+                        let inv_dist = 1.0 / dist_sq.sqrt();
+                        let inv_dist_cube = inv_dist * inv_dist * inv_dist;
+                        let force = G * p1[6] * p2[6] * inv_dist_cube;
+                        fx += dx * force;
+                        fy += dy * force;
+                    }
+                    particles[i][3] += (fx / p1[6]) * dt;
+                    particles[i][4] += (fy / p1[6]) * dt;
+                    particles[i][3] *= DAMPING;
+                    particles[i][4] *= DAMPING;
+                    particles[i][0] += particles[i][3] * dt;
+                    particles[i][1] += particles[i][4] * dt;
+                }
+
+                for i in 0..particle_count as usize {
+                    let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+                    for j in 0..8 {
+                        let _ = sab.write(offset + j * 4, &particles[i][j].to_le_bytes());
+                    }
+                }
+
+                Ok(serde_json::to_vec(&serde_json::json!({ "status": "success" })).unwrap())
+            }
+
+            "nbody_step_enhanced" => {
+                let particle_count = params
+                    .get("particle_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(100) as u32;
+                let dt = params.get("dt").and_then(|v| v.as_f64()).unwrap_or(0.016) as f32;
+
+                let sab = crate::get_cached_sab().ok_or_else(|| {
+                    ComputeError::ExecutionFailed(
+                        "SAB not available for nbody_step_enhanced".to_string(),
+                    )
+                })?;
+
+                const PARTICLE_BUFFER_OFFSET: usize = 0x200000;
+                const PARTICLE_SIZE: usize = 88;
+                const G: f32 = 5.0;
+                const SOFTENING: f32 = 15.0;
+                const DAMPING: f32 = 1.0;
+
+                let mut particles: Vec<[f32; 22]> = Vec::with_capacity(particle_count as usize);
+                for i in 0..particle_count as usize {
+                    let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+                    let mut particle = [0.0f32; 22];
+                    for j in 0..22 {
+                        if let Ok(bytes) = sab.read(offset + j * 4, 4) {
+                            particle[j] =
+                                f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+                        }
+                    }
+                    particles.push(particle);
+                }
+
+                for i in 0..particle_count as usize {
+                    let mut fx = 0.0f32;
+                    let mut fy = 0.0f32;
+                    let mut fz = 0.0f32;
+                    let p1 = particles[i];
+                    let m1 = p1[9]; // mass at index 9
+
+                    for j in 0..particle_count as usize {
+                        if i == j {
+                            continue;
+                        }
+                        let p2 = particles[j];
+                        let dx = p2[0] - p1[0];
+                        let dy = p2[1] - p1[1];
+                        let dz = p2[2] - p1[2];
+                        let dist_sq = dx * dx + dy * dy + dz * dz + SOFTENING * SOFTENING;
+                        let inv_dist = 1.0 / dist_sq.sqrt();
+                        let inv_dist_cube = inv_dist * inv_dist * inv_dist;
+                        let force = G * m1 * p2[9] * inv_dist_cube;
+                        fx += dx * force;
+                        fy += dy * force;
+                        fz += dz * force;
+                    }
+                    particles[i][3] += (fx / m1) * dt;
+                    particles[i][4] += (fy / m1) * dt;
+                    particles[i][5] += (fz / m1) * dt;
+                    particles[i][3] *= DAMPING;
+                    particles[i][4] *= DAMPING;
+                    particles[i][5] *= DAMPING;
+                    particles[i][0] += particles[i][3] * dt;
+                    particles[i][1] += particles[i][4] * dt;
+                    particles[i][2] += particles[i][5] * dt;
+                }
+
+                for i in 0..particle_count as usize {
+                    let offset = PARTICLE_BUFFER_OFFSET + i * PARTICLE_SIZE;
+                    for j in 0..22 {
+                        let _ = sab.write(offset + j * 4, &particles[i][j].to_le_bytes());
+                    }
+                }
+
+                Ok(serde_json::to_vec(&serde_json::json!({ "status": "success" })).unwrap())
+            }
+
             // Rigid Body Methods
             "create_rigid_body" => {
                 self.validate_rigid_body_params(&params)?;

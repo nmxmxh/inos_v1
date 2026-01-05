@@ -71,7 +71,6 @@ Network → SAB (Inbox) → Rust (Process) → SAB (Arena) → JS (Render)
 ### Economic Storage Mesh & Mosaic P2P (v1.9)
 *   **Hierarchical Topology:** Seeds (Core) → Hubs (Aggregation) → Edges (Leaf) for massive scale.
 *   **1MB State Chunking:** Optimal voxel-state distribution via QUIC-based P2P bridge.
-*   **Adaptive ML Allocation:** `AdaptiveAllocator` predicts load and dynamically shifts replicas to high-demand regions.
 *   **Geo-Aware Replication:** Redundant storage with latency-tier optimization.
 *   **Hot Tier (Edge/CDN):** Earns credits for bandwidth (data retrieval).
 *   **Cold Tier (Vault):** Earns credits for capacity (data retention).

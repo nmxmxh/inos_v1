@@ -11,7 +11,8 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "prettier": "prettier check \"**/*{js,jsx,json,ts,tsx,yaml}\"",
     "prettier-fix": "prettier --write \"**/*{js,jsx,json,ts,tsx,yaml}\"",
-    "format": "yarn lint --fix && yarn prettier-fix"
+    "format": "yarn lint --fix && yarn prettier-fix",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@react-three/drei": "^9.117.3",

@@ -26,6 +26,7 @@ const MODULE_IDS: Record<string, number> = {
 export interface ModuleLoadResult {
   exports: any;
   capabilities: string[];
+  memory: WebAssembly.Memory;
 }
 
 // Module compilation cache (survives hot-reload)
@@ -48,8 +49,20 @@ export async function loadModule(
   name: string,
   sharedMemory: WebAssembly.Memory
 ): Promise<ModuleLoadResult> {
-  // Check instance cache first (full singleton)
+  const currentContextId = window.__INOS_CONTEXT_ID__;
   const instanceCache = getModuleInstanceCache();
+
+  // If context changed (e.g. HMR restart), invalidate old instances
+  const cachedContextId = (instanceCache as any).contextId;
+  if (cachedContextId && cachedContextId !== currentContextId) {
+    console.log(
+      `[ModuleLoader] Context changed from ${cachedContextId} to ${currentContextId}. Invaliding instance cache.`
+    );
+    instanceCache.clear();
+  }
+  (instanceCache as any).contextId = currentContextId;
+
+  // Check instance cache first (full singleton)
   if (instanceCache.has(name)) {
     console.log(`[ModuleLoader] Reusing cached instance: ${name}`);
     return instanceCache.get(name)!;
@@ -146,6 +159,7 @@ export async function loadModule(
   const loadResult: ModuleLoadResult = {
     exports,
     capabilities: [], // Capabilities will be read from registry
+    memory: exports.memory || sharedMemory, // Capture module memory or fallback
   };
 
   // Cache the instance for reuse on hot-reload
@@ -221,7 +235,7 @@ function handleWbgImport(
 
 export async function loadAllModules(
   sharedMemory: WebAssembly.Memory
-): Promise<Record<string, any>> {
+): Promise<Record<string, ModuleLoadResult>> {
   // Singleton check
   if (window.inosModules) {
     console.log('[ModuleLoader] Reusing existing modules singleton');
@@ -229,12 +243,12 @@ export async function loadAllModules(
   }
 
   const moduleNames = ['compute', 'diagnostics']; // drivers and vault are now lazy-loaded
-  const loadedModules: Record<string, any> = {};
+  const loadedModules: Record<string, ModuleLoadResult> = {};
 
   for (const name of moduleNames) {
     try {
       const result = await loadModule(name, sharedMemory);
-      loadedModules[name] = result.exports;
+      loadedModules[name] = result;
     } catch (err) {
       console.error(`[ModuleLoader] Failed to load ${name}:`, err);
       throw err;

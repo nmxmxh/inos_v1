@@ -2,11 +2,12 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { useRef, useMemo, Suspense, useEffect } from 'react';
 import * as THREE from 'three';
 import { useSystemStore } from '../../src/store/system';
+import { dispatch } from '../../src/wasm/dispatch';
 
 const CONFIG = {
   BIRD_COUNT: 1000,
   SAB_OFFSET: 0x400000,
-  BYTES_PER_BIRD: 232,
+  BYTES_PER_BIRD: 236,
 };
 
 function InstancedBoidsRenderer() {
@@ -71,16 +72,7 @@ function InstancedBoidsRenderer() {
     };
   }, [geometries, materials]);
 
-  // Shared dummy for math
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-  const partDummy = useMemo(() => new THREE.Object3D(), []);
-  const matrix = useMemo(() => new THREE.Matrix4(), []);
-  const m2 = useMemo(() => new THREE.Matrix4(), []); // Scratch 2
-  const m3 = useMemo(() => new THREE.Matrix4(), []); // Scratch 3
-
-  // Persistent view for SAB reading
-  const birdViewRef = useRef<Float32Array | null>(null);
-
+  // Shared colors palette
   const colors = useMemo(() => {
     const palette = ['#6d28d9', '#ec4899', '#10b981', '#f59e0b'];
     return Array.from(
@@ -97,12 +89,11 @@ function InstancedBoidsRenderer() {
     []
   );
 
-  // Initialize ONCE - use ref to prevent re-init on moduleExports changes
+  // Initialize ONCE
   useEffect(() => {
-    const exports = moduleExportsRef.current;
-    if (exports && exports.compute?.compute_boids_init) {
-      console.log('[BoidsFlock] Initializing boids population');
-      exports.compute.compute_boids_init(CONFIG.BIRD_COUNT);
+    if (moduleExports?.compute) {
+      console.log('[BoidsFlock] Initializing boids population via dispatcher');
+      dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
     }
   }, []);
 
@@ -134,120 +125,48 @@ function InstancedBoidsRenderer() {
   }, [colors, sharedColors]);
 
   useFrame((_, delta) => {
-    // 1. Run physics step in WASM
-    if (moduleExports && moduleExports.compute?.compute_boids_step) {
-      moduleExports.compute.compute_boids_step(CONFIG.BIRD_COUNT, delta);
+    // 1. Run physics step in WASM via Dispatcher
+    if (moduleExports?.compute) {
+      dispatch.execute('boids', 'step_physics', {
+        bird_count: CONFIG.BIRD_COUNT,
+        dt: delta,
+      });
+
+      // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)
+      // Base data at 0x400000, Output matrices start at 0x500000
+      const MATRIX_BASE = 0x500000;
+      dispatch.execute('math', 'compute_instance_matrices', {
+        count: CONFIG.BIRD_COUNT,
+        source_offset: CONFIG.SAB_OFFSET,
+        target_offset: MATRIX_BASE,
+        pivots: [], // Hardcoded in WASM for performance
+      });
+
+      // 3. Update InstancedMesh matrices from SAB views
+      const sab = (window as any).__INOS_SAB__;
+      if (!sab) return;
+
+      const instances = [
+        bodiesRef,
+        headsRef,
+        beaksRef,
+        leftWingRef,
+        leftWingTipRef,
+        rightWingRef,
+        rightWingTipRef,
+        tailsRef,
+      ];
+
+      instances.forEach((ref, partIdx) => {
+        if (ref.current) {
+          const matrixOffset = MATRIX_BASE + partIdx * CONFIG.BIRD_COUNT * 64;
+          // Zero-copy: set the underlying attribute array from a view of the SAB
+          const sabView = new Float32Array(sab, matrixOffset, CONFIG.BIRD_COUNT * 16);
+          ref.current.instanceMatrix.array.set(sabView);
+          ref.current.instanceMatrix.needsUpdate = true;
+        }
+      });
     }
-
-    // 2. Read state from SAB and update matrices
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
-    // Initialize or reuse persistent view
-    if (!birdViewRef.current || birdViewRef.current.buffer !== sab) {
-      // Create a view of the entire relevant SAB space
-      birdViewRef.current = new Float32Array(sab);
-    }
-    const view = birdViewRef.current;
-
-    for (let i = 0; i < CONFIG.BIRD_COUNT; i++) {
-      const birdBaseIdx = CONFIG.SAB_OFFSET / 4 + i * (CONFIG.BYTES_PER_BIRD / 4);
-
-      // --- Bird Base Transform ---
-      // view indices: 0:x, 1:y, 2:z, 3:vx, 4:vy, 5:vz, 6:yaw, 7:pitch/bank, ...
-      dummy.position.set(view[birdBaseIdx], view[birdBaseIdx + 1], view[birdBaseIdx + 2]);
-      dummy.rotation.set(0, view[birdBaseIdx + 6], view[birdBaseIdx + 7]);
-      dummy.updateMatrix();
-      const birdMatrix = dummy.matrix;
-
-      // 1. Body
-      partDummy.position.set(0, 0, 0);
-      partDummy.rotation.set(Math.PI / 2, 0, 0);
-      partDummy.updateMatrix();
-      bodiesRef.current?.setMatrixAt(i, matrix.multiplyMatrices(birdMatrix, partDummy.matrix));
-
-      // 2. Head
-      partDummy.position.set(0, 0, 0.18);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      headsRef.current?.setMatrixAt(i, matrix.multiplyMatrices(birdMatrix, partDummy.matrix));
-
-      // 3. Beak
-      partDummy.position.set(0, 0, 0.26);
-      partDummy.rotation.set(Math.PI / 2, 0, 0);
-      partDummy.updateMatrix();
-      beaksRef.current?.setMatrixAt(i, matrix.multiplyMatrices(birdMatrix, partDummy.matrix));
-
-      // 4. Wings & Tips
-      const flap = view[birdBaseIdx + 11];
-
-      // Left Wing
-      partDummy.position.set(-0.04, 0, 0.05);
-      partDummy.rotation.set(0, 0, flap);
-      partDummy.updateMatrix();
-      m2.multiplyMatrices(birdMatrix, partDummy.matrix);
-
-      partDummy.position.set(-0.15, 0, 0);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      leftWingRef.current?.setMatrixAt(i, matrix.multiplyMatrices(m2, partDummy.matrix));
-
-      partDummy.position.set(-0.3, 0, 0);
-      partDummy.rotation.set(0, 0, flap * 0.5);
-      partDummy.updateMatrix();
-      m3.multiplyMatrices(m2, partDummy.matrix);
-
-      partDummy.position.set(-0.12, 0, -0.05);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      leftWingTipRef.current?.setMatrixAt(i, matrix.multiplyMatrices(m3, partDummy.matrix));
-
-      // Right Wing
-      partDummy.position.set(0.04, 0, 0.05);
-      partDummy.rotation.set(0, 0, -flap);
-      partDummy.updateMatrix();
-      m2.multiplyMatrices(birdMatrix, partDummy.matrix);
-
-      partDummy.position.set(0.15, 0, 0);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      rightWingRef.current?.setMatrixAt(i, matrix.multiplyMatrices(m2, partDummy.matrix));
-
-      partDummy.position.set(0.3, 0, 0);
-      partDummy.rotation.set(0, 0, -flap * 0.5);
-      partDummy.updateMatrix();
-      m3.multiplyMatrices(m2, partDummy.matrix);
-
-      partDummy.position.set(0.12, 0, -0.05);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      rightWingTipRef.current?.setMatrixAt(i, matrix.multiplyMatrices(m3, partDummy.matrix));
-
-      // 5. Tail
-      partDummy.position.set(0, 0, -0.15);
-      partDummy.rotation.set(0, view[birdBaseIdx + 13], 0);
-      partDummy.updateMatrix();
-      m2.multiplyMatrices(birdMatrix, partDummy.matrix);
-
-      partDummy.position.set(0, 0, -0.1);
-      partDummy.rotation.set(0, 0, 0);
-      partDummy.updateMatrix();
-      tailsRef.current?.setMatrixAt(i, matrix.multiplyMatrices(m2, partDummy.matrix));
-    }
-
-    const instances = [
-      bodiesRef,
-      headsRef,
-      beaksRef,
-      leftWingRef,
-      leftWingTipRef,
-      rightWingRef,
-      rightWingTipRef,
-      tailsRef,
-    ];
-    instances.forEach(ref => {
-      if (ref.current) ref.current.instanceMatrix.needsUpdate = true;
-    });
   });
 
   return (

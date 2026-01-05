@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { initializeKernel, shutdownKernel } from '../wasm/kernel';
 import { loadAllModules, loadModule } from '../wasm/module-loader';
 import { RegistryReader } from '../wasm/registry';
+import { dispatch } from '../wasm/dispatch';
 
 export interface KernelStats {
   nodes: number;
@@ -26,7 +27,7 @@ export type SystemStatus = 'uninitialized' | 'initializing' | 'booting' | 'ready
 export interface SystemStore {
   status: SystemStatus;
   units: Record<string, UnitState>;
-  moduleExports: Record<string, any> | undefined;
+  moduleExports: Record<string, any>;
   stats: KernelStats;
   error: Error | null;
 
@@ -78,6 +79,8 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           active: data.active,
           capabilities: data.capabilities,
         };
+        // Also register with the dispatcher store
+        dispatch.register(data.id, data.capabilities);
       });
 
       return { units: updatedUnits };
@@ -112,6 +115,20 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       // 3. Load modules
       const loadedModules = await loadAllModules(memory);
       console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
+
+      // 4. Initialize Dispatcher
+      if (loadedModules.compute) {
+        // Use the module's own memory if exported (fix for memory mismatch), otherwise fallback to kernel memory
+        const computeMemory = loadedModules.compute.memory || memory;
+        if (loadedModules.compute.memory) {
+          console.log('[System] Using module-exported memory for Dispatcher');
+        } else {
+          console.log('[System] Using shared kernel memory for Dispatcher');
+        }
+
+        dispatch.initialize(loadedModules.compute.exports, computeMemory);
+        console.log('[System] ✅ Dispatcher initialized');
+      }
 
       // 4. Update state
       set({

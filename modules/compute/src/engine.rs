@@ -176,21 +176,10 @@ impl ComputeEngine {
         // 3. Validate params
         validate_params(params)?;
 
-        // 4. Execute with Timeout
-        // Note: wasm_timer or similar is needed for async timeout in WASM
-        // We use a simple select with delay for now, assuming standard future machinery
-        let timeout_duration = std::time::Duration::from_millis(limits.timeout_ms);
-
-        let output: Vec<u8> =
-            match tokio::time::timeout(timeout_duration, unit.execute(method, input, params)).await
-            {
-                Ok(result) => result?,
-                Err(_) => {
-                    return Err(ComputeError::Timeout {
-                        timeout_ms: limits.timeout_ms,
-                    })
-                }
-            };
+        // 4. Execute
+        // Note: tokio::time::timeout is removed because it causes hangs in WASM/block_on environments
+        // without a running tokio reactor.
+        let output: Vec<u8> = unit.execute(method, input, params).await?;
 
         // 5. Validate output size
         if output.len() > limits.max_output_size {

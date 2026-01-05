@@ -28,7 +28,14 @@ pub fn is_valid() -> bool {
         .and_then(|guard| guard.clone());
 
     match (current, initial) {
-        (Some(curr), Some(init)) => curr == init,
+        (Some(curr), Some(init)) => {
+            if curr != init {
+                js_interop::console_log(&format!("[SDK] 💀 Context Mismatch! Zombie Module detected. Current: {}, Initial: {}", curr, init), 1);
+                false
+            } else {
+                true
+            }
+        }
         // If we haven't initialized the context check yet, assume valid for backward compatibility
         (_, None) => true,
         // If we can't get the current context, something is wrong, but we don't necessarily kill it

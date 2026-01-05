@@ -14,7 +14,6 @@ use zeroize::Zeroizing;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// Production-grade cryptographic operations library
 ///
@@ -61,18 +60,18 @@ impl Default for CryptoConfig {
 /// Key usage tracking for rotation and expiration
 struct KeyUsageTracker {
     operations: AtomicU64,
-    created_at: Instant,
+    created_at: f64, // Performance.now() (ms)
     max_operations: u64,
-    expiration: Duration,
+    expiration_ms: f64,
 }
 
 impl KeyUsageTracker {
     fn new(max_operations: u64, expiration_days: u64) -> Self {
         Self {
             operations: AtomicU64::new(0),
-            created_at: Instant::now(),
+            created_at: sdk::js_interop::get_performance_now(),
             max_operations,
-            expiration: Duration::from_secs(expiration_days * 24 * 60 * 60),
+            expiration_ms: (expiration_days * 24 * 60 * 60 * 1000) as f64,
         }
     }
 
@@ -89,7 +88,8 @@ impl KeyUsageTracker {
         }
 
         // Check time-based expiration
-        if self.created_at.elapsed() >= self.expiration {
+        let now = sdk::js_interop::get_performance_now();
+        if now - self.created_at >= self.expiration_ms {
             return Err(ComputeError::ExecutionFailed(
                 "Key expired (time limit exceeded)".to_string(),
             ));
@@ -104,8 +104,8 @@ struct RateLimiter {
     signature_ops: AtomicU64,
     encryption_ops: AtomicU64,
     hash_ops: AtomicU64,
-    last_reset: Mutex<Instant>,
-    window: Duration,
+    last_reset: Mutex<f64>, // Performance.now() (ms)
+    window_ms: f64,
 }
 
 impl RateLimiter {
@@ -114,8 +114,8 @@ impl RateLimiter {
             signature_ops: AtomicU64::new(0),
             encryption_ops: AtomicU64::new(0),
             hash_ops: AtomicU64::new(0),
-            last_reset: Mutex::new(Instant::now()),
-            window: Duration::from_secs(1), // 1 second window
+            last_reset: Mutex::new(sdk::js_interop::get_performance_now()),
+            window_ms: 1000.0, // 1 second window
         }
     }
 
@@ -123,11 +123,12 @@ impl RateLimiter {
         // Reset counters if window expired
         {
             let mut last_reset = self.last_reset.lock().unwrap();
-            if last_reset.elapsed() >= self.window {
+            let now = sdk::js_interop::get_performance_now();
+            if now - *last_reset >= self.window_ms {
                 self.signature_ops.store(0, Ordering::SeqCst);
                 self.encryption_ops.store(0, Ordering::SeqCst);
                 self.hash_ops.store(0, Ordering::SeqCst);
-                *last_reset = Instant::now();
+                *last_reset = now;
             }
         }
 

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use js_sys::{JsString, Object, Promise, Reflect, SharedArrayBuffer};
 
 use serde::{Deserialize, Serialize};
@@ -122,9 +121,6 @@ impl From<JsValue> for StorageError {
 // NOTE: StorageUnit is NOT registered with ComputeEngine due to browser API
 // constraints (IndexedDB/OPFS are non-Send). It's called directly via the
 // StorageSupervisor which handles dispatch via SAB bridge.
-
-#[allow(dead_code)]
-use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 
 /*
 // Disabled: StorageUnit cannot implement Send+Sync UnitProxy due to browser APIs
@@ -312,6 +308,8 @@ fn metadata_to_jsvalue(_metadata: &ChunkMetadata) -> Result<JsValue, StorageErro
 
 // Helper to convert Object to ChunkMetadata (uses js_sys::Reflect directly)
 fn jsvalue_to_metadata(val: &JsValue) -> Result<ChunkMetadata, StorageError> {
+    #[allow(unused_variables)]
+    let _val = val;
     #[cfg(not(target_arch = "wasm32"))]
     return Err(StorageError::NotInitialized);
 
@@ -372,6 +370,7 @@ pub struct StorageUnit {
 }
 
 impl StorageUnit {
+    #[allow(dead_code)]
     pub fn new() -> Result<Self, Object> {
         Ok(Self {
             db: None,

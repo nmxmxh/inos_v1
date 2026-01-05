@@ -20,7 +20,7 @@ import (
 const (
 	// SAB layout constants
 	BoidSABOffset = 0x400000 // 4MB offset for boid data
-	FloatsPerBird = 58       // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
+	FloatsPerBird = 59       // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
 	BytesPerBird  = FloatsPerBird * 4
 	MaxBirds      = 2048
 
