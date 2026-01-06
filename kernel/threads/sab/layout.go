@@ -1,170 +1,169 @@
 package sab
 
+import (
+	system "github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+)
+
 // SAB Memory Layout Constants
-// This defines the complete SharedArrayBuffer memory layout for INOS v1.9+
-// All regions are designed for dynamic expansion with overflow to arena
+// This file now acts as a wrapper that re-exports constants from the generated
+// Cap'n Proto schema (protocols/schemas/system/v1/sab_layout.capnp).
+// This maintains backwards compatibility while ensuring all constants come from
+// a single source of truth.
+//
+// All regions are designed for dynamic expansion with overflow to arena.
 
 const (
-	// Total SAB size (configurable, default 16MB)
-	SAB_SIZE_DEFAULT = 16 * 1024 * 1024   // 16MB
-	SAB_SIZE_MIN     = 4 * 1024 * 1024    // 4MB minimum
-	SAB_SIZE_MAX     = 1024 * 1024 * 1024 // 1GB
+	// ========== SAB SIZE LIMITS ==========
+	SAB_SIZE_DEFAULT = system.SabSizeDefault // 16MB
+	SAB_SIZE_MIN     = system.SabSizeMin     // 4MB minimum
+	SAB_SIZE_MAX     = system.SabSizeMax     // 1GB
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========
 	// Atomic Flags Region (64 bytes - 16 x i32)
-	OFFSET_ATOMIC_FLAGS = 0x000000
-	SIZE_ATOMIC_FLAGS   = 0x000040 // 64 bytes
+	OFFSET_ATOMIC_FLAGS = system.OffsetAtomicFlags
+	SIZE_ATOMIC_FLAGS   = system.SizeAtomicFlags
 
 	// Supervisor Allocation Table (176 bytes)
-	OFFSET_SUPERVISOR_ALLOC = 0x000040
-	SIZE_SUPERVISOR_ALLOC   = 0x0000B0 // 176 bytes (Ends at 0xF0)
+	OFFSET_SUPERVISOR_ALLOC = system.OffsetSupervisorAlloc
+	SIZE_SUPERVISOR_ALLOC   = system.SizeSupervisorAlloc
 
 	// Registry locking (16 bytes before registry)
-	OFFSET_REGISTRY_LOCK = 0x0000F0
-	SIZE_REGISTRY_LOCK   = 0x000010 // 16 bytes
+	OFFSET_REGISTRY_LOCK = system.OffsetRegistryLock
+	SIZE_REGISTRY_LOCK   = system.SizeRegistryLock
 
 	// ========== MODULE REGISTRY (0x000100 - 0x001900) ==========
-	// Enhanced module entries with overflow to arena
-	OFFSET_MODULE_REGISTRY = 0x000100
-	SIZE_MODULE_REGISTRY   = 0x001800 // 6KB (Phase 2 enhanced)
-	MODULE_ENTRY_SIZE      = 96       // Enhanced 96-byte entries
-	MAX_MODULES_INLINE     = 64       // 64 modules inline
-	MAX_MODULES_TOTAL      = 1024     // Total with arena overflow
+	OFFSET_MODULE_REGISTRY = system.OffsetModuleRegistry
+	SIZE_MODULE_REGISTRY   = system.SizeModuleRegistry
+	MODULE_ENTRY_SIZE      = system.ModuleEntrySize
+	MAX_MODULES_INLINE     = system.MaxModulesInline
+	MAX_MODULES_TOTAL      = system.MaxModulesTotal
 
 	// Bloom filter (256 bytes after registry)
-	OFFSET_BLOOM_FILTER = 0x001900
-	SIZE_BLOOM_FILTER   = 0x000100 // 256 bytes
+	OFFSET_BLOOM_FILTER = system.OffsetBloomFilter
+	SIZE_BLOOM_FILTER   = system.SizeBloomFilter
 
 	// ========== SUPERVISOR HEADERS (0x002000 - 0x003000) ==========
-	// Compact supervisor headers with state in arena
-	// MOVED: 0x001000 overlapped with Registry (0x000100+0x001800=0x001900)
-	OFFSET_SUPERVISOR_HEADERS = 0x002000
-	SIZE_SUPERVISOR_HEADERS   = 0x001000 // 4KB
-	SUPERVISOR_HEADER_SIZE    = 128      // Compact 128-byte headers
-	MAX_SUPERVISORS_INLINE    = 32       // 32 supervisors inline
-	MAX_SUPERVISORS_TOTAL     = 256      // Total with arena overflow
+	OFFSET_SUPERVISOR_HEADERS = system.OffsetSupervisorHeaders
+	SIZE_SUPERVISOR_HEADERS   = system.SizeSupervisorHeaders
+	SUPERVISOR_HEADER_SIZE    = system.SupervisorHeaderSize
+	MAX_SUPERVISORS_INLINE    = system.MaxSupervisorsInline
+	MAX_SUPERVISORS_TOTAL     = system.MaxSupervisorsTotal
 
 	// ========== SYSCALL TABLE (0x003000 - 0x004000) ==========
-	// Pending syscall metadata (DeepSeek Architecture)
-	OFFSET_SYSCALL_TABLE = 0x003000
-	SIZE_SYSCALL_TABLE   = 0x001000 // 4KB
-	// ========== ECONOMICS (0x004000 - 0x010000) ==========
-	// Credit accounts and resource metrics (Phase 17)
-	OFFSET_ECONOMICS = 0x004000
-	SIZE_ECONOMICS   = 0x004000 // 16KB
+	OFFSET_SYSCALL_TABLE = system.OffsetSyscallTable
+	SIZE_SYSCALL_TABLE   = system.SizeSyscallTable
+
+	// ========== ECONOMICS (0x004000 - 0x008000) ==========
+	OFFSET_ECONOMICS = system.OffsetEconomics
+	SIZE_ECONOMICS   = system.SizeEconomics
 
 	// ========== IDENTITY REGISTRY (0x008000 - 0x00C000) ==========
-	// DIDs, device binding, and TSS metadata (Phase 17.D)
-	OFFSET_IDENTITY_REGISTRY = 0x008000
-	SIZE_IDENTITY_REGISTRY   = 0x004000 // 16KB
+	OFFSET_IDENTITY_REGISTRY = system.OffsetIdentityRegistry
+	SIZE_IDENTITY_REGISTRY   = system.SizeIdentityRegistry
 
 	// ========== SOCIAL GRAPH (0x00C000 - 0x010000) ==========
-	// Referrals, close IDs, and social yield (Phase 17.E)
-	OFFSET_SOCIAL_GRAPH = 0x00C000
-	SIZE_SOCIAL_GRAPH   = 0x004000 // 16KB
+	OFFSET_SOCIAL_GRAPH = system.OffsetSocialGraph
+	SIZE_SOCIAL_GRAPH   = system.SizeSocialGraph
 
 	// ========== PATTERN EXCHANGE (0x010000 - 0x020000) ==========
-	// Pattern storage with LRU eviction to arena
-	OFFSET_PATTERN_EXCHANGE = 0x010000
-	SIZE_PATTERN_EXCHANGE   = 0x010000 // 64KB
-	PATTERN_ENTRY_SIZE      = 64       // Compact 64-byte patterns
-	MAX_PATTERNS_INLINE     = 1024     // 1024 patterns inline
-	MAX_PATTERNS_TOTAL      = 16384    // Total with arena overflow
+	OFFSET_PATTERN_EXCHANGE = system.OffsetPatternExchange
+	SIZE_PATTERN_EXCHANGE   = system.SizePatternExchange
+	PATTERN_ENTRY_SIZE      = system.PatternEntrySize
+	MAX_PATTERNS_INLINE     = system.MaxPatternsInline
+	MAX_PATTERNS_TOTAL      = system.MaxPatternsTotal
 
 	// ========== JOB HISTORY (0x020000 - 0x040000) ==========
-	// Circular buffer with overflow to arena
-	OFFSET_JOB_HISTORY = 0x020000
-	SIZE_JOB_HISTORY   = 0x020000 // 128KB
+	OFFSET_JOB_HISTORY = system.OffsetJobHistory
+	SIZE_JOB_HISTORY   = system.SizeJobHistory
 
 	// ========== COORDINATION STATE (0x040000 - 0x050000) ==========
-	// Cross-unit coordination with dynamic expansion
-	OFFSET_COORDINATION = 0x040000
-	SIZE_COORDINATION   = 0x010000 // 64KB
+	OFFSET_COORDINATION = system.OffsetCoordination
+	SIZE_COORDINATION   = system.SizeCoordination
 
 	// ========== INBOX/OUTBOX (0x050000 - 0x150000) ==========
-	// Job communication regions - Expanded for Slotted Architecture
-	// 1MB total: 512KB Inbox + 512KB Outbox
-	OFFSET_INBOX_OUTBOX = 0x050000
-	SIZE_INBOX_OUTBOX   = 0x100000 // 1MB (was 512KB)
+	OFFSET_INBOX_OUTBOX = system.OffsetInboxOutbox
+	SIZE_INBOX_OUTBOX   = system.SizeInboxOutbox
 
 	// Sub-regions
-	OFFSET_INBOX_BASE  = 0x050000
-	SIZE_INBOX_TOTAL   = 0x080000 // 512KB
-	OFFSET_OUTBOX_BASE = 0x0D0000 // 0x050000 + 512KB
-	SIZE_OUTBOX_TOTAL  = 0x080000 // 512KB
+	OFFSET_INBOX_BASE  = system.OffsetInboxBase
+	SIZE_INBOX_TOTAL   = system.SizeInboxTotal
+	OFFSET_OUTBOX_BASE = system.OffsetOutboxBase
+	SIZE_OUTBOX_TOTAL  = system.SizeOutboxTotal
 
 	// ========== ARENA (0x150000 - end) ==========
-	// Dynamic allocation region for overflow and large data
-	OFFSET_ARENA = 0x150000
-	// SIZE_ARENA calculated as: SAB_SIZE - OFFSET_ARENA
+	OFFSET_ARENA          = system.OffsetArena
+	OFFSET_ARENA_METADATA = system.OffsetArenaMetadata
+	SIZE_ARENA_METADATA   = system.SizeArenaMetadata
 
-	// Internal Arena Layout (Phase 16)
-	OFFSET_ARENA_METADATA = 0x150000
-	SIZE_ARENA_METADATA   = 0x010000 // 64KB reserved for metadata
+	// Diagnostics Region
+	OFFSET_DIAGNOSTICS = system.OffsetDiagnostics
+	SIZE_DIAGNOSTICS   = system.SizeDiagnostics
 
-	// Async Request/Response Queues (DeepSeek Spec)
-	// These allow modules to request larger allocations or complex operations
-	OFFSET_ARENA_REQUEST_QUEUE  = 0x151000 // 0x150000 + 4KB
-	OFFSET_ARENA_RESPONSE_QUEUE = 0x152000 // 0x150000 + 8KB
-	ARENA_QUEUE_ENTRY_SIZE      = 64
-	MAX_ARENA_REQUESTS          = 64
+	// Async Request/Response Queues
+	OFFSET_ARENA_REQUEST_QUEUE  = system.OffsetArenaRequestQueue
+	OFFSET_ARENA_RESPONSE_QUEUE = system.OffsetArenaResponseQueue
+	ARENA_QUEUE_ENTRY_SIZE      = system.ArenaQueueEntrySize
+	MAX_ARENA_REQUESTS          = system.MaxArenaRequests
+
+	// Bird Animation State
+	OFFSET_BIRD_STATE = system.OffsetBirdState
+	SIZE_BIRD_STATE   = system.SizeBirdState
 
 	// ========== PING-PONG BUFFERS (Arena) ==========
-	// Dedicated regions for zero-allocation data exchange
-	// Must match layout.rs exactly
-	OFFSET_PINGPONG_CONTROL = 0x161000
-	SIZE_PINGPONG_CONTROL   = 0x000040
+	OFFSET_PINGPONG_CONTROL = system.OffsetPingpongControl
+	SIZE_PINGPONG_CONTROL   = system.SizePingpongControl
 
-	OFFSET_BIRD_BUFFER_A = 0x162000
-	OFFSET_BIRD_BUFFER_B = 0x3C2000
-	SIZE_BIRD_BUFFER     = 10000 * 236 // supports 10k birds
+	// Bird Population Data (Dual Buffers)
+	OFFSET_BIRD_BUFFER_A = system.OffsetBirdBufferA
+	OFFSET_BIRD_BUFFER_B = system.OffsetBirdBufferB
+	SIZE_BIRD_BUFFER     = system.SizeBirdBuffer
+	BIRD_STRIDE          = system.BirdStride
 
-	OFFSET_MATRIX_BUFFER_A = 0x622000
-	OFFSET_MATRIX_BUFFER_B = 0xB22000
-	SIZE_MATRIX_BUFFER     = 10000 * 8 * 64 // 8 parts * 10k birds * 64 bytes
+	// Matrix Output Data (Dual Buffers)
+	OFFSET_MATRIX_BUFFER_A = system.OffsetMatrixBufferA
+	OFFSET_MATRIX_BUFFER_B = system.OffsetMatrixBufferB
+	SIZE_MATRIX_BUFFER     = system.SizeMatrixBuffer
+	MATRIX_STRIDE          = system.MatrixStride
 
 	// ========== EPOCH INDEX ALLOCATION ==========
 	// Fixed system epochs (0-31 Reserved)
-	IDX_KERNEL_READY  = 0
-	IDX_INBOX_DIRTY   = 1 // Signal from Kernel to Module (Module watches this)
-	IDX_OUTBOX_DIRTY  = 2 // Signal from Module to Kernel (Kernel watches this)
-	IDX_PANIC_STATE   = 3
-	IDX_SENSOR_EPOCH  = 4
-	IDX_ACTOR_EPOCH   = 5
-	IDX_STORAGE_EPOCH = 6
-	IDX_SYSTEM_EPOCH  = 7
+	IDX_KERNEL_READY  = system.IdxKernelReady
+	IDX_INBOX_DIRTY   = system.IdxInboxDirty
+	IDX_OUTBOX_DIRTY  = system.IdxOutboxDirty
+	IDX_PANIC_STATE   = system.IdxPanicState
+	IDX_SENSOR_EPOCH  = system.IdxSensorEpoch
+	IDX_ACTOR_EPOCH   = system.IdxActorEpoch
+	IDX_STORAGE_EPOCH = system.IdxStorageEpoch
+	IDX_SYSTEM_EPOCH  = system.IdxSystemEpoch
 
 	// Phase 16: Extended System Epochs
-	IDX_ARENA_ALLOCATOR = 8  // Atomic bump pointer for arena
-	IDX_OUTBOX_MUTEX    = 9  // Mutex for outbox synchronization
-	IDX_INBOX_MUTEX     = 10 // Mutex for inbox synchronization
-	IDX_METRICS_EPOCH   = 11
-	IDX_BOIDS_COUNT     = 12 // Current population count for Go supervisor discovery
-	IDX_MATRIX_EPOCH    = 13 // Matrix generation epoch for JS synchronization
-	IDX_PINGPONG_ACTIVE = 14 // 0 for A, 1 for B (informational)
+	IDX_ARENA_ALLOCATOR = system.IdxArenaAllocator
+	IDX_OUTBOX_MUTEX    = system.IdxOutboxMutex
+	IDX_INBOX_MUTEX     = system.IdxInboxMutex
+	IDX_METRICS_EPOCH   = system.IdxMetricsEpoch
+	IDX_BOIDS_COUNT     = system.IdxBirdEpoch // Note: Schema uses IdxBirdEpoch, aliased here
+	IDX_MATRIX_EPOCH    = system.IdxMatrixEpoch
+	IDX_PINGPONG_ACTIVE = system.IdxPingpongActive
 
 	// Signal-Based Architecture Epochs (15-20)
-	// These replace polling loops with Atomics.wait for zero-CPU blocking
-	IDX_REGISTRY_EPOCH  = 15 // Module registration signal
-	IDX_EVOLUTION_EPOCH = 16 // Boids evolution complete
-	IDX_HEALTH_EPOCH    = 17 // Health metrics updated
-	IDX_LEARNING_EPOCH  = 18 // Pattern learning complete
-	IDX_ECONOMY_EPOCH   = 19 // Credit settlement needed
-
-	// Reserved for future signal extensions (20-31)
+	IDX_REGISTRY_EPOCH  = system.IdxRegistryEpoch
+	IDX_EVOLUTION_EPOCH = system.IdxEvolutionEpoch
+	IDX_HEALTH_EPOCH    = system.IdxHealthEpoch
+	IDX_LEARNING_EPOCH  = system.IdxLearningEpoch
+	IDX_ECONOMY_EPOCH   = system.IdxEconomyEpoch
 
 	// Dynamic supervisor pool (32-127)
-	SUPERVISOR_POOL_BASE = 32
-	SUPERVISOR_POOL_SIZE = 96 // Supports 96 supervisors
+	SUPERVISOR_POOL_BASE = system.SupervisorPoolBase
+	SUPERVISOR_POOL_SIZE = system.SupervisorPoolSize
 
 	// Reserved for future expansion (128-255)
-	RESERVED_POOL_BASE = 128
-	RESERVED_POOL_SIZE = 128
+	RESERVED_POOL_BASE = system.ReservedPoolBase
+	RESERVED_POOL_SIZE = system.ReservedPoolSize
 
 	// ========== ALIGNMENT REQUIREMENTS ==========
-	ALIGNMENT_CACHE_LINE = 64    // Cache line alignment
-	ALIGNMENT_PAGE       = 4096  // Page alignment
-	ALIGNMENT_LARGE      = 65536 // Large allocation alignment
+	ALIGNMENT_CACHE_LINE = system.AlignmentCacheLine
+	ALIGNMENT_PAGE       = system.AlignmentPage
+	ALIGNMENT_LARGE      = system.AlignmentLarge
 )
 
 // MemoryRegion describes a region in the SAB

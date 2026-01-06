@@ -8,6 +8,7 @@ fn main() {
         .file("../../protocols/schemas/base/v1/base.capnp")
         .file("../../protocols/schemas/compute/v1/capsule.capnp")
         .file("../../protocols/schemas/system/v1/orchestration.capnp")
+        .file("../../protocols/schemas/system/v1/sab_layout.capnp")
         .file("../../protocols/schemas/io/v1/actor.capnp")
         .file("../../protocols/schemas/io/v1/sensor.capnp")
         .file("../../protocols/schemas/economy/v1/ledger.capnp")

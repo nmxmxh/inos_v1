@@ -20,8 +20,8 @@ type MockSABBuilder struct {
 // NewMockSABBuilder creates a new builder
 func NewMockSABBuilder(size int) *MockSABBuilder {
 	// Ensure minimum size
-	if size < sab_layout.SAB_SIZE_DEFAULT {
-		size = sab_layout.SAB_SIZE_DEFAULT
+	if size < int(sab_layout.SAB_SIZE_DEFAULT) {
+		size = int(sab_layout.SAB_SIZE_DEFAULT)
 	}
 	return &MockSABBuilder{
 		sab:         make([]byte, size),
@@ -32,7 +32,7 @@ func NewMockSABBuilder(size int) *MockSABBuilder {
 // AddModule adds a module entry to the registry
 func (m *MockSABBuilder) AddModule(id string, version [3]uint8, caps []string, deps []string) *MockSABBuilder {
 	slot := m.moduleCount
-	offset := sab_layout.OFFSET_MODULE_REGISTRY + (slot * 96) // 96 bytes per entry
+	offset := int(sab_layout.OFFSET_MODULE_REGISTRY) + (slot * 96) // 96 bytes per entry
 
 	// Create entry data (EnhancedModuleEntry)
 	// Signature: 0x494E4F5352454749
@@ -158,7 +158,7 @@ func (m *MockSABBuilder) allocateArena(size int) int {
 // AddPattern adds a pattern to the pattern exchange
 func (m *MockSABBuilder) AddPattern(id uint64, patternType uint16, confidence uint8, payload []byte) *MockSABBuilder {
 	slot := m.patternCount
-	offset := sab_layout.OFFSET_PATTERN_EXCHANGE + (slot * 64) // 64 bytes per entry
+	offset := int(sab_layout.OFFSET_PATTERN_EXCHANGE) + (slot * 64) // 64 bytes per entry
 
 	// Magic
 	binary.LittleEndian.PutUint64(m.sab[offset:], 0x5041545F45582D50) // "PAT_EX-P"

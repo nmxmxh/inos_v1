@@ -1,21 +1,40 @@
 # Ping-Pong Buffer Architecture
 
-Zero-allocation, lock-free memory synchronization for INOS distributed compute.
+**Zero-allocation, lock-free memory synchronization for INOS distributed compute.**
+
+> [!IMPORTANT]
+> **Architectural Pattern for ALL High-Frequency Data**
+> This is not just for boids - ping-pong buffers are the **foundational pattern** for any hot-path data exchange in INOS. This includes:
+> - **Entity Simulation** (boids, particles, agents)
+> - **GPU Compute Results** (matrix transformations, physics state, shader outputs)
+> - **Audio/Video Streams** (DSP buffers, frame data)
+> - **Real-time Metrics** (telemetry, profiling, diagnostics)
+> - **P2P Message Queues** (gossip payloads, sync batches)
+> 
+> Any data that updates at >30Hz should use ping-pong buffers to avoid GC pressure.
 
 ## The Problem
 
-Current per-frame allocations in hot paths:
+**Per-frame allocations in hot paths across ALL compute units:**
 
 ```rust
-// boids.rs - Every frame
-let mut population_data = vec![0u8; count * 236];  // ~236KB @ 1k birds
+// Example 1: Boids simulation (60fps)
+let mut population_data = vec![0u8; count * 236];  // 2.3MB @ 10k birds
 
-// math.rs - Every frame  
-let mut input_data = vec![0u8; input_size];   // ~236KB
-let mut output_data = vec![0u8; output_size]; // ~512KB
+// Example 2: GPU matrix transforms (60fps)
+let mut matrix_output = vec![0u8; count * 512];    // 5MB @ 10k entities
+
+// Example 3: Audio DSP (48kHz sampling)
+let mut audio_buffer = vec![f32; 1024 * channels]; // Every 21ms
+
+// Example 4: P2P gossip payloads (variable)
+let mut message_batch = vec![0u8; batch_size];     // Every sync round
 ```
 
-**At 10k+ entities**: ~47MB/sec allocations → GC pressure, frame stutters.
+**Impact at scale**:
+- **Boids @ 10k entities**: ~47MB/sec → GC stalls
+- **Audio @ 48kHz**: ~200KB/sec → Xruns and dropouts  
+- **P2P @ 100 peers**: Variable bursts → Unpredictable latency
 
 **Deeper Problem**: Go WASM and Rust WASM have separate linear memories. They can't directly share memory - the SAB is the **bridge** that connects them.
 
@@ -55,12 +74,25 @@ The SharedArrayBuffer is the **central hub**. Go, Rust, and JS form a **circular
     ⚡ Epoch counter provides frame-perfect synchronization
 ```
 
-### The Circular Flow
+### The Circular Flow (Generic Pattern)
 
-1. **Go Kernel** writes bird state to Buffer A (even epoch) or B (odd epoch)
-2. **Rust Compute** reads from active buffer, computes matrices, writes to matrix buffer
-3. **JavaScript** reads matrices from SAB, uploads to GPU
+**For Entity Simulation (Boids, N-body, Agent systems):**
+1. **Go Kernel** writes entity state to Buffer A (even epoch) or B (odd epoch)  
+2. **Rust Compute** reads from active buffer, computes transforms/physics  
+3. **JavaScript** reads results from SAB, uploads to GPU  
 4. **Epoch increments** → roles flip, cycle continues
+
+**For Audio/Video Streams:**
+1. **Rust DSP** writes processed frames to inactive buffer  
+2. **JavaScript Audio API** reads from active buffer  
+3. **Go Kernel** monitors Buffer A vs B for dropped frames  
+4. **Epoch increments** → seamless buffer swap
+
+**For P2P Message Queues:**
+1. **Go Kernel** accumulates gossip messages in inactive buffer  
+2. **Rust Crypto** reads from active buffer, signs batch  
+3. **JavaScript WebRTC** sends signed batch to peers  
+4. **Epoch increments** → next batch begins
 
 ---
 

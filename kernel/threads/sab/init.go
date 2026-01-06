@@ -14,11 +14,11 @@ type SABInitializer struct {
 
 // NewSABInitializer creates a new SAB initializer
 func NewSABInitializer(size int) (*SABInitializer, error) {
-	if size < SAB_SIZE_MIN {
+	if size < int(SAB_SIZE_MIN) {
 		return nil, fmt.Errorf("SAB size %d is below minimum %d", size, SAB_SIZE_MIN)
 	}
 
-	if size > SAB_SIZE_MAX {
+	if size > int(SAB_SIZE_MAX) {
 		return nil, fmt.Errorf("SAB size %d exceeds maximum %d", size, SAB_SIZE_MAX)
 	}
 

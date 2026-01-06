@@ -416,15 +416,15 @@ func main() {
 		SystemSABSize = sizeFromJS.Int()
 	} else {
 		// Fallback to default if not set by frontend yet
-		SystemSABSize = sab_layout.SAB_SIZE_DEFAULT
+		SystemSABSize = int(sab_layout.SAB_SIZE_DEFAULT)
 	}
 
 	// Double check bounds
-	if SystemSABSize > sab_layout.SAB_SIZE_MAX {
-		SystemSABSize = sab_layout.SAB_SIZE_MAX
+	if SystemSABSize > int(sab_layout.SAB_SIZE_MAX) {
+		SystemSABSize = int(sab_layout.SAB_SIZE_MAX)
 	}
-	if SystemSABSize < sab_layout.SAB_SIZE_MIN {
-		SystemSABSize = sab_layout.SAB_SIZE_MIN
+	if SystemSABSize < int(sab_layout.SAB_SIZE_MIN) {
+		SystemSABSize = int(sab_layout.SAB_SIZE_MIN)
 	}
 
 	// Create a byte slice view at LINEAR MEMORY BASE (address 0)
