@@ -209,6 +209,8 @@ fn register_diagnostics(sab: &sdk::sab::SafeSAB) {
             }
             if let Ok((slot, _)) = find_slot_double_hashing(sab, id) {
                 let _ = write_enhanced_entry(sab, slot, &entry);
+                // Signal registry change to wake Go discovery loop
+                signal_registry_change(sab);
             }
         }
         Err(_) => {}

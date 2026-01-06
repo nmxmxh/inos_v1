@@ -205,33 +205,53 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	return nil
 }
 
-// runDiscoveryLoop periodically scans the SAB for new module registrations
+// runDiscoveryLoop waits for module registration signals (zero-CPU blocking)
+// Replaces polling with Atomics.wait on IDX_REGISTRY_EPOCH
 func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
 	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
+	var lastRegistryEpoch int32 = 0
 
 	for {
+		// Check for shutdown
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			s.mu.RLock()
-			reg := s.registry
-			bridge := s.bridge
-			s.mu.RUnlock()
+		default:
+		}
 
-			if reg == nil || bridge == nil {
+		s.mu.RLock()
+		reg := s.registry
+		bridge := s.bridge
+		s.mu.RUnlock()
+
+		if reg == nil || bridge == nil {
+			// Not initialized yet, wait a bit
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(100 * time.Millisecond):
 				continue
 			}
+		}
 
-			// 1. Scan SAB for new modules
+		// Wait for registry epoch change using Atomics.wait (zero CPU)
+		// This blocks until Rust signals a module registration or timeout
+		result := bridge.WaitForEpochChange(
+			sab_layout.IDX_REGISTRY_EPOCH,
+			lastRegistryEpoch,
+			2000.0, // 2s max wait for shutdown responsiveness
+		)
+
+		// Update last epoch regardless of result
+		currentEpoch := bridge.ReadAtomicI32(sab_layout.IDX_REGISTRY_EPOCH)
+		if currentEpoch != lastRegistryEpoch {
+			lastRegistryEpoch = currentEpoch
+
+			// Activity detected - scan for new modules
 			if err := reg.LoadFromSAB(); err != nil {
 				continue
 			}
 
-			// 2. Compare with existing units
 			modules := reg.ListModules()
 			for _, mod := range modules {
 				s.mu.RLock()
@@ -239,7 +259,7 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 				s.mu.RUnlock()
 
 				if !exists {
-					s.logger.Info("Discovered new module", utils.String("id", mod.ID))
+					s.logger.Info("Discovered new module (signal-based)", utils.String("id", mod.ID))
 
 					// Instantiate and start supervisor
 					unit := loader.InstantiateUnit(bridge, mod)
@@ -253,6 +273,9 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 					}
 				}
 			}
+		} else if result == 1 {
+			// Timeout - no activity, loop continues
+			continue
 		}
 	}
 }
@@ -612,35 +635,40 @@ func (s *Supervisor) RequestThrottle(resourceID string, currentLoad float64) (bo
 	}
 }
 
-// runEconomyLoop monitors the SAB for epoch changes and triggers economic settlement
+// runEconomyLoop waits for economy epoch signals (zero-CPU blocking)
+// Replaces polling with Atomics.wait on IDX_ECONOMY_EPOCH
 func (s *Supervisor) runEconomyLoop(ctx context.Context) error {
-	s.logger.Info("Economy Loop started")
+	s.logger.Info("Economy Loop started (signal-based)")
 
-	ticker := time.NewTicker(1 * time.Second) // Check epoch every second
-	defer ticker.Stop()
-
-	var lastEpoch uint64 = 0
+	var lastEpoch int32 = 0
 
 	for {
+		// Check for shutdown
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			// Read current system epoch from SAB
-			// Using the bridge to read from the signal region
-			currentEpoch := s.bridge.ReadSystemEpoch()
+		default:
+		}
 
-			if currentEpoch > lastEpoch {
-				s.logger.Debug("Epoch change detected, settling economics",
-					utils.Uint64("old", lastEpoch),
-					utils.Uint64("new", currentEpoch))
+		// Wait for economy epoch change using Atomics.wait (zero CPU)
+		_ = s.bridge.WaitForEpochChange(
+			sab_layout.IDX_ECONOMY_EPOCH,
+			lastEpoch,
+			5000.0, // 5s max wait for shutdown responsiveness
+		)
 
-				if err := s.credits.OnEpoch(currentEpoch); err != nil {
-					s.logger.Error("Failed to settle economics", utils.Err(err))
-				}
+		// Read current epoch
+		currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_ECONOMY_EPOCH)
+		if currentEpoch != lastEpoch {
+			s.logger.Debug("Economy epoch change detected, settling",
+				utils.Int64("old", int64(lastEpoch)),
+				utils.Int64("new", int64(currentEpoch)))
 
-				lastEpoch = currentEpoch
+			if err := s.credits.OnEpoch(uint64(currentEpoch)); err != nil {
+				s.logger.Error("Failed to settle economics", utils.Err(err))
 			}
+
+			lastEpoch = currentEpoch
 		}
 	}
 }

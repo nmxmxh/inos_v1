@@ -143,7 +143,15 @@ const (
 	IDX_MATRIX_EPOCH    = 13 // Matrix generation epoch for JS synchronization
 	IDX_PINGPONG_ACTIVE = 14 // 0 for A, 1 for B (informational)
 
-	// Reserved for future system extensions (15-31)
+	// Signal-Based Architecture Epochs (15-20)
+	// These replace polling loops with Atomics.wait for zero-CPU blocking
+	IDX_REGISTRY_EPOCH  = 15 // Module registration signal
+	IDX_EVOLUTION_EPOCH = 16 // Boids evolution complete
+	IDX_HEALTH_EPOCH    = 17 // Health metrics updated
+	IDX_LEARNING_EPOCH  = 18 // Pattern learning complete
+	IDX_ECONOMY_EPOCH   = 19 // Credit settlement needed
+
+	// Reserved for future signal extensions (20-31)
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = 32

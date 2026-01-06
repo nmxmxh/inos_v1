@@ -527,6 +527,8 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
 
             // Register capabilities
             register_drivers_capabilities(&global_sab);
+            // Signal registry change to wake Go discovery loop
+            sdk::registry::signal_registry_change(&global_sab);
 
             // Initialize Global Drivers
             let mut lock = GLOBAL_DRIVERS.lock();

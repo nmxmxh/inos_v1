@@ -598,6 +598,22 @@ impl ModuleEntryBuilder {
     }
 }
 
+/// Signal registry change to wake Go supervisor discovery loop
+/// Uses Atomics.add + Atomics.notify for zero-CPU wake-up
+pub fn signal_registry_change(sab: &SafeSAB) {
+    use crate::js_interop;
+    use crate::layout::IDX_REGISTRY_EPOCH;
+
+    // Atomically increment the registry epoch
+    let buffer = sab.inner();
+    let length = js_interop::get_byte_length(buffer);
+    let view = js_interop::create_i32_view(buffer, 0, length / 4);
+    let typed_view: crate::JsValue = view.into();
+
+    js_interop::atomic_add(&typed_view, IDX_REGISTRY_EPOCH, 1);
+    js_interop::atomic_notify(&typed_view, IDX_REGISTRY_EPOCH, i32::MAX);
+}
+
 fn get_timestamp_ms() -> u64 {
     crate::js_interop::get_now()
 }

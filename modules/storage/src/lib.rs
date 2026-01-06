@@ -86,6 +86,8 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
             };
 
             register_storage(&global_sab);
+            // Signal registry change to wake Go discovery loop
+            sdk::registry::signal_registry_change(&global_sab);
 
             return 1;
         }

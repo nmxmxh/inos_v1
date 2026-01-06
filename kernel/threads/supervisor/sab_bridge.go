@@ -152,6 +152,13 @@ func (sb *SABBridge) ReadSystemEpoch() uint64 {
 	return uint64(atomic.LoadUint32((*uint32)(ptr)))
 }
 
+// ReadAtomicI32 reads an atomic i32 value at the given epoch index
+// Used by signal-based loops to check current epoch value
+func (sb *SABBridge) ReadAtomicI32(epochIndex uint32) int32 {
+	ptr := unsafe.Add(sb.sab, epochIndex*4)
+	return int32(atomic.LoadUint32((*uint32)(ptr)))
+}
+
 // WriteInbox writes raw data to SAB Inbox (for Kernel -> Module return path)
 // Thread-safe.
 func (sb *SABBridge) WriteInbox(data []byte) error {

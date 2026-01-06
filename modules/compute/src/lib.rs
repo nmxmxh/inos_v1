@@ -429,6 +429,9 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
     register_simple("compute", 512, false); // Base compute
     register_simple("boids", 512, false); // Flocking simulation
 
+    // Signal registry change to wake Go discovery loop immediately
+    sdk::registry::signal_registry_change(sab);
+
     // Note: specialized units (ml, storage/vault, etc.) register themselves via their own WASM binaries.
     // We do NOT register them here to avoid registry collisions.
 }

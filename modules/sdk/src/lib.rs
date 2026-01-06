@@ -8,12 +8,11 @@ pub mod signal;
 pub mod social_graph;
 
 pub mod arena;
-pub mod context;
-pub mod js_interop;
-// pub mod auto_register; // Removed - was wasm-bindgen dependent
 pub mod compression;
+pub mod context;
 pub mod crdt;
 pub mod hashing;
+pub mod js_interop;
 pub mod layout;
 pub mod pingpong;
 pub mod registry;

@@ -132,6 +132,16 @@ pub const IDX_BIRD_EPOCH: u32 = 12; // High-frequency bird state updates
 pub const IDX_MATRIX_EPOCH: u32 = 13; // Matrix output buffer flip signaling
 pub const IDX_PINGPONG_ACTIVE: u32 = 14; // Which buffer is active (0=A, 1=B)
 
+/// Signal-Based Architecture Epochs (15-20)
+/// These replace polling loops with Atomics.wait for zero-CPU blocking
+pub const IDX_REGISTRY_EPOCH: u32 = 15; // Module registration signal
+pub const IDX_EVOLUTION_EPOCH: u32 = 16; // Boids evolution complete
+pub const IDX_HEALTH_EPOCH: u32 = 17; // Health metrics updated
+pub const IDX_LEARNING_EPOCH: u32 = 18; // Pattern learning complete
+pub const IDX_ECONOMY_EPOCH: u32 = 19; // Credit settlement needed
+
+/// Reserved for future signal extensions (20-31)
+
 /// Dynamic supervisor pool (32-127)
 pub const SUPERVISOR_POOL_BASE: u32 = 32;
 pub const SUPERVISOR_POOL_SIZE: u32 = 96;

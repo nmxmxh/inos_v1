@@ -1,6 +1,6 @@
 # INOS Graphics & Animation Methodology
 
-This document outlines the architectural strategy used to achieve industrial-grade animation performance (e.g., 1500+ entities @ 60fps) within the INOS distributed runtime.
+This document outlines the architectural strategy used to achieve industrial-grade animation performance (e.g., 1000+ entities @ 60fps) within the INOS distributed runtime.
 
 ## Core Pillars
 
@@ -10,216 +10,164 @@ The primary bottleneck in web-based compute is data serialization/deserializatio
 - **Concurrent Access**: Go (Logic), Rust (Math), and JS (Rendering) all point to the same byte offsets.
 - **No Transfers**: We never "send" data between layers; we only signal that data has changed via an **Epoch Counter**.
 
-### 2. Side-Channel Signaling (The Pulse)
-To avoid the overhead of constant event listeners:
-- Components poll a single **Atomic Flag** (the System Epoch) in the SAB.
-- Only when this flag changes does the renderer update its buffers.
-- This creates a de-coupled "Heartbeat" where compute can run faster or slower than rendering without causing frames to drop.
-
-### 3. FFI Bulk I/O
-Inter-language calls (FFI) are expensive.
-- ** methodology**: Instead of calling a function for every entity or every property, we perform **Bulk Transfers**.
-- **The 3000x Win**: Refactoring from per-float updates to a single `read_all` and `write_all` call reduced our FFI overhead by 3 orders of magnitude.
-
-### 4. Instanced Rendering
-To minimize draw calls on the GPU:
-- We use **Instanced Mesh** technology.
-- A single "Geometry" (the bird) is sent to the GPU once.
-- The GPU then reads the positions, rotations, and animation states for all 1500 birds directly from the SAB-backed attributes in a single pass.
-
-### 5. Memory Barrier & View Persistence
-To prevent "Death by Garbage Collection" (GC):
-- **WASM-JS Bridge**: Many bridges create new objects (Buffer views, arrays) on every frame.
-- **The Finding**: Creating 1500 `new Float32Array(sab, offset, length)` views per frame generates **90,000+ objects/sec**, causing a steady JS heap climb and eventual frame stutters.
-- **The Solution**: Cache these views at initialization using `useRef` (React) or persistent variables. Re-use a single large `TypedArray` and index into it mathematically.
-
-### 6. Atomic Initialization Pattern
-To prevent race conditions and redundant resource spawns:
-- **Problem**: Concurrent component mounts or rapid hot-reloads can trigger `initializeKernel` multiple times before the first call settles, resulting in multiple `SharedArrayBuffer` instances and WASM processes.
-- **Solution**: Use an "Atomic Promise" lock stored globally (e.g., `window.__INOS_INIT_PROMISE__`). If a promise already exists, return it instead of spawning a new process.
-- **Implementation**: See [kernel.ts](file:///Users/okhai/Desktop/OVASABI%20STUDIOS/inos_v1/frontend/src/wasm/kernel.ts).
-
-### 8. Context Versioning (Zombie Killing)
-To ensure old code doesn't haunt the new context:
-- **Problem**: Hot-reloading replaces the JS bundle but doesn't necessarily stop old intervals or RAF loops from previous "Windows".
-- **Solution**: Increment a global `window.__INOS_CONTEXT_ID__` on every boot. All loops must check if their local ID matches the global ID. If not, they self-destruct.
-- **Cross-Module Enforcement**: Rust modules must also capture the context ID during `init_with_sab` and check it in hot entry points (e.g., `compute_poll`). Use `sdk::is_context_valid()`.
-
-### 9. Shutdown & Lifecycle Management
-To prevent "Orphaned Goroutines" in detached contexts:
-- **Problem**: Go goroutines (like the boids evolution loop) do not automatically stop when a React component unmounts.
-- **Solution**: Implement a `shutdownKernel()` signal that stores a shutdown flag in the SAB. The Go process should poll this flag and exit cleanly.
-
-### 9. Explicit Resource Disposal
-To prevent "Detached Node" leaks:
-- **Problem**: 3D geometries and materials are not always automatically garbage collected if held in `useMemo`.
-- **Solution**: Use `useEffect` cleanup to call `.dispose()` on all geometries and materials.
-
-## Memory Leak Antipatterns
-Avoid these common pitfalls in the `useFrame` or `requestAnimationFrame` hooks:
-1. **Sub-views**: `new Float32Array(buffer, offset, count)` — creates a new JS object.
-2. **Object Spread**: `{ ...position }` — creates a new literal.
-3. **Array Methods**: `.map()`, `.filter()` on every frame — creates new arrays.
-4. **Three.js Constructors**: `new THREE.Color()`, `new THREE.Matrix4()` — expensive allocations.
-5. **Dangling Intervals**: Starting `setInterval` in a store without a global "active" flag or cleanup.
-
----
-
-## 10. GPU-Ready Matrix Generation
-
-### The Problem: JavaScript as a Bottleneck
-
-Even with zero-copy SAB architecture, a subtle performance issue can arise:
+### 2. Signal-Based Architecture (Zero-CPU Blocking)
+To eliminate polling overhead entirely:
+- **Atomics.wait**: Components block on epoch changes using `Atomics.wait()` instead of `setInterval`.
+- **Zero-CPU Idle**: When no activity occurs, CPU usage is 0% (no spinning).
+- **Instant Wake**: When an epoch changes, waiting threads wake immediately.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    CURRENT ARCHITECTURE (Suboptimal)                 │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Rust (WASM)              JavaScript (CPU)           GPU (WebGL)   │
-│  ┌──────────────┐         ┌──────────────────┐       ┌───────────┐  │
-│  │ Physics      │  SAB    │ Matrix Math      │  API  │ Render    │  │
-│  │ calculate    │ ─────►  │ 8000 multiplies  │ ───►  │ instances │  │
-│  │ positions    │         │ per frame!       │       │           │  │
-│  └──────────────┘         └──────────────────┘       └───────────┘  │
-│        Fast                     SLOW                     Fast       │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────┐
+│         SIGNAL-BASED DISCOVERY LOOP                │
+├────────────────────────────────────────────────────┤
+│                                                    │
+│  Rust WASM                         Go Kernel       │
+│  ┌──────────────┐    Atomics.notify  ┌──────────┐  │
+│  │ Module       │  ─────────────────► │ Discovery│  │
+│  │ Registration │     (epoch++)      │ Loop     │  │
+│  │              │                    │ BLOCKS   │  │
+│  └──────────────┘                    └──────────┘  │
+│                                                    │
+│  Zero-CPU while idle. Instant response on signal. │
+└────────────────────────────────────────────────────┘
 ```
 
-**Why this happens:**
-- Rust computes **bird state**: position (x, y, z), velocity, rotation
-- JavaScript reads state and creates **render matrices**: 4x4 transforms for each mesh part
-- With 1000 birds × 8 mesh parts = **8000 matrix multiplications in JavaScript per frame**
-- JavaScript matrix math runs on **CPU cores**, not GPU
+**Key Epoch Indices (from `layout.rs`):**
+| Index | Name | Purpose |
+|-------|------|---------|
+| 12 | `IDX_BIRD_EPOCH` | Bird physics complete |
+| 13 | `IDX_MATRIX_EPOCH` | Matrix generation complete |
+| 15 | `IDX_REGISTRY_EPOCH` | Module registration signal |
+| 16 | `IDX_EVOLUTION_EPOCH` | Boids evolution complete |
+| 19 | `IDX_ECONOMY_EPOCH` | Credit settlement needed |
 
-### The Solution: Rust-Generated Render Matrices
+### 3. Ping-Pong Buffers (Zero Contention)
+To prevent read/write conflicts between layers:
+- **Dual Buffers**: Physics writes to Buffer A while rendering reads Buffer B.
+- **Epoch Flip**: On physics complete, increment epoch. Buffer selection = `epoch % 2`.
+- **Lock-Free**: No mutexes, no blocking, no torn reads.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    OPTIMAL ARCHITECTURE                              │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   Rust (WASM)                   JavaScript           GPU (WebGL)    │
-│  ┌────────────────────────┐    ┌────────────┐       ┌───────────┐   │
-│  │ Physics + Matrix Gen   │    │ Copy SAB   │       │ Render    │   │
-│  │ ───────────────────    │    │ to GPU     │       │ instances │   │
-│  │ positions, rotations,  │SAB │ (zero math)│ API   │           │   │
-│  │ AND 4x4 matrices       │───►│            │ ───►  │           │   │
-│  └────────────────────────┘    └────────────┘       └───────────┘   │
-│          Fast                    Minimal                Fast        │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│              PING-PONG BUFFER ARCHITECTURE           │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│   Frame N (epoch=100):          Frame N+1 (epoch=101):
+│   ┌─────────┐  ┌─────────┐      ┌─────────┐  ┌─────────┐
+│   │Buffer A │  │Buffer B │      │Buffer A │  │Buffer B │
+│   │ WRITE   │  │  READ   │ ──►  │  READ   │  │ WRITE   │
+│   │(physics)│  │(render) │      │(render) │  │(physics)│
+│   └─────────┘  └─────────┘      └─────────┘  └─────────┘
+│                                                      │
+│   isBufferA = (matrixEpoch % 2 === 0)               │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Benefits:**
-1. **CPU Offload**: JavaScript becomes a thin data-copy layer
-2. **Consistent Performance**: Rust WASM is 10-100x faster than JS for matrix math
-3. **True Zero-Copy**: Matrices flow directly from SAB → GPU with no JavaScript computation
-4. **Unified Compute**: All math happens in one place (Rust), easier to optimize
+**Buffer Layout (from `layout.rs`):**
+| Buffer | Offset | Size | Purpose |
+|--------|--------|------|---------|
+| Bird A | `0x162000` | 2.36MB | Population state (read) |
+| Bird B | `0x3C2000` | 2.36MB | Population state (write) |
+| Matrix A | `0x622000` | 5.12MB | Instance matrices (read) |
+| Matrix B | `0xB22000` | 5.12MB | Instance matrices (write) |
 
-### Implementation Pattern
+### 4. Persistent Scratch Buffers (Zero Allocation)
+To prevent GC pressure and frame stutters:
+- **Once-allocated**: Scratch buffers are allocated once at module init.
+- **Mutex-protected**: A `Mutex<PersistentScratch>` ensures thread safety without heap churn.
+- **Reused per-frame**: Same memory is reused for every physics step.
 
-**In Rust (`boids.rs`):**
 ```rust
-// Per-bird: 58 floats → expand to include 4x4 matrices
-// New layout: position(3) + velocity(3) + rotation(4) + ... + body_matrix(16) + head_matrix(16) + ...
-
-fn compute_render_matrix(pos: [f32; 3], rot: [f32; 4], part_offset: [f32; 3]) -> [f32; 16] {
-    // Compute full 4x4 transform matrix in Rust
-    // Write directly to SAB
-}
-```
-
-**In JavaScript (`ArchitecturalBoids.tsx`):**
-```typescript
-useFrame(() => {
-  // No matrix math! Just copy:
-  const matrices = new Float32Array(sab, MATRIX_OFFSET, BIRD_COUNT * 16);
-  bodiesRef.current.instanceMatrix.array.set(matrices);
-  bodiesRef.current.instanceMatrix.needsUpdate = true;
+// In boids.rs
+static SCRATCH: Lazy<Mutex<PersistentScratch>> = Lazy::new(|| {
+    Mutex::new(PersistentScratch {
+        population: vec![0u8; MAX_BIRDS * BIRD_STRIDE],
+        positions: vec![[0.0, 0.0, 0.0]; MAX_BIRDS],
+        velocities: vec![[0.0, 0.0, 0.0]; MAX_BIRDS],
+        grid: SpatialHashGrid::new(CELL_SIZE, GRID_SIZE),
+        neighbor_cache: vec![],
+    })
 });
 ```
 
-### When to Use This Pattern
+### 5. FFI Bulk I/O
+Inter-language calls (FFI) are expensive.
+- **Bulk Transfers**: Instead of per-float calls, read/write entire buffers at once.
+- **The 3000x Win**: Refactoring from per-float updates to `read_raw`/`write_raw` reduced FFI overhead by 3 orders of magnitude.
 
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| < 100 entities | JavaScript matrix math is fine |
-| 100-1000 entities | Consider Rust matrices |
-| > 1000 entities | **Must** use Rust matrices |
-| Complex per-entity transforms | **Must** use Rust matrices |
+### 6. Instanced Rendering
+To minimize draw calls on the GPU:
+- **Instanced Mesh**: A single geometry is sent to the GPU once.
+- **Matrix Injection**: GPU reads 4x4 transforms for all entities from SAB-backed attributes.
+- **8-Part Birds**: Each bird = 8 meshes (body, head, beak, wings, tail). 1000 birds = 8000 instances.
+
+### 7. Memory Barrier & View Persistence
+To prevent "Death by Garbage Collection":
+- **Cached Views**: All `TypedArray` views are cached at initialization.
+- **No Per-Frame Allocations**: The animation loop creates zero new objects.
+
+### 8. Context Versioning (Zombie Killing)
+To ensure old code doesn't haunt the new context:
+- **Global Context ID**: `window.__INOS_CONTEXT_ID__` incremented on every boot.
+- **Self-Destruct**: All loops check if their local ID matches global. If not, they exit.
 
 ---
 
-## 11. FFI Bulk I/O Optimization
+## GPU-Ready Matrix Generation
 
-### The Problem: Per-Entity SAB Calls
-Calling `sab.read()` or `sab.write()` for each float creates massive FFI overhead:
-- 1000 birds × 14 floats = **14,000 reads per frame**
-- 1000 birds × 8 parts × 16 matrix floats = **128,000 writes per frame**
+### The Optimal Architecture
 
-### The Solution: Bulk Read/Write
-Use `sab.read_raw()` and `sab.write_raw()` to read/write entire buffers at once:
-
-```rust
-// Before: 142,000 FFI calls per frame (BAD)
-for i in 0..count {
-    for j in 0..14 {
-        sab.read(offset + j * 4, 4);  // 14,000 calls
-    }
-    for k in 0..128 {
-        sab.write(out_offset + k * 4, 4);  // 128,000 calls
-    }
-}
-
-// After: 2 FFI calls per frame (GOOD)
-let mut input_data = vec![0u8; count * BYTES_PER_BIRD];
-sab.read_raw(src_off, &mut input_data)?;  // 1 call
-
-// ... process data in local buffer ...
-
-sab.write_raw(dst_off, &output_data)?;    // 1 call
+```
+┌─────────────────────────────────────────────────────┐
+│                MATRIX PIPELINE                       │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│   Rust BoidUnit        Rust MathUnit        Three.js │
+│  ┌──────────────┐     ┌──────────────┐     ┌───────┐│
+│  │ Physics      │ SAB │ Matrix Gen   │ SAB │ Copy  ││
+│  │ step_physics │────►│ 8 parts ×    │────►│ to    ││
+│  │              │     │ 4x4 matrices │     │ GPU   ││
+│  └──────────────┘     └──────────────┘     └───────┘│
+│      ~2ms                  ~1ms              ~0.2ms  │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Result**: Matrix computation dropped from ~30ms to ~1ms per frame.
-
----
-
-## 12. Euler Angle Conventions
-
-### THREE.js vs nalgebra Mapping
-
-| THREE.js | nalgebra | Meaning |
-|----------|----------|---------|
-| `rotation.set(x, y, z)` | `from_euler_angles(roll, pitch, yaw)` | Both use intrinsic XYZ order |
-| x | roll | Rotation around X-axis |
-| y | pitch | Rotation around Y-axis |
-| z | yaw | Rotation around Z-axis |
-
-### Correct Mapping for Bird Orientation
-```rust
-// Bird physics writes:
-// view[6] = heading (rotation around Y that makes bird face velocity)
-// view[7] = bank (rotation around Z for banking into turns)
-
-// OLD JS: rotation.set(0, view[6], view[7])
-// Rust:   from_euler_angles(0.0, heading, bank)
+**In JavaScript (zero math):**
+```typescript
+useFrame(() => {
+  dispatch.execute('boids', 'step_physics', { bird_count: 1000, dt: delta });
+  dispatch.execute('math', 'compute_instance_matrices', { count: 1000 });
+  
+  // Just copy – no computation
+  const matrixBase = (matrixEpoch % 2 === 0) ? 0x622000 : 0xB22000;
+  const sabView = new Float32Array(sab, matrixBase, 1000 * 16);
+  bodiesRef.current.instanceMatrix.array.set(sabView);
+  bodiesRef.current.instanceMatrix.needsUpdate = true;
+});
 ```
 
 ---
 
 ## Reference Implementation
-- **Kernel Bridge**: `kernel/threads/supervisor/sab_bridge.go`
-- **SDK Memory Management**: `modules/sdk/src/sab.rs`
-- **Simulation Loop**: `modules/compute/src/units/boids.rs`
-- **Matrix Computation**: `modules/compute/src/units/math.rs`
-- **Singleton Kernel**: `frontend/src/wasm/kernel.ts`
-- **Zero-Allocation Frontend**: `frontend/app/components/ArchitecturalBoids.tsx`
+| Component | File |
+|-----------|------|
+| Kernel Bridge | `kernel/threads/supervisor/sab_bridge.go` |
+| SDK Memory | `modules/sdk/src/sab.rs` |
+| Ping-Pong Buffers | `modules/sdk/src/pingpong.rs` |
+| Layout Constants | `modules/sdk/src/layout.rs` |
+| Boids Physics | `modules/compute/src/units/boids.rs` |
+| Matrix Computation | `modules/compute/src/units/math.rs` |
+| Signal Epochs | `kernel/threads/sab/layout.go` |
+| Singleton Kernel | `frontend/src/wasm/kernel.ts` |
+| Instanced Renderer | `frontend/app/components/ArchitecturalBoids.tsx` |
 
 ## Performance Checklist
 - [ ] **Singleton**: Is the Kernel memory guarded by a global singleton check?
-- [ ] **Disposal**: Are all 3D geometries and materials explicitly disposed on unmount?
-- [ ] **Allocations**: Is the JS Heap allocation rate 0KB/sec during active animation?
-- [ ] **Persistence**: Are all `TypedArray` views and `Matrix` scratchpads pre-allocated?
-- [ ] **Instancing**: Is the GPU using instancing to handle Entity counts > 100?
-- [ ] **FFI Bulk I/O**: Are SAB operations using `read_raw`/`write_raw` instead of per-float calls?
-- [ ] **Matrix Source**: Are matrices generated in Rust when entity count > 100?
+- [ ] **Signal-Based**: Are loops using `Atomics.wait` instead of polling?
+- [ ] **Ping-Pong**: Are buffers using epoch-based selection (no locks)?
+- [ ] **Persistent Scratch**: Are Rust modules using `Lazy<Mutex<Scratch>>`?
+- [ ] **Disposal**: Are all 3D resources explicitly disposed on unmount?
+- [ ] **Zero Allocations**: Is JS Heap rate 0KB/sec during animation?
+- [ ] **FFI Bulk I/O**: Are SAB ops using `read_raw`/`write_raw`?
+- [ ] **Matrix Source**: Are matrices generated in Rust for >100 entities?
+
