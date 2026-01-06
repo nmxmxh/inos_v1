@@ -160,7 +160,7 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data (offset-based)
             let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
-            // 2. Global SAB for registry writes (full access)
+            // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
 
             // Set global identity context
@@ -434,12 +434,12 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
 }
 
 impl ComputeKernel {
-    pub fn new(sab: &sdk::JsValue, _offset: u32, _size: u32, node_id: String) -> Self {
+    pub fn new(sab: sdk::sab::SafeSAB, node_id: String) -> Self {
         sdk::init_logging();
         info!("Compute Kernel initialized on node {}", node_id);
 
         let engine = initialize_engine();
-        let reactor = Reactor::new(sab);
+        let reactor = Reactor::new(sab.clone());
 
         // Use standardized System Epoch index from SDK
         let epoch = Epoch::new(sab, IDX_SYSTEM_EPOCH);

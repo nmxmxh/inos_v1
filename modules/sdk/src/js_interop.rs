@@ -231,6 +231,10 @@ extern "C" {
     #[link_name = "inos_atomic_wait"]
     fn atomic_wait_raw(typed_array: RawJsValue, index: u32, value: i32, timeout: f64) -> i32;
 
+    // Stable name: inos_atomic_notify
+    #[link_name = "inos_atomic_notify"]
+    fn atomic_notify_raw(typed_array: RawJsValue, index: u32, count: i32) -> i32;
+
     // Stable name: inos_atomic_compare_exchange
     #[link_name = "inos_atomic_compare_exchange"]
     fn atomic_compare_exchange_raw(
@@ -377,6 +381,10 @@ mod native_mock {
 
     pub fn atomic_wait(_typed_array: &JsValue, _index: u32, _value: i32, _timeout_ms: f64) -> i32 {
         0
+    }
+
+    pub fn atomic_notify(_typed_array: &JsValue, _index: u32, _count: i32) -> i32 {
+        0 // No-op in native tests
     }
 
     pub fn atomic_compare_exchange(
@@ -581,6 +589,19 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_wait(typed_array: &JsValue, index: u32, value: i32, timeout_ms: f64) -> i32 {
     native_mock::atomic_wait(typed_array, index, value, timeout_ms)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn atomic_notify<T>(typed_array: &SendWrap<T>, index: u32, count: i32) -> i32
+where
+    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
+{
+    unsafe { atomic_notify_raw(typed_array.0.clone().into(), index, count) }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn atomic_notify(typed_array: &JsValue, index: u32, count: i32) -> i32 {
+    native_mock::atomic_notify(typed_array, index, count)
 }
 
 #[cfg(target_arch = "wasm32")]

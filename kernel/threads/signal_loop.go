@@ -3,11 +3,11 @@ package threads
 import (
 	"context"
 	"io"
-	"runtime"
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh"
 	syscall "github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/nmxmxh/inos_v1/kernel/utils"
 	capnp "zombiezen.com/go/capnproto2"
@@ -33,12 +33,9 @@ func (s *Supervisor) runSignalListener(ctx context.Context) error {
 		s.logger.Warn("MeshCoordinator not available or invalid type")
 	}
 
-	// Atomic Reactive Signal Loop (Phase 15/16)
-	// We monitor the global outbox sequence counter.
+	// Atomic Reactive Signal Loop (Phase 15/16 → Phase 17: Signal-Based)
+	// We monitor the global outbox sequence counter using Atomics.wait
 	var lastSeq uint32 = bridge.ReadOutboxSequence()
-
-	// Adaptive Polling Logic
-	idleCycles := 0
 
 	for {
 		// Check for shutdown
@@ -49,27 +46,26 @@ func (s *Supervisor) runSignalListener(ctx context.Context) error {
 		default:
 		}
 
-		// 1. Check Atomic Sequence
+		// 1. Wait for epoch change using Atomics.wait (zero CPU)
+		// This blocks until the outbox sequence changes or timeout (100ms)
 		currentSeq := bridge.ReadOutboxSequence()
 		if currentSeq == lastSeq {
-			// No changes - Adaptive Strategy
-			idleCycles++
-			if idleCycles < 20 {
-				// Spin phase (Active Re-check)
-				// Low CPU impact for short bursts, instant reaction
-				runtime.Gosched()
-			} else if idleCycles < 200 {
-				// Micro-sleep phase
-				time.Sleep(10 * time.Microsecond)
-			} else {
-				// Idle phase (100us)
-				time.Sleep(100 * time.Microsecond)
+			// Use signal-based waiting (Atomics.wait) - yields CPU until signaled
+			bridge.WaitForEpochChange(
+				sab_layout.IDX_OUTBOX_DIRTY,
+				int32(lastSeq),
+				100.0, // 100ms timeout for shutdown checks
+			)
+
+			// Re-read after wait
+			currentSeq = bridge.ReadOutboxSequence()
+			if currentSeq == lastSeq {
+				// Timed out or spurious wake, check again
+				continue
 			}
-			continue
 		}
 
-		// Activity Detected! Reset idle tracker
-		idleCycles = 0
+		// Activity Detected!
 		lastSeq = currentSeq
 
 		// 2. Read Raw Bytes from Outbox

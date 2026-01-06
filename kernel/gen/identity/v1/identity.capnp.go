@@ -3,6 +3,7 @@
 package identity
 
 import (
+	math "math"
 	strconv "strconv"
 	capnp "zombiezen.com/go/capnproto2"
 	text "zombiezen.com/go/capnproto2/encoding/text"
@@ -259,12 +260,12 @@ type DeviceEntry struct{ capnp.Struct }
 const DeviceEntry_TypeID = 0xddee12d932553eab
 
 func NewDeviceEntry(s *capnp.Segment) (DeviceEntry, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 4})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 6})
 	return DeviceEntry{st}, err
 }
 
 func NewRootDeviceEntry(s *capnp.Segment) (DeviceEntry, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 4})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 6})
 	return DeviceEntry{st}, err
 }
 
@@ -384,12 +385,62 @@ func (s DeviceEntry) SetTier(v ResourceTier) {
 	s.Struct.SetUint16(16, uint16(v))
 }
 
+func (s DeviceEntry) Profile() (ResourceProfile, error) {
+	p, err := s.Struct.Ptr(4)
+	return ResourceProfile{Struct: p.Struct()}, err
+}
+
+func (s DeviceEntry) HasProfile() bool {
+	p, err := s.Struct.Ptr(4)
+	return p.IsValid() || err != nil
+}
+
+func (s DeviceEntry) SetProfile(v ResourceProfile) error {
+	return s.Struct.SetPtr(4, v.Struct.ToPtr())
+}
+
+// NewProfile sets the profile field to a newly
+// allocated ResourceProfile struct, preferring placement in s's segment.
+func (s DeviceEntry) NewProfile() (ResourceProfile, error) {
+	ss, err := NewResourceProfile(s.Struct.Segment())
+	if err != nil {
+		return ResourceProfile{}, err
+	}
+	err = s.Struct.SetPtr(4, ss.Struct.ToPtr())
+	return ss, err
+}
+
+func (s DeviceEntry) Capabilities() (DeviceCapability, error) {
+	p, err := s.Struct.Ptr(5)
+	return DeviceCapability{Struct: p.Struct()}, err
+}
+
+func (s DeviceEntry) HasCapabilities() bool {
+	p, err := s.Struct.Ptr(5)
+	return p.IsValid() || err != nil
+}
+
+func (s DeviceEntry) SetCapabilities(v DeviceCapability) error {
+	return s.Struct.SetPtr(5, v.Struct.ToPtr())
+}
+
+// NewCapabilities sets the capabilities field to a newly
+// allocated DeviceCapability struct, preferring placement in s's segment.
+func (s DeviceEntry) NewCapabilities() (DeviceCapability, error) {
+	ss, err := NewDeviceCapability(s.Struct.Segment())
+	if err != nil {
+		return DeviceCapability{}, err
+	}
+	err = s.Struct.SetPtr(5, ss.Struct.ToPtr())
+	return ss, err
+}
+
 // DeviceEntry_List is a list of DeviceEntry.
 type DeviceEntry_List struct{ capnp.List }
 
 // NewDeviceEntry creates a new list of DeviceEntry.
 func NewDeviceEntry_List(s *capnp.Segment, sz int32) (DeviceEntry_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 24, PointerCount: 4}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 24, PointerCount: 6}, sz)
 	return DeviceEntry_List{l}, err
 }
 
@@ -412,6 +463,14 @@ func (p DeviceEntry_Promise) Struct() (DeviceEntry, error) {
 
 func (p DeviceEntry_Promise) Fingerprint() DeviceFingerprint_Promise {
 	return DeviceFingerprint_Promise{Pipeline: p.Pipeline.GetPipeline(3)}
+}
+
+func (p DeviceEntry_Promise) Profile() ResourceProfile_Promise {
+	return ResourceProfile_Promise{Pipeline: p.Pipeline.GetPipeline(4)}
+}
+
+func (p DeviceEntry_Promise) Capabilities() DeviceCapability_Promise {
+	return DeviceCapability_Promise{Pipeline: p.Pipeline.GetPipeline(5)}
 }
 
 type DeviceFingerprint struct{ capnp.Struct }
@@ -607,6 +666,208 @@ func (l IdentityStatus_List) At(i int) IdentityStatus {
 func (l IdentityStatus_List) Set(i int, v IdentityStatus) {
 	ul := capnp.UInt16List{List: l.List}
 	ul.Set(i, uint16(v))
+}
+
+type ResourceProfile struct{ capnp.Struct }
+
+// ResourceProfile_TypeID is the unique identifier for the type ResourceProfile.
+const ResourceProfile_TypeID = 0xced81c543d3501a3
+
+func NewResourceProfile(s *capnp.Segment) (ResourceProfile, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 0})
+	return ResourceProfile{st}, err
+}
+
+func NewRootResourceProfile(s *capnp.Segment) (ResourceProfile, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 0})
+	return ResourceProfile{st}, err
+}
+
+func ReadRootResourceProfile(msg *capnp.Message) (ResourceProfile, error) {
+	root, err := msg.RootPtr()
+	return ResourceProfile{root.Struct()}, err
+}
+
+func (s ResourceProfile) String() string {
+	str, _ := text.Marshal(0xced81c543d3501a3, s.Struct)
+	return str
+}
+
+func (s ResourceProfile) MemoryLimitMb() uint32 {
+	return s.Struct.Uint32(0)
+}
+
+func (s ResourceProfile) SetMemoryLimitMb(v uint32) {
+	s.Struct.SetUint32(0, v)
+}
+
+func (s ResourceProfile) StorageLimitGb() uint32 {
+	return s.Struct.Uint32(4)
+}
+
+func (s ResourceProfile) SetStorageLimitGb(v uint32) {
+	s.Struct.SetUint32(4, v)
+}
+
+func (s ResourceProfile) CpuCores() uint8 {
+	return s.Struct.Uint8(8)
+}
+
+func (s ResourceProfile) SetCpuCores(v uint8) {
+	s.Struct.SetUint8(8, v)
+}
+
+func (s ResourceProfile) P2pPriority() float32 {
+	return math.Float32frombits(s.Struct.Uint32(12))
+}
+
+func (s ResourceProfile) SetP2pPriority(v float32) {
+	s.Struct.SetUint32(12, math.Float32bits(v))
+}
+
+func (s ResourceProfile) IdbLimitMb() uint32 {
+	return s.Struct.Uint32(16)
+}
+
+func (s ResourceProfile) SetIdbLimitMb(v uint32) {
+	s.Struct.SetUint32(16, v)
+}
+
+func (s ResourceProfile) OpfsLimitGb() uint32 {
+	return s.Struct.Uint32(20)
+}
+
+func (s ResourceProfile) SetOpfsLimitGb(v uint32) {
+	s.Struct.SetUint32(20, v)
+}
+
+func (s ResourceProfile) P2pQuotaGb() uint32 {
+	return s.Struct.Uint32(24)
+}
+
+func (s ResourceProfile) SetP2pQuotaGb(v uint32) {
+	s.Struct.SetUint32(24, v)
+}
+
+// ResourceProfile_List is a list of ResourceProfile.
+type ResourceProfile_List struct{ capnp.List }
+
+// NewResourceProfile creates a new list of ResourceProfile.
+func NewResourceProfile_List(s *capnp.Segment, sz int32) (ResourceProfile_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 32, PointerCount: 0}, sz)
+	return ResourceProfile_List{l}, err
+}
+
+func (s ResourceProfile_List) At(i int) ResourceProfile { return ResourceProfile{s.List.Struct(i)} }
+
+func (s ResourceProfile_List) Set(i int, v ResourceProfile) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s ResourceProfile_List) String() string {
+	str, _ := text.MarshalList(0xced81c543d3501a3, s.List)
+	return str
+}
+
+// ResourceProfile_Promise is a wrapper for a ResourceProfile promised by a client call.
+type ResourceProfile_Promise struct{ *capnp.Pipeline }
+
+func (p ResourceProfile_Promise) Struct() (ResourceProfile, error) {
+	s, err := p.Pipeline.Struct()
+	return ResourceProfile{s}, err
+}
+
+type DeviceCapability struct{ capnp.Struct }
+
+// DeviceCapability_TypeID is the unique identifier for the type DeviceCapability.
+const DeviceCapability_TypeID = 0x8ad2b869ff1952ec
+
+func NewDeviceCapability(s *capnp.Segment) (DeviceCapability, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 0})
+	return DeviceCapability{st}, err
+}
+
+func NewRootDeviceCapability(s *capnp.Segment) (DeviceCapability, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 0})
+	return DeviceCapability{st}, err
+}
+
+func ReadRootDeviceCapability(msg *capnp.Message) (DeviceCapability, error) {
+	root, err := msg.RootPtr()
+	return DeviceCapability{root.Struct()}, err
+}
+
+func (s DeviceCapability) String() string {
+	str, _ := text.Marshal(0x8ad2b869ff1952ec, s.Struct)
+	return str
+}
+
+func (s DeviceCapability) HasGpu() bool {
+	return s.Struct.Bit(0)
+}
+
+func (s DeviceCapability) SetHasGpu(v bool) {
+	s.Struct.SetBit(0, v)
+}
+
+func (s DeviceCapability) HasWebGpu() bool {
+	return s.Struct.Bit(1)
+}
+
+func (s DeviceCapability) SetHasWebGpu(v bool) {
+	s.Struct.SetBit(1, v)
+}
+
+func (s DeviceCapability) CanMine() bool {
+	return s.Struct.Bit(2)
+}
+
+func (s DeviceCapability) SetCanMine(v bool) {
+	s.Struct.SetBit(2, v)
+}
+
+func (s DeviceCapability) CanInference() bool {
+	return s.Struct.Bit(3)
+}
+
+func (s DeviceCapability) SetCanInference(v bool) {
+	s.Struct.SetBit(3, v)
+}
+
+func (s DeviceCapability) MaxOpsPerSec() uint64 {
+	return s.Struct.Uint64(8)
+}
+
+func (s DeviceCapability) SetMaxOpsPerSec(v uint64) {
+	s.Struct.SetUint64(8, v)
+}
+
+// DeviceCapability_List is a list of DeviceCapability.
+type DeviceCapability_List struct{ capnp.List }
+
+// NewDeviceCapability creates a new list of DeviceCapability.
+func NewDeviceCapability_List(s *capnp.Segment, sz int32) (DeviceCapability_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 0}, sz)
+	return DeviceCapability_List{l}, err
+}
+
+func (s DeviceCapability_List) At(i int) DeviceCapability { return DeviceCapability{s.List.Struct(i)} }
+
+func (s DeviceCapability_List) Set(i int, v DeviceCapability) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s DeviceCapability_List) String() string {
+	str, _ := text.MarshalList(0x8ad2b869ff1952ec, s.List)
+	return str
+}
+
+// DeviceCapability_Promise is a wrapper for a DeviceCapability promised by a client call.
+type DeviceCapability_Promise struct{ *capnp.Pipeline }
+
+func (p DeviceCapability_Promise) Struct() (DeviceCapability, error) {
+	s, err := p.Pipeline.Struct()
+	return DeviceCapability{s}, err
 }
 
 type ResourceTier uint16
@@ -892,85 +1153,111 @@ func (p IdentityAction_Promise) AddDevice() DeviceEntry_Promise {
 	return DeviceEntry_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
 }
 
-const schema_f58a7b3c2e1d0942 = "x\xda\x94\x95_\xa8TU\x14\xc6\xd7\xb7\xf7\x99\x19\x0b" +
-	"\xc7\xb9\xa7\x99\xde\xeeen\xd9\x8b\x92\xda\xbd\x97\x1e\x92" +
-	"\xe8\xa6\xa90\xf6\xe2\x9e\xb1\xa4@h\xdf\xd9\xdb\x99c" +
-	"3\xe7L\xe7\xec\x19\x99\xfe`D\x82\x8a\x96I\x04B" +
-	">\xd4CDAA$\xf4\x90\xa0\x91e \x94a\xa0" +
-	"\xe0\x05\xa3\x1e*2\x0c\x14\x02\xb5\x13{\xce\xbdg\x06" +
-	"_\xd2\xb7\xd9\xdf\xec\xb3\xd6:\xeb\xb7\xbeu\x1e\xda\xc5" +
-	"\x1egS\x99\x80\x11\x89\xf1L6\xe6O\x9c\xfcdS" +
-	"i\xfe\x00\xb9\xcb\x11\xaf\xbfkb\xf5\xa3/\xed\xbfF" +
-	"\x99L\x8ehf\x02\x1f\xa1\xf80\xec\xcf)\x94A\x88" +
-	"\xe7\xc7\xb7\xe5\x0e\x9d\xb9\xf6\x06\xb9\xcb\xd9\xf06a\xa6" +
-	"\xc2^Cq;\xcb\x11\x15\x9fa\x0dB\xfc\xfde\xf6" +
-	"\xf4\xddW>x\x87\xc4r\x8c\\\xdd\xc8r\x19\xa2\x99" +
-	"=\xec0\x8aG\xed\xf5\x99#\xecM\x1b\xb9\x9cg\x93" +
-	"\x97\xe7\xb6\xffxK\x1d\x83\xe4\x15\xe7}\x14\xa5c\x83" +
-	"owf\x09\xf1\xc7\x8f=5}\xe1\x9e\xbf\xe6mp" +
-	">r\xdb^\x999\xe8\xbc\x88\xe2{\x83\x9fG\x1d\x1b" +
-	"\xfb\xfa\x87\xcfM\xad\x98^\xf3\xcb\xad5Oe\x0f\xa3" +
-	"X\xc9\xda\xb0\x1b\xb3\xb6\xe6O\x8f|\xf3\x88\xdf\xea\xff" +
-	"a\xc3\xe2\xd6\xb0/d\xf7\xa3\xb8\xcf\xde\x9e\xd9\x93\xfd" +
-	"\xd6\x96\xec)\xed\x1b\xcf\xf43kzSk\x16\x0f\xab" +
-	"\x1a\xc1*\xa3\xdb\x9d\xd5u\xd9\xf1;k7\xe8\x9eW" +
-	"\xd7\x9b<\xbf\xa1\xc3N!\xf4|\xb3\x05\x10%\xee\x10" +
-	"9 r_\xd9L$^\xe6\x10{\x19\\\xa0\x04+" +
-	"\xeeYK$^\xe5\x10\x07\x18\\\xc6J`D\xee\xbe" +
-	"i\"\xf1:\x878\xc4\xe0r^\x02'r\x0fZq" +
-	"/\x87x\x9b\xc1u\x9c\x12\x1c\"\xf7-\x1b\xf3\x10\x87" +
-	"x\x97!\xde\xa5\xe7\xd6uM\xd3'\"\xe4\x89!O" +
-	"\x98\xadK\xbf'\xa3\xc5cYv\x95\x17\xa4\xa7\x1d\x81" +
-	"o\xd2\xff\xe2\xa6\x0c\xd5.\x19j\xfb\xf8RbXz" +
-	"\x9b\xef]\xd5Q\xd0\x0d\xebz\xab\xa7C\xb2\xaf<6" +
-	"x\x89\x15\xd3D\x80{\xdff\"0w\xc2\x9e\xb8{" +
-	"o\x95\xa8\xdc\xf2\x1aM\x13\xb7\x03\xa5Cil\xbar" +
-	"S\xcb^?VZyu\xab@\xddV\xe2\xca\x82\xbc" +
-	"\xaen\xbc\x00\xbeM=\xce\x9d\xa5q<h\xf7\xb1*" +
-	"\x91\xf8\x9cC\x9c`\xc8\xe3\xdf8\xe9\xf7\xf1\x9dD\xe2" +
-	"K\x0eq\x9a!\xcfn\xc6I\xc3O\xed'\x12\xa79" +
-	"\xc49\x86<\xbf\x11'\x1d?\xfb\x15\x918\xc7!." +
-	"1\xe4\x9d\xebq\xd2\xf2\xf9\xcf\x88\xc4%\x0e\xf1'\x83" +
-	"\x9bA\x09\x19\"\xf7w\x9b\xec7\x0eq\x95\xc1\xcd\xa2" +
-	"\x84,\x91\xfb\xb7\x15\xafp\x88\x1b\x0c\xb1Tj0 " +
-	"\x04\x8d\xb1\xe1T\x130F\x88C\xdd\x0ezz\x83\xa6" +
-	"\x82\x9d\xa1a\xfb}\xcfx\xd2hTu=\xe8\xe9\xb0" +
-	"O\xb98\xea\xce\xb5=S\xd5,Qj^\xc3\x97\xa6" +
-	"\x1b\xea\x94y\xdc\xed4B\xa9\xf4V\x04\x9b\xba\xadV" +
-	"E\xe9\xf2\xa0Mi\xd4h\xe1\x11[\xca\xe23\xc6k" +
-	"\xeb\xc8\xc86\xa1\x83\x0c1dn\x13\xfe\"\x83\xaan" +
-	"xQ\xce\x84}K\xc1Ig>\xbf\x92H,\xe1\x10" +
-	"\x0f0\x14\x94\xa7\",#l\xe1\xc0\xd8\xd0\x81\x04+" +
-	"\xa6\xd9\x9c\xff\xb3\xd8\xac\xde\xe8/$\x1aO\x13\x1d\xdb" +
-	"<\xa4\x9d\x9a\xeb\xb85\xd7\x17\x1c\xe2\xeb\x11s\x9d\\" +
-	"9\x9c\x00,x\xeb\xd4z\"q\x82C\x9c\xb1\xdeB" +
-	"\x02\xfa\xbbg\x87C\xe1fx\x02\xfa\xec\x1c\x91\xf8\x81" +
-	"C\\\xb4\xa0\x97$\xa0/\xac\x1c\x0eJ\xac\x06k\xa0" +
-	"\xa2Fl4\xeb\x07JW\xd4\xe2\xb1\xe0\xcbv\xcax" +
-	"\xb7TJ\xabu&\xedzKF\xa6\xa6\xb5O|D" +
-	"\xdc\x91l\x95\x90r\x9eo06\\\xe5\xc9\xfc\x14\x8c" +
-	"\xa7C\x14\x86;\x9b\x80\xc2\x1d\x12\xac\x19i\xba\x88F" +
-	"\x0c\xbc61p\x98\x18x}b\xe0\x9dD\xb3\xb2n" +
-	"\xbc\x9e\x8e\xbb\xbe\xd2aU\xd7\xa9<\x98\xc4\xdd\xa1\xee" +
-	"\x05\xcfk\x15G\xfd\xc8\xe8\xf66I\x85VK\x9b;" +
-	"*b@\x96\x06[d2e{\xf6~\"q\x86C" +
-	"\x9c\x1fa\xfbSu\xd8s,\xa0\x9d\xb7\xbc\xcfs\x88" +
-	"_\xed\xded\x09\xdb\x9f-\xdb\x8b\x1c\xe2\x1f\xcb\x96%" +
-	"l\xaf\xd9\xa7\xafrT1\xc2\xf6\xa6e{\x83\xa3\xb6" +
-	"\xc4\xaaY>\x80[\xcc`'Q\xcd\x01Gm\xd2\xea" +
-	"9\xa7d\xbfT\xc5\x09\x1c&\xaaMZ\xfdA0\xe4" +
-	"\x94\x97\x02\x8e;\xdd\xb9\x96W\x7fR\x13\xfa\xe9&\x8e" +
-	"l\x7f#\x14\x16?Q\x09\xa2\xdd\xc9\xb8\x8c\xf8bt" +
-	"5X_\x98f\xa8\xa3f\xd0\"(d\x89!k\xb5" +
-	"\xc0\xc8V\xad))\x17\xea(U\x1b]\x19*O\xfa" +
-	"T\xd80\xe24[\xd3\xb2\xc1\x8aI\x16\x06\xb6.\x04" +
-	"\x1c\xc6\xfb/\x00\x00\xff\xffk\xaf\x0c\x00"
+const schema_f58a7b3c2e1d0942 = "x\xda\x94V\x7f\x88\x1cg\x19~\x9f\xef\x9b\xb9\xdd;" +
+	"n\xbb7\xee\x16ZH\xd8\xd4\xc4?ZLc\xee\xf0" +
+	"\x0f\x0f\xf5\xcc\xe5\x17WS\xbco7\x1a(\x08\xce\xee" +
+	"|\xb7;qwf\x98\x99\xbd\xf6j%*\x15\xda\x90" +
+	"j\x0cUT\x14\xb4\xa2\x88\x82\x82XP0\xa0\xe2\x8f" +
+	"\xfe\xd1\xaa)-D\xf0\xa0\xc1\x06ZI$B\x03\x95" +
+	"&\x8e\xbc3{3\xc3Qh\xef\xbf\x9dg\xdf\xef\xfd" +
+	"\xde\xefy\x9f\xf7\xf9\xbe\x0f<&?&\x0e\x9a-I" +
+	"\xa4\xf6\x99S\xc9\xb5\xf6\xdd\x89\xfb\xab\x17\xcf\x92\xda\x0b" +
+	"\x91,O\xef\xbe\xff\xc3\x9f;{\x93\x8c\x0a\xd1\xc2\x18" +
+	"\xcf\xa0\xf1\x14\xf8\xe7\x93h\x81\x90\xc8\xc3\xbf\xfb\xd9\xb1" +
+	"\xe6\xe69\xb2\xf6\xa2\x086M\x0e\xf9\xa1\xf8\x09\x1a\x17" +
+	"\x05\xff\xfc\xb5H\xa37w\x9d\xaa\x9c\x7f\xfe\xe6W\xc8" +
+	"\xda[JMX\xb8$\xbf\x84\xc6UY!j\\\x91" +
+	"}B\xf2\xd7\xeb\xe2S37~\xf4\x8dmU\x1c\x15" +
+	"\x15\x93h\xa1f\\@\xe3}iI\xf7\x18_\xe5\xcc" +
+	"?\xc0\x07?rr\xd7\xe5\xbfp\xbc\xb1\xad\xeaK\xe6" +
+	"\xb7\xd1x=-\xe9\xaa\x99F\xb7jb\xcf\xf5\xee\xa7" +
+	"_\xdcVuv\xb0\xca3h|\xbf\xc2\xa5|\xb7\xb2" +
+	"DH~\xfa\xd1O\xce\xff\xfd=\xff\xde\xe4\xd4\xb2\x14" +
+	"=\xc5\xd1/T\x1eE\xe3\x0aG/lV\x12\x10\xde" +
+	"\xfa\xf1g\x0e\xde;\x7f\xe0\x9f\xdbOx}\xfa\x02\x1a" +
+	"\xe6\x0c\xa7\xc5\x0c\x9f\xf0\xe7\xdf\xfa\xd3\x87\xbc\xe1\xc6\xbf" +
+	"8m\xb9\x88\xb4\xe4\xfd3g\xd18\xca\xd1\x0b\x87f" +
+	"\xfe\xcc%\xbb\x8e\xf6b7\xde0\x0f\xac\x1f<\xb0\xf5" +
+	"\xb1\xbf\xef\xef\x8f\xf5(\xb8\xbfg\x07^\xb0xD\xaf" +
+	"\xbb=}\xd8\x0e\xec\xae;\xac\xb8\xf1\xc6*\xa0\x9a\xd2" +
+	" 2@d}~\x91H=\"\xa1\x1e\x17\xb0\x80&" +
+	"\x18\xfcb\x9bH}AB\x9d\x13\xb0\x84hB\x10Y" +
+	"O.\x13\xa9\xc7%\xd4y\x01K\xca&$\x91\xf5\xd4" +
+	"i\"uNB}S\xc02\xd0\x84Ad}\x9d\xc1" +
+	"\xa7%\xd4\xf7\x04\x96\x06vt<\x18\x03$\xc0%\x0f" +
+	"\xec\xe8\x94\xee\x1e\x0f\x089v\xa6g{\x0f\xba\x9e\xce" +
+	"cz\xb6\xb7\xe2\xad\xe9\x90\xea\xda\xeb\x15\xf0\xc8~\xe4" +
+	"\x13A\xb4\xaa\xa9\x1evt\x0f\xd3$0\xbd#\x12\x8e" +
+	"\xb9^_\x87A=t\xbdx\x1b\x0b\x0f\x10\xa9\xc7$" +
+	"\xd4\x13%\x16\xbe\xbc\xf8v,\xcc\xbf\x1d\x0b\x0c>!" +
+	"\xa1\x9ef\x16\x8c\x8c\x85\xafq\xce\xf3\x12\xea;\x02\xc9" +
+	"\xc3\xba{h\x1c\x0f<\"B\x8d\x04j\x84\xa5\x9e\xed" +
+	"\xad\xdb\xd1\xd6g\xcb\x1e;\xae\x9f\x7f\xad\xf9^\x9c\xff" +
+	"\x97\x0c\xec\xd0y\xd8\x0e5/\x9f%\x81\xd9wy\xee" +
+	"\xb6\x8e\xfcq\xd8\xd3']\x1d\x12\x1fy.=\xc4\xbd" +
+	"\xf3D\x80u\xcf\x03D\x10\xd6n\xfe\x92\xd6\x9dm\xa2" +
+	"\xd6\xd0\xed\x0f\xe2d\xe4;:\xb4c\xde\xae5\xd0\xf6" +
+	"\xfaF\xe2h\xc7\xed1\x02\xe7]m\xbc2\x81\x0f\xf5" +
+	"b\xd7\x87\xc7[\xef\x92\xc6l\x92\xa4t?\xcb\xfa\xfa" +
+	"\xa5\x84\xfa\xad@\x0d\xffK2\xbe/\xb2l~#\xa1" +
+	"\x9e\x13\xa8\x89\xdbIF\xf8\x1f\xcf\x12\xa9\xe7$\xd4K" +
+	"\x025y+\xc9\x18\xbf\xf4{\"\xf5\x92\x84zE\xa0" +
+	"f\xbc\x95d\x94o\xfe\x82H\xbd\"\xa1\xae\x09X&" +
+	"\x9a0\x89\xac\xd7y\xb3\xd7$\xd4\x1b\x02\xd6\x14\x9a\x98" +
+	"\"\xb2\xfe\xc3\xe0\x0d\x09uK \xb1\x1d'\x15\x08A" +
+	"c\xae\x18m\x02\xe6\x08I\xa8G\xfe\xba>\xa2\xa9\xce" +
+	"\x1a*\xe8\xf7\xdc\xd8\xb5c\x8d\xb6\xee\xf9\xeb:\xdc\xa0" +
+	"J\x12\x8d\xbb#7nk\x91!\x1d\xb7\xef\xd9\xf18" +
+	"\xd4y\xcf\x93q\xd0\x0fmG\x9f\x84\x7fl<\x1c\xae" +
+	"8\xba\x95\xd2\x94g\x8d&K\xb8\x94\xad5\xb1;\xd2" +
+	"Ql\x8f\x08\x01L\x120w\xd8\xfc\xd5\xd0_s\xe5" +
+	"PO\x9a0\x91\xfc\xb3a\xd1\x83\\\xf2\x17\x1f-Z" +
+	"`\x89\xea\xa4\x03,\xe4?H\xa8\xbf\x95$\xffB\x97" +
+	"H=/\xa1.\x97$\xff\xf2CEW,\xd3\xcc\xf8" +
+	"\xdf\xe4\xc8\x7fH\xa8\xd7\x98\xff\xa9\x8c\xff\xab\x1c\xf9\xaa" +
+	"\x84\xba!\x90\x8c\xf4\xc8\x0f7N\xb8\xd4\x1a\xb9\xf1\x83" +
+	"]TI\xa0\xcad\xc4~h\xf7\xf5\x09ZrGn" +
+	"|\xbc\xf8\xa3\x17\x8c\x0f\xfb\xa1\x8ex\x1c\xa6H`\x8a" +
+	"\x90\x04\xf3\xc1j\xe8\xfa!\xb1\xc7a\x86\x04fR\x9e" +
+	"\xba'x1\xc9R^?X\x8b\x18\xa5J9i0" +
+	"\x1f\xa8\xb1\x1f\xdb$K\xe0N\xb4\xde\xd6}7\xaa\xc4" +
+	"a\xea\xb0FNt\xed>\"U\x95P\xfb\x04\xea\x8e" +
+	"\xebD\xb8\x83\xb0*\x81\xb9\xc2\xee\x09\x0c\xe6\xbb\x19\xef" +
+	"deK\xfa\xa87\xd9h_\xbe\xd1u\xee\xd35\x09" +
+	"\xf5f\xa9\xa37\x17\x0b\xa1\xe7&\xf6_.\xe9\x0d\x89" +
+	"6\x040i\xe8m\xb6\xf77%:\x06\x0a+o\x00" +
+	"\x0f\x11\xb5!\xd1\x99e\xd8\x94iO\x1b\xd3\xe8\x12u" +
+	"\xaa\x8c7\x19\x9f\xaa\xa6mmX\xb8\x8f\xa83\xcb\xf8" +
+	"]\x8cW\x8c&\xdf\x9f\x8d;\xb1L\xd4\x99c|\x17" +
+	"\xe3U\xb3\x89*Q\xe3n\x9c&\xea\xdc\xc5\xf8>\x08" +
+	"$N\xea\xd3+N\xc9\xe7\x96<\xdf\xd1+\xce\xd6g" +
+	"\xdd\xb3G\xf9\x10\x9e\xb1\x1dG;\x87\xe2|,\x86v" +
+	"\x14w\xb4\xf6H\x96\xc0\xb5\xcc\xf6Y\x19^\x8c\xb9\xe2" +
+	"y\x92\x0dx=vu\x88z\xf1\x0e!\xa0N8\x13" +
+	"\xf0\xd8\x0c\xd9\x11\xf2w\xc4\xc4\x11z\xd9e\xea\x12/" +
+	"\x8d0W<\x8f&\x01;QM'\xb6\xe31\xa2\x92" +
+	"9/f\xe6\x1cf\xe6\xbc\x9c\x99\xf3i\xa2%\xbb\x17" +
+	"\xbb\xeb:\x19{\x8e\x0e\xdb\xbaG\xad\xd4e\xce\x84z" +
+	"\xdd\xff\xacv\x92h#\x8a\xf5\xe8\x94M\xf5\xe1P\xc7" +
+	";*\"U\x13\xa57\xc4\x9e\\O\x97\xde[\x1a\xf1" +
+	"-=\xbd\xdc.F\x1c\x139m\xb2\xc6.K\xa8W" +
+	"\xd9 D\xa6\xa7+\xcb\x93\xb1g5\x1a\"3\x88\x9b" +
+	"\xedBx[b\xb2n\xb3A\xdc\x92\xe8TS)\xc9" +
+	"LJf*\x0d\x83\xa5\xb1\xa7,\xa5\xdd\xb8@\xd4\xd9" +
+	"\xc3\xf8\xfb!Pq\xdc\\\x1bI0\xee\x0e\xdd\xde\xc7" +
+	"5a#\xbfe#\xe67B}\xeb\x0d6\xe9n\xa6" +
+	"\xb4\xd2,\x96m\x9fg1\x1e\x84:\x1a\xf8C\x82\x93" +
+	"{L\xec\xc7\xf6\xb03\xb0\xa9\x12\xea(G\xfbc;" +
+	"t\\\xdb\xa3\xfa\x91\xd2tsMw\xa4\xd7Gv\x19" +
+	"\xe0\xe4$a\x91\xef\xff\x01\x00\x00\xff\xff\x98H\xc8\xe4"
 
 func init() {
 	schemas.Register(schema_f58a7b3c2e1d0942,
+		0x8ad2b869ff1952ec,
 		0x8cdd1446aec14303,
 		0x8ef5cc9007571cdd,
 		0x96a6f00a5602edcf,
+		0xced81c543d3501a3,
 		0xd25d62ed20020d1f,
 		0xddee12d932553eab,
 		0xe32f3229310060a8,

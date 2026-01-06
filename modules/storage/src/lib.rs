@@ -48,7 +48,7 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
             let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
-            // 2. Global SAB for registry writes
+            // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
 
             sdk::init_logging();

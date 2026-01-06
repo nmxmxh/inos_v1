@@ -138,12 +138,23 @@ Distribution:
 ### 3.0 The Incentive Layer: Gamification & Bounties
 The Kernel tracks key metrics and automatically rewards "Good Citizenship" that enhances network value.
 
-| Role | Goal | Metric & Trigger | Reward Mechanism |
+| **The Connector** | Maximize network distribution & resilience. | Link a new, validated device to a DID's Device Graph. | **+0.1% UBI Multiplier** per verified device. **No cap.** |
+| **The Power Plant** | Guarantee high-availability resource supply. | Maintain >99.9% uptime for a resource-providing device. | **"Uptime Bonus"** – fixed credit bounty from Growth Pool. |
+| **The Dedicated Node**| Incentivize high-tier resource commitment. | Opt-in to "Heavy" or "Dedicated" resource tier. | **1.5x - 2.0x UBI Multiplier** based on tier (see below). |
+
+#### 3.1 Resource Contribution Tiers & Multipliers
+
+To maximize mesh capacity, users receive higher UBI multipliers and PoUW priorities based on their resource tier commitment (defined in [CAPNPROTO.md](CAPNPROTO.md#system-boundaries--economic-tiers)).
+
+| Tier | Resource Commitment | UBI Multiplier | PoUW Priority |
 | :--- | :--- | :--- | :--- |
-| **The Connector** | Maximize network distribution & resilience. Every device is a node of strength. | Link a new, validated device to a DID's Device Graph. | **+0.1% UBI Multiplier** per verified device. **No cap.** (10 devices = +1.0%, 100 devices = +10.0%). |
-| **The Power Plant** | Guarantee high-availability resource supply. | Maintain >99.9% uptime for a resource-providing device over an epoch (e.g., 7 days). | **"Uptime Bonus"** – a fixed credit bounty paid from the Growth Pool. |
-| **The Developer** | Incentivize creation of valuable modules/patterns. | A user instantiates a module from a published `PatternID`. | **"Royalty"** – a micro-fee (e.g., 0.1-1% of job cost) paid from the consumer to the pattern's author. |
-| **The Janitor** | Maintain data integrity and system hygiene. | Successfully complete a verified maintenance task (e.g., proof of data cleanup, hash verification). | **"Micro-Bounty"** – a small, immediate credit payment from the Growth Pool. |
+| **Light** | < 8MB RAM, < 1GB Storage | 1.0x (Baseline) | Standard |
+| **Moderate**| 16MB RAM, 10GB Storage | 1.1x | Standard |
+| **Heavy** | 64MB RAM, 50GB Storage | 1.5x | High |
+| **Dedicated** | 128MB+ RAM, 100GB+ Storage | 2.0x | Ultra |
+
+> [!TIP]
+> **Yield Stacking**: Multipliers are additive. A "Dedicated" user with 10 linked devices earns `2.0x + (10 * 0.001) = 2.01x` their base UBI drip.
 
 **Key Strategic Implications of the Connector Change:**
 1.  **Exponential Resilience:** Each device strengthens the Device Graph, making the network more attack-resistant and fault-tolerant.

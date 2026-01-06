@@ -47,11 +47,10 @@ var stateNames = map[KernelState]string{
 // Global singleton
 var kernelInstance *Kernel
 
-// Synchronized SAB Region (Static allocation in Go heap)
-// Total size: 16MB. This region will be exposed to Rust modules.
-const SystemSABSize = sab_layout.SAB_SIZE_DEFAULT
-
-var systemSAB [SystemSABSize]byte
+// Synchronized SAB Region
+// This region will be exposed to Rust modules and the JS frontend.
+var SystemSABSize int
+var systemSAB []byte
 
 // Kernel is the root object managing the INOS runtime
 type Kernel struct {
@@ -137,11 +136,14 @@ func (k *Kernel) Boot() {
 		SAB:             unsafe.Pointer(&systemSAB[0]),
 	})
 
-	// Note: Compute initialization now happens via InjectSAB or when frontend provides SAB
-	// We no longer initialize with the static SAB here to avoid double initialization
+	// Initialize Compute Layer with internal SAB as initial state
+	if err := k.supervisor.InitializeCompute(unsafe.Pointer(&systemSAB[0]), uint32(SystemSABSize)); err != nil {
+		k.logger.Error("Failed to initialize compute layer with internal SAB", utils.Err(err))
+	}
 
-	k.setState(StateRunning)
-	k.logger.Info("Kernel Running with internal static SAB")
+	// Wait for Host to inject the real SharedArrayBuffer
+	k.setState(StateWaitingForSAB)
+	k.logger.Info("Kernel Waiting for SAB Injection")
 	k.notifyHost("kernel:ready", map[string]interface{}{
 		"threading": k.config.EnableThreading,
 		"workers":   k.config.MaxWorkers,
@@ -298,16 +300,10 @@ func jsGetKernelStats(this js.Value, args []js.Value) interface{} {
 
 	if kernelInstance.supervisor != nil {
 		sab := kernelInstance.supervisor.GetSAB()
-		if len(sab) > int(sab_layout.OFFSET_PATTERN_EXCHANGE) {
-			// Calculate based on available space in SAB
-			// Assuming particles use the region from OFFSET_PATTERN_EXCHANGE to end of SAB
-			availableBytes := len(sab) - int(sab_layout.OFFSET_PATTERN_EXCHANGE)
-			particleCount = availableBytes / 24 // 6 floats * 4 bytes per float
-
-			// Cap at reasonable maximum
-			if particleCount > 100000 {
-				particleCount = 100000
-			}
+		if len(sab) > int(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_BOIDS_COUNT*4) {
+			// Read current count from standardized epoch index
+			ptr := unsafe.Add(unsafe.Pointer(&sab[0]), sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_BOIDS_COUNT*4)
+			particleCount = int(*(*uint32)(ptr))
 		}
 	}
 
@@ -376,6 +372,26 @@ func main() {
 	js.Global().Set("initializeSharedMemory", js.FuncOf(jsInitializeSharedMemory))
 	js.Global().Set("getSharedArrayBuffer", js.FuncOf(jsGetSharedArrayBuffer))
 	js.Global().Set("getKernelStats", js.FuncOf(jsGetKernelStats))
+
+	// Determine dynamic SAB size from environment or Tier
+	sizeFromJS := js.Global().Get("window").Get("__INOS_SAB_SIZE__")
+	if !sizeFromJS.IsUndefined() && !sizeFromJS.IsNull() {
+		SystemSABSize = sizeFromJS.Int()
+	} else {
+		// Fallback to default if not set by frontend yet
+		SystemSABSize = sab_layout.SAB_SIZE_DEFAULT
+	}
+
+	// Double check bounds
+	if SystemSABSize > sab_layout.SAB_SIZE_MAX {
+		SystemSABSize = sab_layout.SAB_SIZE_MAX
+	}
+	if SystemSABSize < sab_layout.SAB_SIZE_MIN {
+		SystemSABSize = sab_layout.SAB_SIZE_MIN
+	}
+
+	// Allocate dynamic SAB buffer in Go linear memory
+	systemSAB = make([]byte, SystemSABSize)
 
 	// Zero-copy exports for synchronized SAB
 	js.Global().Set("getSystemSABAddress", js.FuncOf(func(this js.Value, args []js.Value) interface{} {

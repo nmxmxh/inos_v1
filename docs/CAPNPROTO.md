@@ -432,6 +432,85 @@ Check `build.rs` paths are correct:
 ### WASM Size Too Large
 
 Use `wasm-opt` to strip debug info:
-```bash
-wasm-opt -O3 --strip-debug module.wasm -o module.wasm
+---
+
+## System Layout (SAB Master Map)
+
+INOS operates as a single, distributed computer. The `SharedArrayBuffer` is the primary linear memory for each "Cell" (Node). We use Cap'n Proto as a lens to view specific regions of this memory.
+
+| Region | Offset | Size | Structure | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **Control Flags** | 0x000000 | 64B | `AtomicFlags` | Core system epochs, bus signals, and sync flags. |
+| **Supervisor Alloc**| 0x000040 | 176B | `AllocTable` | Static allocation map for major supervisors. |
+| **Registry** | 0x000100 | 6KB | `ModuleRegistry` | Live directory of module capabilities and offsets. |
+| **Headers** | 0x002000 | 4KB | `SupHeaders` | Heartbeats, health pulses, and transient state. |
+| **Syscall** | 0x003000 | 4KB | `SyscallTable` | Metadata for in-flight cross-module calls. |
+| **Pattern** | 0x010000 | 64KB | `PatternMap` | Cache for protocol exchange (Cap'n Proto IDs). |
+| **History** | 0x020000 | 128KB | `JobHistory` | Circular buffer of completed job IDs and results. |
+| **In/Outbox** | 0x050000 | 1MB | `RingBuffer` | 512KB Inbox + 512KB Outbox for bulk job data. |
+| **Arena** | 0x150000 | 15MB+ | `DynamicHeap` | High-frequency IO, Ping-Pong buffers, and large data. |
+
+### The "Universal Ring" Pattern
+All data follows a circular flow:
+1. **Kernel** writes instructions to **Inbox**.
+2. **Modules** read from Inbox, compute in **Arena**, write results to **Outbox**.
+3. **JS Frontend** reads from active **Ping-Pong** buffers in the Arena for rendering.
+4. **Epoch signaling** in the **Control Flags** coordinates the flip.
+
+---
+
+## System Boundaries & Economic Tiers
+
+To ensure network stability and fair resource distribution, we define hard boundaries based on device capabilities and economic participation (see [economy.md](economy.md)).
+
+| Tier | Profile | Memory Limit (SAB) | Storage (IDB+OPFS) | P2P Connectivity |
+| :--- | :--- | :--- | :--- | :--- |
+| **Light** | Mobile / Browsing | 32MB | 5GB | Low (Pulse only) |
+| **Moderate**| Tablet / Laptop | 64MB | 20GB | Medium (Gossip) |
+| **Heavy** | Workstation | 256MB | 100GB | High (Full DHT) |
+| **Dedicated** | Miner / Home Server | 512MB - 1GB+ | 500GB+ | Ultra (Relay/Seed) |
+
+### Memory Management Rules
+1. **WASM Limit**: No single module may exceed 2GB of linear memory (standard WASM limit).
+2. **SAB Overflow**: Large data exceeding Arena capacity MUST be offloaded to **OPFS** (Cold Storage) and indexed in **IndexedDB** (Hot Storage).
+3. **P2P Backup**: Critical data (ledger, identity) is gossiped across the mesh to ensure persistence even if local storage is cleared.
+
+### Storage Coordination
+- **Hot (IndexedDB)**: Keys, indexes, and small metadata. Max 10% of allowed storage.
+- **Cold (OPFS)**: Content blobs, model weights, and logs. Up to 90% of allowed storage.
+- **Archive (P2P)**: Encrypted chunks archived on the mesh. Governed by PoR (Proof of Revalidation).
+
+---
+
+## Persistent Storage Layout (on-disk)
+
+While the SAB handles high-frequency communication, persistent state is mapped to browser-native storage using the same Cap'n Proto schemas.
+
+### 1. IndexedDB (Structured Data)
+The "Source of Truth" for local state.
+
+| Object Store | Key Format | Value Schema | Description |
+| :--- | :--- | :--- | :--- |
+| **`identity`** | `did:inos:<hash>`| `Wallet` | Local DID and key share metadata. |
+| **`ledger`** | `tx:<blake3>` | `Transaction` | Local history of validated transactions. |
+| **`chunks`** | `blake3:<hash>` | `ChunkMeta` | Index of content blobs stored in OPFS. |
+| **`registry`** | `module:<id>` | `ModuleEntry` | Persistent cache of known modules. |
+
+### 2. OPFS (Bulk Data)
+The "Vault" for heavy payloads, organized by content-addressable directories.
+
+```text
+/inos_vault/
+├── chunks/            # Raw content-addressed blobs
+│   ├── aa/            # Sharded by first byte of BLAKE3
+│   │   └── <hash>     # Raw [Nonce (12B) | Encrypted Data]
+├── models/            # ML Model artifacts
+│   └── <model_id>/
+│       ├── manifest.json
+│       └── layers/    # Sharded layer chunks
+└── logs/              # Persistent event logs
+    └── epoch_<N>.log
 ```
+
+### 3. P2P Integration
+The **Storage Supervisor** uses the `chunks` index in IndexedDB to respond to DHT queries. If a local node has a chunk requested by the mesh, it reads from **OPFS**, verifies the **BLAKE3 hash**, and streams it via **WebRTC Data Channel**.

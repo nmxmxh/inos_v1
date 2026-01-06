@@ -17,6 +17,15 @@ declare global {
   }
 }
 
+export type ResourceTier = 'light' | 'moderate' | 'heavy' | 'dedicated';
+
+export const TIER_CONFIG: Record<ResourceTier, { initial: number; maximum: number }> = {
+  light: { initial: 512, maximum: 1024 }, // 32MB -> 64MB
+  moderate: { initial: 1024, maximum: 2048 }, // 64MB -> 128MB
+  heavy: { initial: 4096, maximum: 8192 }, // 256MB -> 512MB
+  dedicated: { initial: 8192, maximum: 16384 }, // 512MB -> 1GB
+};
+
 export interface KernelInitResult {
   memory: WebAssembly.Memory;
   sabBase: SharedArrayBuffer;
@@ -24,11 +33,11 @@ export interface KernelInitResult {
   sabSize: number;
 }
 
-export async function initializeKernel(): Promise<KernelInitResult> {
+export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise<KernelInitResult> {
   // 0. Update Context ID - Used to kill zombie loops
   const contextId = Math.random().toString(36).substring(2, 9);
   window.__INOS_CONTEXT_ID__ = contextId;
-  console.log(`[Kernel] 🌐 New Context Instance: ${contextId}`);
+  console.log(`[Kernel] 🌐 New Context Instance: ${contextId} (Tier: ${tier})`);
 
   // 1. Atomic Locking - Prevent concurrent initialization spawns
   if (window.__INOS_INIT_PROMISE__) {
@@ -60,10 +69,12 @@ export async function initializeKernel(): Promise<KernelInitResult> {
       });
     }
 
+    const config = TIER_CONFIG[tier];
+
     // 2. Create SharedArrayBuffer for zero-copy architecture
     const sharedMemory = new WebAssembly.Memory({
-      initial: 256, // 16MB
-      maximum: 1024, // 64MB max
+      initial: config.initial,
+      maximum: config.maximum,
       shared: true,
     });
 
@@ -117,6 +128,7 @@ export async function initializeKernel(): Promise<KernelInitResult> {
     window.__INOS_SAB__ = sabBase;
     window.__INOS_SAB_OFFSET__ = sabOffset;
     window.__INOS_SAB_SIZE__ = sabSize;
+    (window as any).__INOS_SAB_INT32__ = new Int32Array(sabBase);
 
     return {
       memory: sharedMemory,

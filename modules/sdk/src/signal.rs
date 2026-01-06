@@ -1,4 +1,4 @@
-use crate::js_interop::JsValue;
+// use crate::js_interop::JsValue;
 pub use crate::layout::{
     IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_DIRTY, IDX_PANIC_STATE,
     IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH, IDX_SYSTEM_EPOCH, OFFSET_INBOX_OUTBOX, SIZE_INBOX_OUTBOX,
@@ -14,18 +14,19 @@ pub struct Reactor {
 }
 
 impl Reactor {
-    pub fn new(sab: &JsValue) -> Self {
-        let safe_sab = SafeSAB::new(sab);
-        let flags = SafeSAB::new_shared_view(sab, 0, 1024);
+    pub fn new(sab: SafeSAB) -> Self {
+        // Flags (AtomicFlags) are at OFFSET_ATOMIC_FLAGS (0x00) within the System SAB
+        // We use a shared view of the first 1024 bytes of the provided SafeSAB (which is already offset-scoped)
+        let flags = SafeSAB::new_shared_view(sab.inner(), sab.base_offset() as u32, 1024);
 
         let inbox = RingBuffer::new(
-            safe_sab.clone(),
+            sab.clone(),
             OFFSET_INBOX_OUTBOX as u32,
             (SIZE_INBOX_OUTBOX / 2) as u32,
         );
 
         let outbox = RingBuffer::new(
-            safe_sab.clone(),
+            sab.clone(),
             (OFFSET_INBOX_OUTBOX + (SIZE_INBOX_OUTBOX / 2)) as u32,
             (SIZE_INBOX_OUTBOX / 2) as u32,
         );
@@ -38,15 +39,15 @@ impl Reactor {
     }
 
     pub fn check_inbox(&self) -> bool {
-        crate::js_interop::atomic_load(self.flags.inner(), IDX_INBOX_DIRTY) == 1
+        crate::js_interop::atomic_load(self.flags.barrier_view(), IDX_INBOX_DIRTY) == 1
     }
 
     pub fn ack_inbox(&self) {
-        crate::js_interop::atomic_store(self.flags.inner(), IDX_INBOX_DIRTY, 0);
+        crate::js_interop::atomic_store(self.flags.barrier_view(), IDX_INBOX_DIRTY, 0);
     }
 
     pub fn raise_outbox(&self) {
-        crate::js_interop::atomic_add(self.flags.inner(), IDX_OUTBOX_DIRTY, 1);
+        crate::js_interop::atomic_add(self.flags.barrier_view(), IDX_OUTBOX_DIRTY, 1);
     }
 
     /// Read next message from Inbox (Ring Buffer)
@@ -68,9 +69,10 @@ pub struct Epoch {
 }
 
 impl Epoch {
-    pub fn new(sab: &JsValue, index: u32) -> Self {
-        let flags = SafeSAB::new_shared_view(sab, 0, 1024);
-        let current = crate::js_interop::atomic_load(flags.inner(), index);
+    pub fn new(sab: SafeSAB, index: u32) -> Self {
+        // Flags are at the start of the scoped SAB
+        let flags = SafeSAB::new_shared_view(sab.inner(), sab.base_offset() as u32, 1024);
+        let current = crate::js_interop::atomic_load(flags.barrier_view(), index);
         Self {
             flags,
             index,
@@ -80,7 +82,7 @@ impl Epoch {
 
     /// Check if the reality has been mutated (Epoch incremented)
     pub fn has_changed(&mut self) -> bool {
-        let current = crate::js_interop::atomic_load(self.flags.inner(), self.index);
+        let current = crate::js_interop::atomic_load(self.flags.barrier_view(), self.index);
         if current > self.last_seen {
             self.last_seen = current;
             true
@@ -91,11 +93,11 @@ impl Epoch {
 
     /// Signal a mutation (Increment Epoch)
     pub fn increment(&mut self) -> i32 {
-        crate::js_interop::atomic_add(self.flags.inner(), self.index, 1) + 1
+        crate::js_interop::atomic_add(self.flags.barrier_view(), self.index, 1) + 1
     }
 
     pub fn current(&self) -> i32 {
-        crate::js_interop::atomic_load(self.flags.inner(), self.index)
+        crate::js_interop::atomic_load(self.flags.barrier_view(), self.index)
     }
 }
 #[cfg(test)]
@@ -104,8 +106,8 @@ mod tests {
 
     #[test]
     fn test_epoch_logic() {
-        let sab = crate::JsValue::UNDEFINED;
-        let mut epoch = Epoch::new(&sab, IDX_SYSTEM_EPOCH);
+        let sab = SafeSAB::with_size(1024);
+        let mut epoch = Epoch::new(sab, IDX_SYSTEM_EPOCH);
 
         assert_eq!(epoch.current(), 0);
         assert!(!epoch.has_changed());
@@ -118,22 +120,22 @@ mod tests {
 
     #[test]
     fn test_reactor_signals() {
-        let sab = crate::JsValue::UNDEFINED;
-        let reactor = Reactor::new(&sab);
+        let sab = SafeSAB::with_size(16 * 1024 * 1024);
+        let reactor = Reactor::new(sab.clone());
 
         assert!(!reactor.check_inbox());
 
-        // Mock signal: in native this would be atomic_store
-        crate::js_interop::atomic_store(&sab, IDX_INBOX_DIRTY, 1);
+        // Mock signal via SafeSAB/barrier_view which handles the underlying rust-side mock
+        crate::js_interop::atomic_store(sab.barrier_view(), IDX_INBOX_DIRTY, 1);
         assert!(reactor.check_inbox());
 
         reactor.ack_inbox();
         assert!(!reactor.check_inbox());
 
-        let start_epoch = crate::js_interop::atomic_load(&sab, IDX_OUTBOX_DIRTY);
+        let start_epoch = crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_DIRTY);
         reactor.raise_outbox();
         assert_eq!(
-            crate::js_interop::atomic_load(&sab, IDX_OUTBOX_DIRTY),
+            crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_DIRTY),
             start_epoch + 1
         );
     }

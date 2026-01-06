@@ -119,6 +119,10 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       return Atomics.compareExchange(getObject(typedArrayIdx), index, expected, replacement);
     },
 
+    inos_atomic_notify: (typedArrayIdx: number, index: number, count: number) => {
+      return Atomics.notify(getObject(typedArrayIdx), index, count);
+    },
+
     // Math
     inos_math_random: () => Math.random(),
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"syscall/js"
 	"time"
 	"unsafe"
 
@@ -85,21 +86,27 @@ func (sb *SABBridge) WriteJob(job *foundation.Job) error {
 	return nil
 }
 
-// PollCompletion polls for job completion (non-blocking with timeout)
+// PollCompletion waits for job completion using signal-based blocking (zero CPU)
+// Uses Atomics.wait instead of polling for true zero-CPU waiting
 func (sb *SABBridge) PollCompletion(timeout time.Duration) (bool, error) {
 	startEpoch := sb.readEpoch()
-	deadline := time.Now().Add(timeout)
+	timeoutMs := float64(timeout.Milliseconds())
 
-	for time.Now().Before(deadline) {
-		currentEpoch := sb.readEpoch()
-		if currentEpoch > startEpoch {
-			return true, nil
-		}
+	// Use signal-based waiting (Atomics.wait)
+	result := sb.WaitForEpochChange(
+		sab_layout.IDX_OUTBOX_DIRTY,
+		int32(startEpoch),
+		timeoutMs,
+	)
 
-		// Small sleep to avoid busy-waiting
-		time.Sleep(100 * time.Microsecond)
+	// Check if epoch actually changed
+	currentEpoch := sb.readEpoch()
+	if currentEpoch > startEpoch {
+		return true, nil
 	}
 
+	// Result 2 = timed out, 0/1 = epoch changed but we double check above
+	_ = result
 	return false, nil
 }
 
@@ -159,6 +166,59 @@ func (sb *SABBridge) SignalInbox() {
 	// Use standardized index from layout
 	ptr := unsafe.Add(sb.sab, sab_layout.IDX_INBOX_DIRTY*4)
 	atomic.AddUint32((*uint32)(ptr), 1)
+	// Notify any waiters (Rust modules blocking on Atomics.wait)
+	sb.NotifyEpochWaiters(sab_layout.IDX_INBOX_DIRTY)
+}
+
+// WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
+// Uses Atomics.wait for true zero-CPU waiting (only works in Worker context).
+// Returns: 0 = "ok" (value changed), 1 = "not-equal" (already different), 2 = "timed-out"
+func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
+	// We need to use the actual SAB from the JavaScript side
+	atomicsObj := js.Global().Get("Atomics")
+	if atomicsObj.IsUndefined() {
+		return 2 // Atomics not available, treat as timeout
+	}
+
+	// Get the Int32Array view that was set up during initialization
+	// This usually exists in global scope if the host provided it
+	int32View := js.Global().Get("__INOS_SAB_INT32__")
+	if int32View.IsUndefined() {
+		return 2
+	}
+
+	// Call Atomics.wait(int32Array, index, expectedValue, timeout)
+	result := atomicsObj.Call("wait", int32View, epochIndex, expectedValue, timeoutMs)
+	resultStr := result.String()
+
+	switch resultStr {
+	case "ok":
+		return 0
+	case "not-equal":
+		return 1
+	case "timed-out":
+		return 2
+	default:
+		return 2
+	}
+}
+
+// NotifyEpochWaiters wakes up threads waiting on the given epoch index.
+// Returns the number of waiters that were notified.
+func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
+	atomicsObj := js.Global().Get("Atomics")
+	if atomicsObj.IsUndefined() {
+		return 0
+	}
+
+	int32View := js.Global().Get("__INOS_SAB_INT32__")
+	if int32View.IsUndefined() {
+		return 0
+	}
+
+	// Call Atomics.notify(int32Array, index, count) - notify all waiters
+	result := atomicsObj.Call("notify", int32View, epochIndex, js.ValueOf(nil)) // nil = notify all
+	return result.Int()
 }
 
 // Helper: Write to Ring Buffer (Inbox)

@@ -6,9 +6,9 @@ package sab
 
 const (
 	// Total SAB size (configurable, default 16MB)
-	SAB_SIZE_DEFAULT = 16 * 1024 * 1024 // 16MB
-	SAB_SIZE_MIN     = 4 * 1024 * 1024  // 4MB minimum
-	SAB_SIZE_MAX     = 64 * 1024 * 1024 // 64MB maximum
+	SAB_SIZE_DEFAULT = 16 * 1024 * 1024   // 16MB
+	SAB_SIZE_MIN     = 4 * 1024 * 1024    // 4MB minimum
+	SAB_SIZE_MAX     = 1024 * 1024 * 1024 // 1GB
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========
 	// Atomic Flags Region (64 bytes - 16 x i32)
@@ -109,6 +109,20 @@ const (
 	ARENA_QUEUE_ENTRY_SIZE      = 64
 	MAX_ARENA_REQUESTS          = 64
 
+	// ========== PING-PONG BUFFERS (Arena) ==========
+	// Dedicated regions for zero-allocation data exchange
+	// Must match layout.rs exactly
+	OFFSET_PINGPONG_CONTROL = 0x161000
+	SIZE_PINGPONG_CONTROL   = 0x000040
+
+	OFFSET_BIRD_BUFFER_A = 0x162000
+	OFFSET_BIRD_BUFFER_B = 0x3C2000
+	SIZE_BIRD_BUFFER     = 10000 * 236 // supports 10k birds
+
+	OFFSET_MATRIX_BUFFER_A = 0x622000
+	OFFSET_MATRIX_BUFFER_B = 0xB22000
+	SIZE_MATRIX_BUFFER     = 10000 * 8 * 64 // 8 parts * 10k birds * 64 bytes
+
 	// ========== EPOCH INDEX ALLOCATION ==========
 	// Fixed system epochs (0-31 Reserved)
 	IDX_KERNEL_READY  = 0
@@ -126,8 +140,10 @@ const (
 	IDX_INBOX_MUTEX     = 10 // Mutex for inbox synchronization
 	IDX_METRICS_EPOCH   = 11
 	IDX_BOIDS_COUNT     = 12 // Current population count for Go supervisor discovery
+	IDX_MATRIX_EPOCH    = 13 // Matrix generation epoch for JS synchronization
+	IDX_PINGPONG_ACTIVE = 14 // 0 for A, 1 for B (informational)
 
-	// Reserved for future system extensions (13-31)
+	// Reserved for future system extensions (15-31)
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = 32

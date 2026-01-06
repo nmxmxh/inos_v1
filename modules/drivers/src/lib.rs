@@ -60,13 +60,11 @@ pub struct Drivers {
 
 impl Drivers {
     pub fn new(sab: Option<sdk::sab::SafeSAB>) -> Self {
-        // Create placeholder epochs for actor and sensor
-        // In real usage, these would be initialized with SAB
         let placeholder_sab = sab
             .clone()
             .unwrap_or_else(|| sdk::sab::SafeSAB::new(&sdk::js_interop::get_global()));
-        let actor_epoch = Epoch::new(placeholder_sab.inner(), IDX_ACTOR_EPOCH);
-        let sensor_epoch = Epoch::new(placeholder_sab.inner(), IDX_SENSOR_EPOCH);
+        let actor_epoch = Epoch::new(placeholder_sab.clone(), IDX_ACTOR_EPOCH);
+        let sensor_epoch = Epoch::new(placeholder_sab.clone(), IDX_SENSOR_EPOCH);
 
         Self {
             actor_driver: ActorDriver::new(actor_epoch),
@@ -520,7 +518,7 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
             let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
-            // 2. Global SAB for registry writes
+            // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
 
             sdk::init_logging();

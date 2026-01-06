@@ -104,6 +104,11 @@ impl SafeSAB {
         self.capacity
     }
 
+    /// Get the base offset within the SharedArrayBuffer
+    pub fn base_offset(&self) -> usize {
+        self.base_offset
+    }
+
     /// Safe read from buffer with memory barriers
     pub fn read(&self, offset: usize, length: usize) -> Result<Vec<u8>, String> {
         self.bounds_check(offset, length)?;
@@ -211,6 +216,11 @@ impl SafeSAB {
             static UNDEFINED: Lazy<SyncJsValue> = Lazy::new(|| SyncJsValue(JsValue::UNDEFINED));
             &UNDEFINED.0
         }
+    }
+
+    /// Get the barrier view (Int32Array) for atomic operations
+    pub fn barrier_view(&self) -> &JsValue {
+        &self.barrier_view
     }
 
     /// Get a typed Int32Array view of a region (for Atomics)

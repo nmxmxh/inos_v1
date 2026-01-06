@@ -31,8 +31,16 @@ export class Dispatcher {
    * Register or update capabilities for a unit
    */
   registerUnit(unit: string, methods: string[]) {
-    this.capabilities.set(unit, methods);
-    console.log(`[Dispatch] Registered unit '${unit}' with ${methods.length} methods`);
+    const existing = this.capabilities.get(unit);
+    // Only log if truly new or if capabilities changed
+    if (
+      !existing ||
+      existing.length !== methods.length ||
+      !existing.every((m, i) => m === methods[i])
+    ) {
+      this.capabilities.set(unit, methods);
+      console.log(`[Dispatch] Registered unit '${unit}' with ${methods.length} methods`);
+    }
   }
 
   /**

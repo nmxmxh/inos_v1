@@ -13,16 +13,16 @@ import (
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 const (
 	// SAB layout constants
-	BoidSABOffset = 0x400000 // 4MB offset for boid data
-	FloatsPerBird = 59       // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
+	FloatsPerBird = 59 // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
 	BytesPerBird  = FloatsPerBird * 4
-	MaxBirds      = 2048
+	MaxBirds      = 10000 // support industrial scale
 
 	// Evolution parameters
 	DefaultMutationRate   = 0.1
@@ -59,19 +59,12 @@ type BoidsSupervisor struct {
 	crossoverRate  float64
 	tournamentSize int
 
-	// SAB offsets
-	boidDataOffset  int // 0x400000
-	epochFlagOffset int // IDX_BIRD_EPOCH
-
 	// Evolution state
 	lastEvolutionTime time.Time
 	evolutionInterval time.Duration
 
 	// P2P mesh boost
 	meshNodesActive int
-
-	// Internal fields for tests or logic
-	sabOffset uint32
 }
 
 // NewBoidsSupervisor creates a supervisor for learning birds
@@ -89,9 +82,6 @@ func NewBoidsSupervisor(bridge SABInterface, patterns *pattern.TieredPatternStor
 	return &BoidsSupervisor{
 		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge),
 		bridge:            bridge,
-		boidDataOffset:    BoidSABOffset,
-		sabOffset:         uint32(BoidSABOffset),
-		epochFlagOffset:   8, // IDX_BIRD_EPOCH (system flag index 8)
 		mutationRate:      DefaultMutationRate,
 		crossoverRate:     DefaultCrossoverRate,
 		tournamentSize:    DefaultTournamentSize,
@@ -335,11 +325,23 @@ func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	population := make([]BirdGenes, s.birdCount)
 
+	// Determine active buffer from ping-pong epoch
+	activeEpochBytes, err := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read active buffer epoch: %w", err)
+	}
+	active := binary.LittleEndian.Uint32(activeEpochBytes)
+
+	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
+	if active == 1 {
+		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
+	}
+
 	// --- BULK READ: 1 interop call instead of 2*N ---
 	totalSize := uint32(s.birdCount * BytesPerBird)
-	data, err := s.bridge.ReadRaw(uint32(s.boidDataOffset), totalSize)
+	data, err := s.bridge.ReadRaw(offset, totalSize)
 	if err != nil {
-		return nil, fmt.Errorf("bulk read failed: %w", err)
+		return nil, fmt.Errorf("bulk read failed at offset %x: %w", offset, err)
 	}
 
 	for i := 0; i < s.birdCount; i++ {
@@ -372,14 +374,19 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	totalSize := s.birdCount * BytesPerBird
 	bulkData := make([]byte, totalSize)
 
-	// Since we are writing to an existing population, we might want to read existing data first
-	// if we were only updating some fields. But here we update fitness and weights for EVERY bird.
-	// However, we must NOT stomp on bird position/velocity.
-	// SO: We MUST read the current data first, patch it, then write back.
+	// Target the INACTIVE buffer for writing the next generation
+	// If active is 0 (Buffer A), we write to Buffer B
+	activeEpochBytes, _ := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
+	active := binary.LittleEndian.Uint32(activeEpochBytes)
 
-	currentData, err := s.bridge.ReadRaw(uint32(s.boidDataOffset), uint32(totalSize))
+	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
+	if active == 1 {
+		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
+	}
+
+	currentData, err := s.bridge.ReadRaw(offset, uint32(totalSize))
 	if err != nil {
-		return fmt.Errorf("bulk read for patch failed: %w", err)
+		return fmt.Errorf("bulk read for patch failed at offset %x: %w", offset, err)
 	}
 	copy(bulkData, currentData)
 
@@ -402,8 +409,8 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	}
 
 	// --- BULK WRITE: 1 interop call ---
-	if err := s.bridge.WriteRaw(uint32(s.boidDataOffset), bulkData); err != nil {
-		return fmt.Errorf("bulk write failed: %w", err)
+	if err := s.bridge.WriteRaw(offset, bulkData); err != nil {
+		return fmt.Errorf("bulk write failed at offset %x: %w", offset, err)
 	}
 
 	return nil

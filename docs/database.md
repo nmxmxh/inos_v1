@@ -49,13 +49,21 @@ IndexedDB (1-10GB) + OPFS (10GB+) + P2P Mesh (∞)
 - **BLAKE3**: Content addressing and integrity
 - **WebRTC**: Peer-to-peer data channels
 
-## Storage Tiers
+## Storage Tiers & Device Quotas
 
-| Tier | Technology | Size | Use Case |
-|------|-----------|------|----------|
-| **Hot** | IndexedDB | 1-10GB | Identity, recent events, chunk index |
-| **Cold** | OPFS | 10GB+ | Event logs, content chunks, models |
-| **Archive** | P2P Mesh | ∞ | Distributed content, old events |
+Access to storage tiers is governed by the device's **Economic Tier** (defined in [CAPNPROTO.md](CAPNPROTO.md#system-boundaries--economic-tiers)).
+
+| Tier | Profile | Technology | Default Quota | Use Case |
+|------|---------|-----------|---------------|----------|
+| **Hot** | Light | IndexedDB | 512MB | Identity, wallet metadata, session keys |
+| **Hot** | Heavy | IndexedDB | 4GB | Full event index, active chunk directory |
+| **Cold** | Light | OPFS | 5GB | Recent content, small model weights |
+| **Cold** | Dedicated| OPFS | 500GB+ | Full LLM layers, video chunks, mesh relay |
+| **Archive**| All | P2P Mesh | ∞ | Distributed content, immutable logs |
+
+### Quota Enforcement
+1. **Light Nodes**: Optimized for zero-footprint. Evicts cold data aggressively after 24h.
+2. **Dedicated Nodes**: Optimized for mesh support. Maintains warm cache of popular chunks to earn Referrer/Royalty yield.
 
 ## Deployment
 

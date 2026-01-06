@@ -151,17 +151,13 @@ func (s *Supervisor) Start() {
 // InitializeCompute initializes the compute units with the provided SAB
 func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.mu.Lock()
-	if s.sab != nil {
-		s.mu.Unlock()
-		return fmt.Errorf("SAB already initialized")
-	}
+	defer s.mu.Unlock()
+
+	// Update SAB info
 	s.sab = sab
 	s.sabSize = size
 
 	// Initialize shared components
-	// Use manual SliceHeader construction to allow for nil/0 address pointers in WASM
-	// unsafe.Slice panics if ptr is nil, even if it is a valid 0-address in WASM linear memory
-	//nolint:staticcheck,govet
 	var sabSlice []byte
 	header := (*reflect.SliceHeader)(unsafe.Pointer(&sabSlice))
 	header.Data = uintptr(s.sab)
@@ -177,7 +173,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		s.logger.Warn("Failed to load module registry from SAB", utils.Err(err))
 	}
 
-	// Phase 17: Initialize Economy & Identity Supervisors
+	// Initialize Core System Supervisors
 	s.credits = supervisor.NewCreditSupervisor(sabSlice, sab_layout.OFFSET_ECONOMICS)
 	s.identity = supervisor.NewIdentitySupervisor(sabSlice)
 	s.social = supervisor.NewSocialGraphSupervisor(sabSlice)
@@ -186,37 +182,79 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	if _, err := s.identity.RegisterDID("did:inos:nmxmxh", nil); err != nil {
 		s.logger.Error("Failed to register nmxmxh DID", utils.Err(err))
 	}
-	if _, err := s.credits.RegisterAccount("did:inos:nmxmxh"); err != nil {
-		s.logger.Error("Failed to register nmxmxh account", utils.Err(err))
-	}
-	if _, err := s.credits.RegisterAccount("did:inos:treasury"); err != nil {
-		s.logger.Error("Failed to register treasury account", utils.Err(err))
-	}
-
-	s.mu.Unlock() // Unlock before spawning children
 
 	s.logger.Info("Initializing compute units with shared SAB")
 
 	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
 	units, bridge := loader.LoadUnits()
 	s.bridge = bridge
-
-	// Spawn Signal Listener (Phase 15: Late Initialization)
-	s.spawnChild("signal_listener", s.runSignalListener, 100)
-	s.spawnChild("economy_loop", s.runEconomyLoop, 10)
-
-	s.mu.Lock()
 	s.units = units
-	s.mu.Unlock()
 
+	// Start supervisors for initially discovered units
 	for name, unit := range units {
 		if starter, ok := unit.(interface{ Start(context.Context) error }); ok {
 			s.spawnChild(name, starter.Start, 5)
-		} else {
-			s.logger.Error("Unit does not implement Start", utils.String("name", name))
 		}
 	}
+
+	// Spawn Background Loops (Discovery, Signal, Economy)
+	s.spawnChild("discovery_loop", s.runDiscoveryLoop, 1)
+	s.spawnChild("signal_listener", s.runSignalListener, 100)
+	s.spawnChild("economy_loop", s.runEconomyLoop, 10)
+
 	return nil
+}
+
+// runDiscoveryLoop periodically scans the SAB for new module registrations
+func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			s.mu.RLock()
+			reg := s.registry
+			bridge := s.bridge
+			s.mu.RUnlock()
+
+			if reg == nil || bridge == nil {
+				continue
+			}
+
+			// 1. Scan SAB for new modules
+			if err := reg.LoadFromSAB(); err != nil {
+				continue
+			}
+
+			// 2. Compare with existing units
+			modules := reg.ListModules()
+			for _, mod := range modules {
+				s.mu.RLock()
+				_, exists := s.units[mod.ID]
+				s.mu.RUnlock()
+
+				if !exists {
+					s.logger.Info("Discovered new module", utils.String("id", mod.ID))
+
+					// Instantiate and start supervisor
+					unit := loader.InstantiateUnit(bridge, mod)
+
+					s.mu.Lock()
+					s.units[mod.ID] = unit
+					s.mu.Unlock()
+
+					if starter, ok := unit.(interface{ Start(context.Context) error }); ok {
+						s.spawnChild(mod.ID, starter.Start, 5)
+					}
+				}
+			}
+		}
+	}
 }
 
 // Stop stops the supervisor hierarchy

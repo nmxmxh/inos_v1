@@ -35,6 +35,10 @@ struct DeviceEntry {
   
   # Resource Allocation Tier
   tier @6 :ResourceTier;
+  
+  # Detailed Profile & Capabilities
+  profile @7 :ResourceProfile;
+  capabilities @8 :DeviceCapability;
 }
 
 struct DeviceFingerprint {
@@ -53,11 +57,31 @@ enum IdentityStatus {
   systemWallet @3;
 }
 
+struct ResourceProfile {
+  memoryLimitMb @0 :UInt32;     # Max SAB size in MB
+  storageLimitGb @1 :UInt32;    # [DEPRECATED] Total storage in GB
+  cpuCores @2 :UInt8;           # Available cores
+  p2pPriority @3 :Float32;       # Weight for DHT/Gossip (0.0 - 1.0)
+  
+  # Granular Storage (Phase 10)
+  idbLimitMb @4 :UInt32;        # Index/Metadata limit (IndexedDB)
+  opfsLimitGb @5 :UInt32;       # Bulk storage limit (File System)
+  p2pQuotaGb @6 :UInt32;        # Space contributed to the mesh
+}
+
+struct DeviceCapability {
+  hasGpu @0 :Bool;
+  hasWebGpu @1 :Bool;
+  canMine @2 :Bool;
+  canInference @3 :Bool;
+  maxOpsPerSec @4 :UInt64;
+}
+
 enum ResourceTier {
-  light @0;      # 25% (1.0x baseline)
-  moderate @1;   # 50% (1.5x)
-  heavy @2;      # 75% (1.75x)
-  dedicated @3;  # 100% (2.0x)
+  light @0;      # < 32MB RAM, 5GB Storage (Mobile/IoT)
+  moderate @1;   # 64MB RAM, 20GB Storage (Laptop)
+  heavy @2;      # 256MB RAM, 100GB Storage (Workstation)
+  dedicated @3;  # 512MB-1GB+ RAM, 500GB+ Storage (Dedicated Node)
 }
 
 struct IdentityAction {

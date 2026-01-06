@@ -1,6 +1,7 @@
 use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use sdk::sab::SafeSAB;
 use sdk::Reactor;
 
 /// Diagnostics Module (The Watchdog)
@@ -19,12 +20,12 @@ pub struct DiagnosticsModule {
 static GLOBAL_WATCHDOG: Lazy<Mutex<Option<DiagnosticsModule>>> = Lazy::new(|| Mutex::new(None));
 
 impl DiagnosticsModule {
-    pub fn new(sab: &sdk::JsValue) -> Self {
+    pub fn new(sab: SafeSAB) -> Self {
         sdk::init_logging();
         info!("Diagnostics Watchdog initialized");
         Self {
-            reactor: Reactor::new(sab),
-            sab: sdk::sab::SafeSAB::new(sab),
+            reactor: Reactor::new(sab.clone()),
+            sab,
             last_scan: 0,
         }
     }
@@ -133,17 +134,37 @@ pub extern "C" fn diagnostics_init_with_sab() -> i32 {
     let sab_key = sdk::js_interop::create_string("__INOS_SAB__");
     let sab_val = sdk::js_interop::reflect_get(&global, &sab_key);
 
-    if let Ok(val) = sab_val {
-        if !val.is_undefined() && !val.is_null() {
-            sdk::init_logging();
-            info!("Diagnostics Watchdog booting up...");
+    let offset_key = sdk::js_interop::create_string("__INOS_SAB_OFFSET__");
+    let offset_val = sdk::js_interop::reflect_get(&global, &offset_key);
 
-            // Register capabilities
-            register_diagnostics(&sdk::sab::SafeSAB::new(&val));
+    let size_key = sdk::js_interop::create_string("__INOS_SAB_SIZE__");
+    let size_val = sdk::js_interop::reflect_get(&global, &size_key);
+
+    if let (Ok(val), Ok(off), Ok(sz)) = (sab_val, offset_val, size_val) {
+        if !val.is_undefined() && !val.is_null() {
+            let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
+            let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
+
+            sdk::init_logging();
+            info!(
+                "Diagnostics Watchdog booting up... (Offset: 0x{:x}, Size: {}MB)",
+                offset,
+                size / 1024 / 1024
+            );
+
+            // Create SafeSAB for registry and buffer writes (uses absolute layout offsets)
+            let safe_sab = sdk::sab::SafeSAB::new(&val);
+
+            // Register capabilities using the global SAB
+            register_diagnostics(&safe_sab);
 
             // Initialize global watchdog
             let mut lock = GLOBAL_WATCHDOG.lock();
-            *lock = Some(DiagnosticsModule::new(&val));
+            *lock = Some(DiagnosticsModule {
+                reactor: Reactor::new(safe_sab.clone()),
+                sab: safe_sab,
+                last_scan: 0,
+            });
 
             return 1;
         }
@@ -201,8 +222,7 @@ mod tests {
     #[test]
     fn test_memory_scan_detects_overlaps() {
         // Create a mock SAB for testing
-        let mock_sab = sdk::JsValue::NULL;
-        let diag = DiagnosticsModule::new(&mock_sab);
+        let diag = DiagnosticsModule::new(SafeSAB::with_size(1024));
 
         // Memory scan should pass with correct layout
         let result = diag.scan_memory();
@@ -211,8 +231,7 @@ mod tests {
 
     #[test]
     fn test_pulse_tracking() {
-        let mock_sab = sdk::JsValue::NULL;
-        let diag = DiagnosticsModule::new(&mock_sab);
+        let diag = DiagnosticsModule::new(SafeSAB::with_size(1024));
 
         // Pulse should not panic
         diag.pulse(0);
@@ -222,8 +241,7 @@ mod tests {
 
     #[test]
     fn test_diagnostics_module_creation() {
-        let mock_sab = sdk::JsValue::NULL;
-        let diag = DiagnosticsModule::new(&mock_sab);
+        let diag = DiagnosticsModule::new(SafeSAB::with_size(1024));
 
         assert_eq!(diag.last_scan, 0);
     }

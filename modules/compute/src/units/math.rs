@@ -1,5 +1,6 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use async_trait::async_trait;
+use sdk::pingpong::PingPongBuffer;
 use serde_json::Value as JsonValue;
 
 /// Math unit providing linear algebra operations via nalgebra library proxy
@@ -15,8 +16,15 @@ use serde_json::Value as JsonValue;
 /// - Quaternions: from_euler, to_euler, slerp, multiply
 /// - Transforms: compose, decompose, apply_to_points
 /// - Batch: batch_transform, compute_instance_matrices
+#[derive(Default)]
+struct PersistentScratch {
+    input_data: Vec<u8>,
+    output_data: Vec<u8>,
+}
+
 pub struct MathUnit {
     config: MathConfig,
+    scratch: std::sync::Mutex<PersistentScratch>,
 }
 
 #[derive(Clone)]
@@ -40,6 +48,7 @@ impl MathUnit {
         log::info!("Math unit initialized (nalgebra library)");
         Self {
             config: MathConfig::default(),
+            scratch: std::sync::Mutex::new(PersistentScratch::default()),
         }
     }
 
@@ -492,54 +501,76 @@ impl UnitProxy for MathUnit {
                 self.proxy_response(method, params)
             }
 
-            // Compute Instance Matrices (for instanced rendering)
+            // Compute Instance Matrices (for instanced rendering) using Ping-Pong Buffers
             "compute_instance_matrices" => {
                 self.validate_batch_params(&params)?;
 
                 let count = params["count"].as_u64().unwrap_or(0) as usize;
-                let source_offset = params["source_offset"].as_u64().map(|v| v as usize);
-                let target_offset = params["target_offset"].as_u64().map(|v| v as usize);
+
+                // Diagnostic: Track call frequency
+                static CALL_COUNT: std::sync::atomic::AtomicU32 =
+                    std::sync::atomic::AtomicU32::new(0);
+                let call_num = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                 // If we have SAB access, we can do zero-copy compute
-                if let (Some(sab), Some(src_off), Some(dst_off)) =
-                    (crate::get_cached_sab(), source_offset, target_offset)
-                {
+                if let Some(sab) = crate::get_cached_sab() {
                     use nalgebra::{Matrix4, Rotation3, Vector3};
+                    use sdk::layout::BIRD_STRIDE;
 
-                    // Bird-specific data layout (based on ArchitecturalBoids.tsx)
-                    // Each bird consumes BYTES_PER_BIRD (236 bytes = 59 floats)
-                    // view indices (float32): 0:x, 1:y, 2:z, 6:yaw, 7:pitch/bank, 11:flap, 13:tail_yaw
-                    const BYTES_PER_BIRD: usize = 236;
+                    // Use Ping-Pong buffer accessors
+                    let bird_ping_pong = PingPongBuffer::bird_buffer(sab.clone());
+                    let matrix_ping_pong = PingPongBuffer::matrix_buffer(sab.clone());
 
-                    // Pivots for parts (could be passed in params, but hardcoding for boids-specific perf for now)
-                    // Format: [tx, ty, tz, rx, ry, rz]
-                    let _pivots = params["pivots"]
-                        .as_array()
-                        .ok_or_else(|| ComputeError::InvalidParams("Missing pivots".to_string()))?;
+                    // IMPORTANT: Math unit reads from the bird buffer that was just written (ACTIVE BIRD BUFFER)
+                    // and writes to the inactive matrix buffer.
+                    let bird_info = bird_ping_pong.read_buffer_info();
+                    let matrix_info = matrix_ping_pong.write_buffer_info();
+
+                    if call_num % 100 == 0 {
+                        log::info!(
+                            "[Math] compute_instance_matrices #{} | count={} | Bird Epoch={} @ 0x{:X} | Matrix Epoch={} @ 0x{:X}",
+                            call_num,
+                            count,
+                            bird_info.epoch,
+                            bird_info.offset,
+                            matrix_info.epoch,
+                            matrix_info.offset
+                        );
+                    }
 
                     // ========== BULK I/O OPTIMIZATION ==========
-                    // Read ALL bird base data in one call (avoid 14,000 individual reads)
-                    let input_size = count * BYTES_PER_BIRD;
-                    let mut input_data = vec![0u8; input_size];
-                    sab.read_raw(src_off, &mut input_data)
-                        .map_err(|e| ComputeError::ExecutionFailed(e))?;
+                    let mut scratch = self
+                        .scratch
+                        .lock()
+                        .map_err(|_| ComputeError::ExecutionFailed("Mutex lock failed".into()))?;
 
+                    // Resize buffers if needed
+                    let input_size = count * BIRD_STRIDE;
+                    if scratch.input_data.len() < input_size {
+                        scratch.input_data.resize(input_size, 0);
+                    }
                     // Pre-allocate output buffer for 8 parts × count birds × 64 bytes per matrix
                     const PARTS: usize = 8;
                     let output_size = PARTS * count * 64;
-                    let mut output_data = vec![0u8; output_size];
+                    if scratch.output_data.len() < output_size {
+                        scratch.output_data.resize(output_size, 0);
+                    }
+
+                    // Read ALL bird base data in one call
+                    sab.read_raw(bird_info.offset, &mut scratch.input_data[..input_size])
+                        .map_err(|e| ComputeError::ExecutionFailed(e))?;
 
                     for i in 0..count {
-                        let bird_base = i * BYTES_PER_BIRD;
+                        let bird_base = i * BIRD_STRIDE;
 
-                        // Read floats from local buffer (zero FFI calls)
+                        // Read floats from local buffer
                         let read_f32 = |idx: usize| -> f32 {
                             let offset = bird_base + idx * 4;
                             f32::from_le_bytes([
-                                input_data[offset],
-                                input_data[offset + 1],
-                                input_data[offset + 2],
-                                input_data[offset + 3],
+                                scratch.input_data[offset],
+                                scratch.input_data[offset + 1],
+                                scratch.input_data[offset + 2],
+                                scratch.input_data[offset + 3],
                             ])
                         };
 
@@ -548,46 +579,38 @@ impl UnitProxy for MathUnit {
                             read_f32(1) as f64,
                             read_f32(2) as f64,
                         );
-                        // view[6] = heading (rotation around Y, makes bird face velocity)
-                        // view[7] = bank (rotation around Z, banking into turns)
-                        let heading = read_f32(6) as f64; // Y-axis rotation in THREE.js
-                        let bank = read_f32(7) as f64; // Z-axis rotation in THREE.js
+                        let heading = read_f32(6) as f64;
+                        let bank = read_f32(7) as f64;
                         let flap = read_f32(11) as f64;
                         let tail_yaw = read_f32(13) as f64;
 
-                        // Bird Matrix = Translation * Rotation
-                        // OLD JS: rotation.set(0, view[6], view[7]) with default 'XYZ' Euler order
-                        // THREE.js XYZ intrinsic: first X, then local Y, then local Z
-                        // Matrix result: R = Rz * Ry * Rx (column-major)
-                        // nalgebra from_euler_angles(roll, pitch, yaw) = intrinsic XYZ order
-                        // roll=X, pitch=Y, yaw=Z
-                        // OLD JS: x=0, y=view[6](heading), z=view[7](bank)
-                        // So: from_euler_angles(0.0, heading, bank)
                         let bird_matrix = Matrix4::new_translation(&pos)
                             * Rotation3::from_euler_angles(0.0, heading, bank).to_homogeneous();
 
-                        // Write matrix to local buffer (zero FFI calls)
+                        let scratch_view = &mut scratch.output_data;
+
+                        // Write matrix to local buffer
                         let mut write_mat = |mat: &Matrix4<f64>, part_idx: usize| {
                             let write_off = (part_idx * count * 64) + (i * 64);
                             for (m_idx, &val) in mat.iter().enumerate() {
                                 let bytes = (val as f32).to_le_bytes();
                                 let dest = write_off + m_idx * 4;
-                                output_data[dest..dest + 4].copy_from_slice(&bytes);
+                                scratch_view[dest..dest + 4].copy_from_slice(&bytes);
                             }
                         };
 
-                        // 0. Body: Base * [R: PI/2, 0, 0]
+                        // 0. Body
                         let body_mat = bird_matrix
                             * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
                                 .to_homogeneous();
                         write_mat(&body_mat, 0);
 
-                        // 1. Head: Base * T(0, 0, 0.18)
+                        // 1. Head
                         let head_mat =
                             bird_matrix * Matrix4::new_translation(&Vector3::new(0.0, 0.0, 0.18));
                         write_mat(&head_mat, 1);
 
-                        // 2. Beak: Base * T(0, 0, 0.26) * R(PI/2, 0, 0)
+                        // 2. Beak
                         let beak_mat = bird_matrix
                             * Matrix4::new_translation(&Vector3::new(0.0, 0.0, 0.26))
                             * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
@@ -609,7 +632,7 @@ impl UnitProxy for MathUnit {
                         let lwt_mat = lw_m2 * lwt_p3 * lwt_p4;
                         write_mat(&lwt_mat, 4);
 
-                        // 5. Right Wing (Mirror of LW)
+                        // 5. Right Wing
                         let rw_p1 = Matrix4::new_translation(&Vector3::new(0.04, 0.0, 0.05))
                             * Rotation3::from_euler_angles(0.0, 0.0, -flap).to_homogeneous();
                         let rw_p2 = Matrix4::new_translation(&Vector3::new(0.15, 0.0, 0.0));
@@ -632,13 +655,18 @@ impl UnitProxy for MathUnit {
                         write_mat(&tail_mat, 7);
                     }
 
-                    // Write ALL matrices in one call (avoid 128,000 individual writes)
-                    sab.write_raw(dst_off, &output_data)
+                    // Write ALL matrices in one call to the INACTIVE matrix buffer
+                    sab.write_raw(matrix_info.offset, &scratch.output_data[..output_size])
                         .map_err(|e| ComputeError::ExecutionFailed(e))?;
 
-                    Ok(serde_json::to_vec(
-                        &serde_json::json!({ "status": "matrices_updated", "count": count }),
-                    )
+                    // FLIP MATRIX EPOCH to signal JS that new matrices are ready
+                    let new_matrix_epoch = matrix_ping_pong.flip();
+
+                    Ok(serde_json::to_vec(&serde_json::json!({
+                        "status": "matrices_updated",
+                        "count": count,
+                        "epoch": new_matrix_epoch
+                    }))
                     .unwrap())
                 } else {
                     self.proxy_response(method, params)

@@ -50,10 +50,6 @@ func TestNewBoidsSupervisor(t *testing.T) {
 		t.Fatal("Expected supervisor to be created")
 	}
 
-	if supervisor.boidDataOffset != BoidSABOffset {
-		t.Errorf("Expected boidDataOffset %d, got %d", BoidSABOffset, supervisor.boidDataOffset)
-	}
-
 	if supervisor.mutationRate != DefaultMutationRate {
 		t.Errorf("Expected mutationRate %.2f, got %.2f", DefaultMutationRate, supervisor.mutationRate)
 	}

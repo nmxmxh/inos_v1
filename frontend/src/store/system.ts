@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { initializeKernel, shutdownKernel } from '../wasm/kernel';
+import { initializeKernel, ResourceTier, shutdownKernel } from '../wasm/kernel';
 import { loadAllModules, loadModule } from '../wasm/module-loader';
 import { RegistryReader } from '../wasm/registry';
 import { dispatch } from '../wasm/dispatch';
@@ -32,7 +32,7 @@ export interface SystemStore {
   error: Error | null;
 
   // Actions
-  initialize: () => Promise<void>;
+  initialize: (tier?: ResourceTier) => Promise<void>;
   loadModule: (name: string) => Promise<void>;
   registerUnit: (unit: UnitState) => void;
   updateStats: (stats: Partial<KernelStats>) => void;
@@ -87,15 +87,15 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
     });
   },
 
-  initialize: async () => {
+  initialize: async (tier: ResourceTier = 'moderate') => {
     if (get().status !== 'initializing' && get().status !== 'error') return;
     set({ status: 'booting' });
 
     try {
-      console.log('[System] Initializing INOS...');
+      console.log(`[System] Initializing INOS (Tier: ${tier})...`);
 
       // 1. Initialize kernel
-      const { memory } = await initializeKernel();
+      const { memory } = await initializeKernel(tier);
       const currentContext = window.__INOS_CONTEXT_ID__;
       (window as any).__INOS_MEM__ = memory;
       console.log(`[System] ✅ Kernel initialized (Context: ${currentContext})`);

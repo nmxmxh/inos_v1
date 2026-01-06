@@ -15,6 +15,7 @@ pub mod compression;
 pub mod crdt;
 pub mod hashing;
 pub mod layout;
+pub mod pingpong;
 pub mod registry;
 pub mod ringbuffer;
 pub mod sab;

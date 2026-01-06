@@ -5,8 +5,8 @@ import { useSystemStore } from '../../src/store/system';
 import { dispatch } from '../../src/wasm/dispatch';
 
 const CONFIG = {
-  BIRD_COUNT: 1500,
-  SAB_OFFSET: 0x400000,
+  BIRD_COUNT: 1000,
+  SAB_OFFSET: 0x162000,
   BYTES_PER_BIRD: 236,
 };
 
@@ -133,18 +133,26 @@ function InstancedBoidsRenderer() {
       });
 
       // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)
-      // Base data at 0x400000, Output matrices start at 0x500000
-      const MATRIX_BASE = 0x500000;
+      // Destination is determined by the math unit's internal ping-pong logic
       dispatch.execute('math', 'compute_instance_matrices', {
         count: CONFIG.BIRD_COUNT,
         source_offset: CONFIG.SAB_OFFSET,
-        target_offset: MATRIX_BASE,
         pivots: [], // Hardcoded in WASM for performance
       });
 
       // 3. Update InstancedMesh matrices from SAB views
       const sab = (window as any).__INOS_SAB__;
       if (!sab) return;
+
+      // Determine active matrix buffer from epoch at IDX_MATRIX_EPOCH (13)
+      const flags = new Int32Array(sab, 0, 16);
+      const matrixEpoch = Atomics.load(flags, 13);
+      const isBufferA = matrixEpoch % 2 === 0;
+
+      // In-sync with sdk/src/layout.rs (absolute offsets from SAB start)
+      const MATRIX_BUFFER_A = 0x622000;
+      const MATRIX_BUFFER_B = 0xb22000;
+      const matrixBase = isBufferA ? MATRIX_BUFFER_A : MATRIX_BUFFER_B;
 
       const instances = [
         bodiesRef,
@@ -159,7 +167,8 @@ function InstancedBoidsRenderer() {
 
       instances.forEach((ref, partIdx) => {
         if (ref.current) {
-          const matrixOffset = MATRIX_BASE + partIdx * CONFIG.BIRD_COUNT * 64;
+          // OFFSET = matrixBase + partIdx * count * 64
+          const matrixOffset = matrixBase + partIdx * CONFIG.BIRD_COUNT * 64;
           // Zero-copy: set the underlying attribute array from a view of the SAB
           const sabView = new Float32Array(sab, matrixOffset, CONFIG.BIRD_COUNT * 16);
           ref.current.instanceMatrix.array.set(sabView);

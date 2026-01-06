@@ -4,9 +4,10 @@
 /// Total SAB size configurations
 pub const SAB_SIZE_DEFAULT: usize = 16 * 1024 * 1024; // 16MB
 pub const SAB_SIZE_MIN: usize = 4 * 1024 * 1024; // 4MB
-pub const SAB_SIZE_MAX: usize = 64 * 1024 * 1024; // 64MB
+pub const SAB_SIZE_MAX: usize = 1024 * 1024 * 1024; // 1GB
 
-// ========== METADATA REGION (0x000000 - 0x000100) ==========
+// ========== SYSTEM REGIONS (0x000000 - 0x150000) ==========
+// Static layout for core kernel operations
 
 /// Atomic Flags Region (64 bytes - 16 x i32)
 pub const OFFSET_ATOMIC_FLAGS: usize = 0x000000;
@@ -20,92 +21,95 @@ pub const SIZE_SUPERVISOR_ALLOC: usize = 0x0000B0; // 176 bytes (Ends at 0xF0)
 pub const OFFSET_REGISTRY_LOCK: usize = 0x0000F0;
 pub const SIZE_REGISTRY_LOCK: usize = 0x000010;
 
-// ========== MODULE REGISTRY (0x000100 - 0x001900) ==========
-
-/// Enhanced module entries with overflow to arena
+/// Module Registry (6KB)
 pub const OFFSET_MODULE_REGISTRY: usize = 0x000100;
-pub const SIZE_MODULE_REGISTRY: usize = 0x001800; // 6KB (Phase 2 enhanced)
-pub const MODULE_ENTRY_SIZE: usize = 96; // Enhanced 96-byte entries
-pub const MAX_MODULES_INLINE: usize = 64; // 64 modules inline
-pub const MAX_MODULES_TOTAL: usize = 1024; // Total with arena overflow
+pub const SIZE_MODULE_REGISTRY: usize = 0x001800;
+pub const MODULE_ENTRY_SIZE: usize = 96;
+pub const MAX_MODULES_INLINE: usize = 64;
+pub const MAX_MODULES_TOTAL: usize = 1024;
 
-// Bloom filter (256 bytes after registry)
+/// Bloom filter (256 bytes after registry)
 pub const OFFSET_BLOOM_FILTER: usize = 0x001900;
 pub const SIZE_BLOOM_FILTER: usize = 0x000100;
 
-// ========== SUPERVISOR HEADERS (0x002000 - 0x003000) ==========
-
-/// Compact supervisor headers with state in arena
-/// MOVED: 0x001000 overlapped with Registry (0x000100+0x001800=0x001900)
+/// Supervisor Headers (4KB)
 pub const OFFSET_SUPERVISOR_HEADERS: usize = 0x002000;
-pub const SIZE_SUPERVISOR_HEADERS: usize = 0x001000; // 4KB
-pub const SUPERVISOR_HEADER_SIZE: usize = 128; // Compact 128-byte headers
-pub const MAX_SUPERVISORS_INLINE: usize = 32; // 32 supervisors inline
-pub const MAX_SUPERVISORS_TOTAL: usize = 256; // Total with arena overflow
+pub const SIZE_SUPERVISOR_HEADERS: usize = 0x001000;
+pub const MAX_SUPERVISORS_INLINE: usize = 32;
 
-// ========== SYSCALL TABLE (0x003000 - 0x004000) ==========
-
-/// Pending syscall metadata (DeepSeek Architecture)
+/// Syscall Table (4KB)
 pub const OFFSET_SYSCALL_TABLE: usize = 0x003000;
-pub const SIZE_SYSCALL_TABLE: usize = 0x001000; // 4KB
+pub const SIZE_SYSCALL_TABLE: usize = 0x001000;
 
-// ========== PATTERN EXCHANGE (0x010000 - 0x020000) ==========
+/// Economics Region (16KB)
+pub const OFFSET_ECONOMICS: usize = 0x004000;
+pub const SIZE_ECONOMICS: usize = 0x004000;
 
-/// Pattern storage with LRU eviction to arena
+/// Identity Registry (16KB)
+pub const OFFSET_IDENTITY_REGISTRY: usize = 0x008000;
+pub const SIZE_IDENTITY_REGISTRY: usize = 0x004000;
+
+/// Social Graph (16KB)
+pub const OFFSET_SOCIAL_GRAPH: usize = 0x00C000;
+pub const SIZE_SOCIAL_GRAPH: usize = 0x004000;
+
+/// Pattern Exchange (64KB)
 pub const OFFSET_PATTERN_EXCHANGE: usize = 0x010000;
-pub const SIZE_PATTERN_EXCHANGE: usize = 0x010000; // 64KB
-pub const PATTERN_ENTRY_SIZE: usize = 64; // Compact 64-byte patterns
-pub const MAX_PATTERNS_INLINE: usize = 1024; // 1024 patterns inline
-pub const MAX_PATTERNS_TOTAL: usize = 16384; // Total with arena overflow
+pub const SIZE_PATTERN_EXCHANGE: usize = 0x010000;
+pub const PATTERN_ENTRY_SIZE: usize = 64;
 
-// ========== JOB HISTORY (0x020000 - 0x040000) ==========
-
-/// Circular buffer with overflow to arena
+/// Job History (128KB)
 pub const OFFSET_JOB_HISTORY: usize = 0x020000;
-pub const SIZE_JOB_HISTORY: usize = 0x020000; // 128KB
+pub const SIZE_JOB_HISTORY: usize = 0x020000;
 
-// ========== COORDINATION STATE (0x040000 - 0x050000) ==========
-
-/// Cross-unit coordination with dynamic expansion
+/// Coordination State (64KB)
 pub const OFFSET_COORDINATION: usize = 0x040000;
-pub const SIZE_COORDINATION: usize = 0x010000; // 64KB
+pub const SIZE_COORDINATION: usize = 0x010000;
 
-// ========== INBOX/OUTBOX (0x050000 - 0x150000) ==========
-
-/// Job communication regions - Expanded for Slotted Architecture
-/// 1MB total: 512KB Inbox + 512KB Outbox
+/// Inbox/Outbox (1MB)
 pub const OFFSET_INBOX_OUTBOX: usize = 0x050000;
-pub const SIZE_INBOX_OUTBOX: usize = 0x100000; // 1MB (was 512KB)
-
-// Split into Inbox (Host->Module) and Outbox (Module->Host)
+pub const SIZE_INBOX_OUTBOX: usize = 0x100000;
 pub const SIZE_INBOX: usize = 0x80000; // 512KB
 pub const SIZE_OUTBOX: usize = 0x80000; // 512KB
 pub const OFFSET_SAB_INBOX: usize = OFFSET_INBOX_OUTBOX;
 pub const OFFSET_SAB_OUTBOX: usize = OFFSET_INBOX_OUTBOX + SIZE_INBOX;
 
-// ========== ARENA (0x150000 - end) ==========
+// ========== ARENA REGIONS (0x150000 - end) ==========
+// Dynamic allocation and high-frequency ping-pong buffers
 
-/// Dynamic allocation region for overflow and large data
 pub const OFFSET_ARENA: usize = 0x150000;
-// SIZE_ARENA calculated as: SAB_SIZE - OFFSET_ARENA
 
-/// Internal Arena Layout (Phase 16)
-pub const OFFSET_ARENA_METADATA: usize = 0x150000;
-pub const SIZE_ARENA_METADATA: usize = 0x010000; // 64KB reserved for metadata
-
-/// Diagnostics Region (Heartbeats, Pulses, Health)
+/// Diagnostics Region (4KB)
 pub const OFFSET_DIAGNOSTICS: usize = 0x150000;
-pub const SIZE_DIAGNOSTICS: usize = 0x001000; // 4KB
+pub const SIZE_DIAGNOSTICS: usize = 0x001000;
 
-/// Async Request/Response Queues (DeepSeek Spec)
-pub const OFFSET_ARENA_REQUEST_QUEUE: usize = 0x151000; // 0x150000 + 4KB
-pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = 0x152000; // 0x150000 + 8KB
+/// Async Request/Response Queues
+pub const OFFSET_ARENA_REQUEST_QUEUE: usize = 0x151000;
+pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = 0x152000;
 pub const ARENA_QUEUE_ENTRY_SIZE: usize = 64;
 pub const MAX_ARENA_REQUESTS: usize = 64;
 
-// ========== BIRD STATE (Arena Reserved) ==========
-pub const OFFSET_BIRD_STATE: usize = 0x160000; // Offset into SAB (Arena region)
-pub const SIZE_BIRD_STATE: usize = 0x001000; // 4KB for bird telemetry and state
+/// Bird Animation State (Arena)
+pub const OFFSET_BIRD_STATE: usize = 0x160000;
+pub const SIZE_BIRD_STATE: usize = 0x001000;
+
+// ---------- Ping-Pong Buffer Regions ----------
+
+/// Control block for ping-pong coordination
+pub const OFFSET_PINGPONG_CONTROL: usize = 0x161000;
+pub const SIZE_PINGPONG_CONTROL: usize = 0x000040;
+
+/// Bird Population Data (Dual Buffers)
+pub const OFFSET_BIRD_BUFFER_A: usize = 0x162000;
+pub const OFFSET_BIRD_BUFFER_B: usize = 0x3C2000;
+pub const SIZE_BIRD_BUFFER: usize = 10000 * 236;
+pub const BIRD_STRIDE: usize = 236;
+
+/// Matrix Output Data (Dual Buffers)
+pub const OFFSET_MATRIX_BUFFER_A: usize = 0x622000;
+pub const OFFSET_MATRIX_BUFFER_B: usize = 0xB22000;
+pub const SIZE_MATRIX_BUFFER: usize = 10000 * 8 * 64; // 8 parts * 10k birds * 64 bytes
+pub const MATRIX_STRIDE: usize = 64;
 
 // ========== EPOCH INDEX ALLOCATION ==========
 
@@ -125,6 +129,8 @@ pub const IDX_OUTBOX_MUTEX: u32 = 9; // Mutex for outbox synchronization
 pub const IDX_INBOX_MUTEX: u32 = 10; // Mutex for inbox synchronization
 pub const IDX_METRICS_EPOCH: u32 = 11;
 pub const IDX_BIRD_EPOCH: u32 = 12; // High-frequency bird state updates
+pub const IDX_MATRIX_EPOCH: u32 = 13; // Matrix output buffer flip signaling
+pub const IDX_PINGPONG_ACTIVE: u32 = 14; // Which buffer is active (0=A, 1=B)
 
 /// Dynamic supervisor pool (32-127)
 pub const SUPERVISOR_POOL_BASE: u32 = 32;
