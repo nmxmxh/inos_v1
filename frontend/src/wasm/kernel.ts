@@ -95,18 +95,23 @@ export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise
       },
     });
 
+    console.log('[Kernel] Starting Go WASM...');
     go.run(result.instance);
+    console.log('[Kernel] go.run() returned (Go WASM started)');
 
     // 4. Wait for Kernel to export SAB functions
     const maxWaitMs = 5000;
     const startTime = Date.now();
 
+    console.log('[Kernel] Waiting for getSystemSABAddress/getSystemSABSize...');
     while (!window.getSystemSABAddress || !window.getSystemSABSize) {
       if (Date.now() - startTime > maxWaitMs) {
+        console.warn('[Kernel] Timeout waiting for SAB functions');
         break;
       }
       await new Promise(resolve => setTimeout(resolve, 10));
     }
+    console.log('[Kernel] SAB functions available');
 
     // 5. Setup SharedArrayBuffer globals
     const memoryBuffer = sharedMemory.buffer;
@@ -129,6 +134,40 @@ export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise
     window.__INOS_SAB_OFFSET__ = sabOffset;
     window.__INOS_SAB_SIZE__ = sabSize;
     (window as any).__INOS_SAB_INT32__ = new Int32Array(sabBase);
+
+    // 6. Wait for Kernel to be ready for SAB injection
+    // Wait for initializeSharedMemory function to be registered by Go kernel
+    const waitForKernelReady = async (): Promise<void> => {
+      const maxAttempts = 500; // 5 seconds max
+      for (let i = 0; i < maxAttempts; i++) {
+        if ((window as any).initializeSharedMemory) {
+          console.log(`[Kernel] initializeSharedMemory available after ${i * 10}ms`);
+          // Small delay to ensure kernel state has transitioned
+          await new Promise(resolve => setTimeout(resolve, 50));
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      console.warn('[Kernel] initializeSharedMemory timeout - proceeding anyway');
+    };
+
+    await waitForKernelReady();
+
+    // 7. Inject SAB into Go Kernel to start Supervisor threads
+    // This calls InjectSAB which starts discovery loop, signal listener, economy loop
+    if ((window as any).initializeSharedMemory) {
+      console.log('[Kernel] Injecting SAB into kernel (starting supervisor threads)...');
+      const result = (window as any).initializeSharedMemory(sabOffset, sabSize);
+      if (result?.error) {
+        console.error('[Kernel] Failed to inject SAB:', result.error);
+      } else {
+        console.log('[Kernel] ✅ Supervisor threads started');
+      }
+    } else {
+      console.warn(
+        '[Kernel] initializeSharedMemory not available - supervisor threads will not start'
+      );
+    }
 
     return {
       memory: sharedMemory,

@@ -545,8 +545,58 @@
       "supervisor": "kernel/threads/supervisor/units/image_supervisor.go",
       "type": "Rust Unit"
     },
+    "math": {
+      "capabilities": [
+        "matrix_identity",
+        "matrix_from_translation",
+        "matrix_from_rotation",
+        "matrix_from_scale",
+        "matrix_from_euler",
+        "matrix_from_quaternion",
+        "matrix_compose",
+        "matrix_decompose",
+        "matrix_multiply",
+        "matrix_invert",
+        "matrix_transpose",
+        "matrix_determinant",
+        "vector_normalize",
+        "vector_length",
+        "vector_dot",
+        "vector_cross",
+        "vector_lerp",
+        "vector_slerp",
+        "vector_add",
+        "vector_subtract",
+        "vector_scale",
+        "vector_distance",
+        "quaternion_identity",
+        "quaternion_from_euler",
+        "quaternion_from_axis_angle",
+        "quaternion_to_euler",
+        "quaternion_multiply",
+        "quaternion_slerp",
+        "quaternion_conjugate",
+        "quaternion_invert",
+        "transform_point",
+        "transform_direction",
+        "transform_normal",
+        "look_at",
+        "perspective",
+        "orthographic",
+        "batch_compose_matrices",
+        "batch_transform_points",
+        "compute_instance_matrices"
+      ],
+      "id": "math",
+      "implementation": "modules/compute/src/units/math.rs",
+      "name": "math",
+      "type": "Rust Unit"
+    },
     "physics": {
       "capabilities": [
+        "nbody_init",
+        "nbody_step",
+        "nbody_step_enhanced",
         "create_rigid_body",
         "remove_rigid_body",
         "get_rigid_body_state",
@@ -840,10 +890,10 @@
       }
     },
     "metrics": {
-      "capability_count": 233,
+      "capability_count": 275,
       "layer_count": 3,
       "protocol_count": 9,
-      "unit_count": 10
+      "unit_count": 11
     },
     "one_more_thing": {
       "call_to_action": "Try the zero-copy difference.",

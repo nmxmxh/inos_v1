@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -48,8 +49,12 @@ var stateNames = map[KernelState]string{
 var kernelInstance *Kernel
 
 // Synchronized SAB Region
-// This region will be exposed to Rust modules and the JS frontend.
+// This region is at the BASE of WebAssembly linear memory (address 0)
+// to ensure Go, Rust, and JS all access the same absolute offsets.
 var SystemSABSize int
+
+// systemSAB is a byte slice view pointing to the START of linear memory
+// It does NOT allocate new memory - it views existing WASM memory at offset 0
 var systemSAB []byte
 
 // Kernel is the root object managing the INOS runtime
@@ -129,28 +134,38 @@ func (k *Kernel) Boot() {
 		runtime.GOMAXPROCS(k.config.MaxWorkers)
 	}
 
-	// Initialize Root Supervisor using the statically allocated SAB region
-	k.supervisor = threads.NewRootSupervisor(k.ctx, threads.SupervisorConfig{
-		MeshCoordinator: k.meshCoordinator,
-		Logger:          k.logger,
-		SAB:             unsafe.Pointer(&systemSAB[0]),
-	})
-
-	// Initialize Compute Layer with internal SAB as initial state
-	if err := k.supervisor.InitializeCompute(unsafe.Pointer(&systemSAB[0]), uint32(SystemSABSize)); err != nil {
-		k.logger.Error("Failed to initialize compute layer with internal SAB", utils.Err(err))
-	}
-
-	// Wait for Host to inject the real SharedArrayBuffer
+	// Signal kernel is ready for SAB injection
 	k.setState(StateWaitingForSAB)
-	k.logger.Info("Kernel Waiting for SAB Injection")
-	k.notifyHost("kernel:ready", map[string]interface{}{
+
+	// NOTE: We used to write to IDX_KERNEL_READY SAB byte here, but it conflicts with
+	// the shutdown signal (both use offset 0). Since JS now waits for
+	// initializeSharedMemory function availability, we no longer need the SAB write.
+
+	k.notifyHost("kernel:waiting_for_sab", map[string]interface{}{
 		"threading": k.config.EnableThreading,
 		"workers":   k.config.MaxWorkers,
 	})
+
+	// NOW do heavy initialization (supervisor setup)
+	// This runs in background while JS can inject SAB
+	sabBasePtr := unsafe.Pointer(uintptr(0))
+	k.supervisor = threads.NewRootSupervisor(k.ctx, threads.SupervisorConfig{
+		MeshCoordinator: k.meshCoordinator,
+		Logger:          k.logger,
+		SAB:             sabBasePtr,
+	})
+
+	// Initialize Compute Layer with linear memory base
+	if err := k.supervisor.InitializeCompute(sabBasePtr, uint32(SystemSABSize)); err != nil {
+		k.logger.Error("Failed to initialize compute layer with linear memory base", utils.Err(err))
+	}
+
+	k.logger.Info("Kernel boot complete - waiting for SAB injection to start supervisor")
 }
 
 // InjectSAB receives the SharedArrayBuffer from the Host and starts the Supervisor
+// IMPORTANT: This is NON-BLOCKING to align with INOS architecture.
+// JS should not wait for Go kernel operations.
 func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 	defer k.recoverPanic()
 
@@ -164,34 +179,56 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 		return fmt.Errorf("kernel not waiting for SAB (current: %s)", k.StateName())
 	}
 
-	k.logger.Info("Injecting SharedArrayBuffer", utils.Uint64("size", uint64(size)))
+	k.logger.Info("Injecting SharedArrayBuffer (using linear memory base)", utils.Uint64("size", uint64(size)))
 
-	// Initialize Compute Layer via Supervisor
-	// This wires up the patterns, knowledge graph, and unit supervisors
-	if err := k.supervisor.InitializeCompute(ptr, size); err != nil {
-		k.logger.Error("Failed to initialize compute layer", utils.Err(err))
-		return err
-	}
-
-	// Start Supervisor Hierarchy
-	k.supervisor.Start()
-
-	// Finalize Mesh Integration (Phase 16)
-	if k.meshCoordinator != nil {
-		// Wire Supervisor as StorageProvider
-		k.meshCoordinator.SetStorage(k.supervisor)
-		// Start Mesh Coordinator
-		if err := k.meshCoordinator.Start(k.ctx); err != nil {
-			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
-		}
-	}
-
+	// Transition to RUNNING immediately - don't block JS
 	k.setState(StateRunning)
 	k.logger.Info("Kernel Running", utils.String("mode", "ACTIVE"))
-	k.notifyHost("kernel:ready", map[string]interface{}{
-		"threading": k.config.EnableThreading,
-		"workers":   k.config.MaxWorkers,
-	})
+
+	// Notify host immediately that kernel is ready
+	k.notifyHost("kernel:running", nil)
+
+	// Start supervisor operations in background goroutine
+	// This prevents blocking the JS main thread
+	go func() {
+		defer k.recoverPanic()
+
+		// Wait for Boot() to finish InitializeCompute (which holds the lock)
+		// Use a simple retry loop instead of blocking
+		maxRetries := 100
+		for i := 0; i < maxRetries; i++ {
+			if k.supervisor != nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		if k.supervisor == nil {
+			k.logger.Error("Supervisor not initialized after timeout")
+			return
+		}
+
+		k.logger.Info("Starting supervisor hierarchy (background)")
+
+		// Start Supervisor Hierarchy
+		k.supervisor.Start()
+
+		k.logger.Info("Supervisor hierarchy started")
+
+		// Finalize Mesh Integration (Phase 16)
+		if k.meshCoordinator != nil {
+			k.meshCoordinator.SetStorage(k.supervisor)
+			if err := k.meshCoordinator.Start(k.ctx); err != nil {
+				k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
+			}
+		}
+
+		k.logger.Info("Kernel fully operational")
+		k.notifyHost("kernel:fully_operational", map[string]interface{}{
+			"threading": k.config.EnableThreading,
+			"workers":   k.config.MaxWorkers,
+		})
+	}()
 
 	return nil
 }
@@ -390,12 +427,18 @@ func main() {
 		SystemSABSize = sab_layout.SAB_SIZE_MIN
 	}
 
-	// Allocate dynamic SAB buffer in Go linear memory
-	systemSAB = make([]byte, SystemSABSize)
+	// Create a byte slice view at LINEAR MEMORY BASE (address 0)
+	// This ensures Go, Rust, and JS all use the SAME absolute offsets
+	var memoryBase uintptr = 0
+	header := (*reflect.SliceHeader)(unsafe.Pointer(&systemSAB))
+	header.Data = memoryBase
+	header.Len = SystemSABSize
+	header.Cap = SystemSABSize
 
 	// Zero-copy exports for synchronized SAB
+	// Address is 0 (linear memory base) so all layers agree on offsets
 	js.Global().Set("getSystemSABAddress", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		return js.ValueOf(int(uintptr(unsafe.Pointer(&systemSAB[0]))))
+		return js.ValueOf(0) // Linear memory base
 	}))
 	js.Global().Set("getSystemSABSize", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		return js.ValueOf(SystemSABSize)
@@ -406,6 +449,10 @@ func main() {
 		kernelInstance.Shutdown()
 		return nil
 	}))
+
+	// CRITICAL: Yield to JS event loop after registering functions
+	// time.Sleep actually yields to JS in Go WASM; runtime.Gosched() only yields to Go goroutines
+	time.Sleep(time.Millisecond)
 
 	// 4. Register Shutdown Polling (Atomic Signal from Host)
 	go func() {

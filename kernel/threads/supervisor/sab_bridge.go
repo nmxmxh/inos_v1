@@ -27,11 +27,17 @@ type SABBridge struct {
 	pollTimeout time.Duration
 	pendingJobs map[string]chan *foundation.Result
 	mu          sync.RWMutex
+
+	// Cached JS values to prevent memory leak from repeated Get() calls
+	// Each js.Global().Get() allocates memory that leaks over time
+	jsAtomics     js.Value
+	jsInt32View   js.Value
+	jsInitialized bool
 }
 
 // NewSABBridge creates a new SAB bridge
 func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
-	return &SABBridge{
+	bridge := &SABBridge{
 		sab:          sab,
 		sabSize:      size,
 		inboxOffset:  inboxOffset,
@@ -40,6 +46,25 @@ func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffs
 		pollTimeout:  100 * time.Millisecond,
 		pendingJobs:  make(map[string]chan *foundation.Result),
 	}
+
+	// Cache JS values once to prevent memory leak
+	bridge.initJSCache()
+
+	return bridge
+}
+
+// initJSCache initializes cached JS values (called once)
+func (sb *SABBridge) initJSCache() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	if sb.jsInitialized {
+		return
+	}
+
+	sb.jsAtomics = js.Global().Get("Atomics")
+	sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
+	sb.jsInitialized = true
 }
 
 // RegisterJob adds a job to the pending registry and returns a result channel
@@ -181,21 +206,26 @@ func (sb *SABBridge) SignalInbox() {
 // Uses Atomics.wait for true zero-CPU waiting (only works in Worker context).
 // Returns: 0 = "ok" (value changed), 1 = "not-equal" (already different), 2 = "timed-out"
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
-	// We need to use the actual SAB from the JavaScript side
-	atomicsObj := js.Global().Get("Atomics")
-	if atomicsObj.IsUndefined() {
-		return 2 // Atomics not available, treat as timeout
+	// Initialize JS cache if not done (lazy init for late-bound SAB)
+	if !sb.jsInitialized {
+		sb.initJSCache()
 	}
 
-	// Get the Int32Array view that was set up during initialization
-	// This usually exists in global scope if the host provided it
-	int32View := js.Global().Get("__INOS_SAB_INT32__")
-	if int32View.IsUndefined() {
-		return 2
+	// Use cached values to prevent memory leak from repeated Get() calls
+	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
+		// Re-try getting the values (might not be available during early boot)
+		sb.mu.Lock()
+		sb.jsAtomics = js.Global().Get("Atomics")
+		sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
+		sb.mu.Unlock()
+
+		if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
+			return 2 // Atomics or Int32View not available, treat as timeout
+		}
 	}
 
 	// Call Atomics.wait(int32Array, index, expectedValue, timeout)
-	result := atomicsObj.Call("wait", int32View, epochIndex, expectedValue, timeoutMs)
+	result := sb.jsAtomics.Call("wait", sb.jsInt32View, epochIndex, expectedValue, timeoutMs)
 	resultStr := result.String()
 
 	switch resultStr {
@@ -213,18 +243,18 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 // NotifyEpochWaiters wakes up threads waiting on the given epoch index.
 // Returns the number of waiters that were notified.
 func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
-	atomicsObj := js.Global().Get("Atomics")
-	if atomicsObj.IsUndefined() {
-		return 0
+	// Initialize JS cache if not done (lazy init for late-bound SAB)
+	if !sb.jsInitialized {
+		sb.initJSCache()
 	}
 
-	int32View := js.Global().Get("__INOS_SAB_INT32__")
-	if int32View.IsUndefined() {
+	// Use cached values to prevent memory leak
+	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
 		return 0
 	}
 
 	// Call Atomics.notify(int32Array, index, count) - notify all waiters
-	result := atomicsObj.Call("notify", int32View, epochIndex, js.ValueOf(nil)) // nil = notify all
+	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex, js.ValueOf(nil)) // nil = notify all
 	return result.Int()
 }
 

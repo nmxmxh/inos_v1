@@ -141,17 +141,18 @@ func NewRootSupervisor(ctx context.Context, config SupervisorConfig) *Supervisor
 func (s *Supervisor) Start() {
 	s.logger.Info("Starting hierarchical supervisor")
 
-	s.spawnChild("matchmaker", s.runMatchmaker, 3)
-	s.spawnChild("watcher", s.runWatcher, 3)
-	s.spawnChild("adjuster", s.runAdjuster, 3)
+	// Spawn all children CONCURRENTLY to avoid lock starvation
+	// Go WASM uses cooperative scheduling, so sequential lock acquisition can starve
+	go s.spawnChild("matchmaker", s.runMatchmaker, 3)
+	go s.spawnChild("watcher", s.runWatcher, 3)
+	go s.spawnChild("adjuster", s.runAdjuster, 3)
 
-	s.logger.Info("Supervisor hierarchy started", utils.Int("children", len(s.children)))
+	s.logger.Info("Supervisor hierarchy started")
 }
 
 // InitializeCompute initializes the compute units with the provided SAB
 func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	// Update SAB info
 	s.sab = sab
@@ -190,17 +191,23 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.bridge = bridge
 	s.units = units
 
-	// Start supervisors for initially discovered units
+	// CRITICAL: Release lock BEFORE spawning children to avoid recursive lock
+	// Child spawning acquires its own lock, so we must not hold this one
+	s.mu.Unlock()
+
+	// Start supervisors for initially discovered units (CONCURRENT - failures isolated)
 	for name, unit := range units {
 		if starter, ok := unit.(interface{ Start(context.Context) error }); ok {
-			s.spawnChild(name, starter.Start, 5)
+			go func(n string, st interface{ Start(context.Context) error }) {
+				s.spawnChild(n, st.Start, 5)
+			}(name, starter)
 		}
 	}
 
-	// Spawn Background Loops (Discovery, Signal, Economy)
-	s.spawnChild("discovery_loop", s.runDiscoveryLoop, 1)
-	s.spawnChild("signal_listener", s.runSignalListener, 100)
-	s.spawnChild("economy_loop", s.runEconomyLoop, 10)
+	// Spawn Background Loops (CONCURRENT)
+	go s.spawnChild("discovery_loop", s.runDiscoveryLoop, 1)
+	go s.spawnChild("signal_listener", s.runSignalListener, 100)
+	go s.spawnChild("economy_loop", s.runEconomyLoop, 10)
 
 	return nil
 }
