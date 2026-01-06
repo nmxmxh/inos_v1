@@ -243,16 +243,14 @@ impl SafeSAB {
     }
 
     // ========== SAB REGION CONSTANTS ==========
-    pub const OFFSET_ECONOMICS: usize = 0x004000;
-    pub const SIZE_ECONOMICS: usize = 0x004000;
-
-    pub const OFFSET_IDENTITY_REGISTRY: usize = 0x008000;
-    pub const SIZE_IDENTITY_REGISTRY: usize = 0x004000;
-
-    pub const OFFSET_SOCIAL_GRAPH: usize = 0x00C000;
-    pub const SIZE_SOCIAL_GRAPH: usize = 0x004000;
-
-    pub const OFFSET_PATTERN_EXCHANGE: usize = 0x010000;
+    // Delegated to crate::layout for single source of truth
+    pub const OFFSET_ECONOMICS: usize = crate::layout::OFFSET_ECONOMICS;
+    pub const SIZE_ECONOMICS: usize = crate::layout::SIZE_ECONOMICS;
+    pub const OFFSET_IDENTITY_REGISTRY: usize = crate::layout::OFFSET_IDENTITY_REGISTRY;
+    pub const SIZE_IDENTITY_REGISTRY: usize = crate::layout::SIZE_IDENTITY_REGISTRY;
+    pub const OFFSET_SOCIAL_GRAPH: usize = crate::layout::OFFSET_SOCIAL_GRAPH;
+    pub const SIZE_SOCIAL_GRAPH: usize = crate::layout::SIZE_SOCIAL_GRAPH;
+    pub const OFFSET_PATTERN_EXCHANGE: usize = crate::layout::OFFSET_PATTERN_EXCHANGE;
 }
 
 // SAFETY: SafeSAB wraps SharedArrayBuffer which is designed to be shared across

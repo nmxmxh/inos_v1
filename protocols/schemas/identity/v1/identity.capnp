@@ -78,10 +78,10 @@ struct DeviceCapability {
 }
 
 enum ResourceTier {
-  light @0;      # < 32MB RAM, 5GB Storage (Mobile/IoT)
-  moderate @1;   # 64MB RAM, 20GB Storage (Laptop)
-  heavy @2;      # 256MB RAM, 100GB Storage (Workstation)
-  dedicated @3;  # 512MB-1GB+ RAM, 500GB+ Storage (Dedicated Node)
+  light @0;      # 32MB SAB, 5GB Storage (Mobile/IoT)
+  moderate @1;   # 64MB SAB, 20GB Storage (Laptop)
+  heavy @2;      # 128MB SAB, 100GB Storage (Workstation)
+  dedicated @3;  # 256MB+ SAB, 500GB+ Storage (Dedicated Node)
 }
 
 struct IdentityAction {

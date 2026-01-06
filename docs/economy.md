@@ -148,10 +148,10 @@ To maximize mesh capacity, users receive higher UBI multipliers and PoUW priorit
 
 | Tier | Resource Commitment | UBI Multiplier | PoUW Priority |
 | :--- | :--- | :--- | :--- |
-| **Light** | < 8MB RAM, < 1GB Storage | 1.0x (Baseline) | Standard |
-| **Moderate**| 16MB RAM, 10GB Storage | 1.1x | Standard |
-| **Heavy** | 64MB RAM, 50GB Storage | 1.5x | High |
-| **Dedicated** | 128MB+ RAM, 100GB+ Storage | 2.0x | Ultra |
+| **Light** | 32MB SAB, 5GB Storage | 1.0x (Baseline) | Standard |
+| **Moderate**| 64MB SAB, 20GB Storage | 1.1x | Standard |
+| **Heavy** | 128MB SAB, 100GB Storage | 1.5x | High |
+| **Dedicated** | 256MB+ SAB, 500GB+ Storage | 2.0x | Ultra |
 
 > [!TIP]
 > **Yield Stacking**: Multipliers are additive. A "Dedicated" user with 10 linked devices earns `2.0x + (10 * 0.001) = 2.01x` their base UBI drip.

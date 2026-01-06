@@ -5,9 +5,21 @@
 
 # ========== SAB SIZE LIMITS ==========
 
-const sabSizeDefault :UInt32 = 16777216;   # 16MB (16 * 1024 * 1024)
-const sabSizeMin     :UInt32 = 4194304;    # 4MB minimum
+# Tier-based SAB sizing (matched to identity.capnp ResourceTier)
+# Light (Mobile/IoT): 32MB - basic entity simulation (<5k entities)
+# Moderate (Laptop): 64MB - full boids + culling (10k entities)
+# Heavy (Workstation): 128MB - multi-LOD + SoA (50k entities)  
+# Dedicated (Server): 256MB+ - GPU-driven pipeline (100k+ entities)
+
+const sabSizeDefault :UInt32 = 33554432;   # 32MB (32 * 1024 * 1024) - Light tier
+const sabSizeMin     :UInt32 = 16777216;   # 16MB minimum (headless/minimal)
 const sabSizeMax     :UInt32 = 1073741824; # 1GB maximum
+
+# Tier-specific SAB sizes
+const sabSizeLight    :UInt32 = 33554432;  # 32MB
+const sabSizeModerate :UInt32 = 67108864;  # 64MB
+const sabSizeHeavy    :UInt32 = 134217728; # 128MB
+const sabSizeDedicated :UInt32 = 268435456; # 256MB
 
 # ========== MEMORY REGION OFFSETS ==========
 

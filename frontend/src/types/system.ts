@@ -1,20 +1,27 @@
 // ========== SAB Memory Layout Constants ==========
-// Must match modules/sdk/src/layout.rs
+// Re-exported from auto-generated sab_layout.consts.ts
+// Source of truth: protocols/schemas/system/v1/sab_layout.capnp
+
+import {
+  OFFSET_MODULE_REGISTRY,
+  SIZE_MODULE_REGISTRY,
+  MODULE_ENTRY_SIZE,
+  MAX_MODULES_INLINE,
+  OFFSET_ARENA,
+  OFFSET_ATOMIC_FLAGS,
+  IDX_SYSTEM_EPOCH,
+  IDX_ARENA_ALLOCATOR,
+} from '../wasm/layout';
 
 export const SAB_LAYOUT = {
-  // Module Registry
-  OFFSET_MODULE_REGISTRY: 0x000100,
-  SIZE_MODULE_REGISTRY: 0x001800,
-  MODULE_ENTRY_SIZE: 96,
-  MAX_MODULES_INLINE: 64,
-
-  // Arena
-  OFFSET_ARENA: 0x150000,
-
-  // Atomic Flags
-  OFFSET_ATOMIC_FLAGS: 0x000000,
-  IDX_SYSTEM_EPOCH: 7,
-  IDX_ARENA_ALLOCATOR: 8,
+  OFFSET_MODULE_REGISTRY,
+  SIZE_MODULE_REGISTRY,
+  MODULE_ENTRY_SIZE,
+  MAX_MODULES_INLINE,
+  OFFSET_ARENA,
+  OFFSET_ATOMIC_FLAGS,
+  IDX_SYSTEM_EPOCH,
+  IDX_ARENA_ALLOCATOR,
 } as const;
 
 // ========== Module Registry Entry (96 bytes) ==========

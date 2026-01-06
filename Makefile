@@ -118,8 +118,9 @@ proto-ts:
 	@for schema_file in $$(find $(CAPNP_PATH) -name '*.capnp'); do \
 		echo "Processing $$schema_file..."; \
 		capnp compile -I$(CAPNP_PATH) -o ts:frontend/bridge/generated $$schema_file || true; \
+		node scripts/gen-capnp-consts-ts.js $$schema_file || true; \
 	done
-	@echo "✅ TypeScript protocol code generated in frontend/bridge/generated"
+	@echo "✅ TypeScript protocol code + constants generated in frontend/bridge/generated"
  
 gen-context:
 	@echo "📋 Generating Codebase Context Registry..."

@@ -263,8 +263,8 @@ func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
 	// Ring Buffer Header: [Head(4) | Tail(4)]
 	// Data follows header.
 	const HeaderSize = 8
-	// Total size for Inbox/Outbox is 512KB (0x80000)
-	const RegionSize = 0x80000
+	// Total size for Inbox/Outbox is 512KB - use constant from layout
+	const RegionSize = sab_layout.SIZE_INBOX_TOTAL
 	const DataCapacity = RegionSize - HeaderSize
 
 	headPtr := (*uint32)(unsafe.Add(sb.sab, baseOffset))

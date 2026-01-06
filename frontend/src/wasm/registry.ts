@@ -3,11 +3,14 @@
  * Reads module metadata and capabilities from the INOS registry.
  */
 
-const REGISTRY_OFFSET = 0x000100;
-const MODULE_ENTRY_SIZE = 96;
-const MAX_MODULES_INLINE = 64;
+import {
+  OFFSET_MODULE_REGISTRY,
+  MODULE_ENTRY_SIZE,
+  MAX_MODULES_INLINE,
+  OFFSET_ARENA,
+} from './layout';
+
 const CAPABILITY_ENTRY_SIZE = 36;
-const ARENA_OFFSET_BASE = 0x150000;
 
 export interface ModuleEntry {
   id: string;
@@ -43,7 +46,7 @@ export class RegistryReader {
     const absoluteOffset = this.sabOffset + arenaOffset;
 
     if (
-      arenaOffset < ARENA_OFFSET_BASE ||
+      arenaOffset < OFFSET_ARENA ||
       absoluteOffset + count * CAPABILITY_ENTRY_SIZE > this.memory.buffer.byteLength
     ) {
       return capabilities;
@@ -62,7 +65,7 @@ export class RegistryReader {
     const modules: Record<string, ModuleEntry> = {};
 
     for (let i = 0; i < MAX_MODULES_INLINE; i++) {
-      const offset = this.sabOffset + REGISTRY_OFFSET + i * MODULE_ENTRY_SIZE;
+      const offset = this.sabOffset + OFFSET_MODULE_REGISTRY + i * MODULE_ENTRY_SIZE;
       const idHash = this.view.getUint32(offset + 8, true);
 
       if (idHash === 0) continue;

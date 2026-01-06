@@ -194,7 +194,7 @@ Offset      | Size    | Purpose
 0x6C2000    | 640KB   | Matrix Output Buffer B (10k × 64 bytes)
 ```
 
-**Total SAB Size**: 16MB (Default). Ping-pong regions occupy ~6MB in the Arena.
+**Total SAB Size**: 32MB (Light Tier Default). Ping-pong regions occupy ~15MB in the Arena.
 
 ---
 

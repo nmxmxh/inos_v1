@@ -3,6 +3,8 @@
  * Handles loading wasm_exec.js, creating SharedArrayBuffer, and instantiating the kernel.
  */
 
+import { MEMORY_PAGES, type ResourceTier } from './layout';
+
 declare global {
   interface Window {
     Go: any;
@@ -10,6 +12,7 @@ declare global {
     __INOS_MEM__: WebAssembly.Memory;
     __INOS_SAB_OFFSET__: number;
     __INOS_SAB_SIZE__: number;
+    __INOS_TIER__: ResourceTier;
     __INOS_CONTEXT_ID__: string;
     __INOS_INIT_PROMISE__?: Promise<KernelInitResult>;
     getSystemSABAddress?: () => number;
@@ -17,14 +20,10 @@ declare global {
   }
 }
 
-export type ResourceTier = 'light' | 'moderate' | 'heavy' | 'dedicated';
+export type { ResourceTier } from './layout';
 
-export const TIER_CONFIG: Record<ResourceTier, { initial: number; maximum: number }> = {
-  light: { initial: 512, maximum: 1024 }, // 32MB -> 64MB
-  moderate: { initial: 1024, maximum: 2048 }, // 64MB -> 128MB
-  heavy: { initial: 4096, maximum: 8192 }, // 256MB -> 512MB
-  dedicated: { initial: 8192, maximum: 16384 }, // 512MB -> 1GB
-};
+// Re-export layout config for backward compatibility
+export const TIER_CONFIG = MEMORY_PAGES;
 
 export interface KernelInitResult {
   memory: WebAssembly.Memory;

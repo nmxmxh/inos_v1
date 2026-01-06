@@ -3,10 +3,23 @@ import { useRef, useMemo, Suspense, useEffect } from 'react';
 import * as THREE from 'three';
 import { useSystemStore } from '../../src/store/system';
 import { dispatch } from '../../src/wasm/dispatch';
+import {
+  OFFSET_BIRD_BUFFER_A,
+  OFFSET_MATRIX_BUFFER_A,
+  OFFSET_MATRIX_BUFFER_B,
+  IDX_MATRIX_EPOCH,
+  getLayoutConfig,
+  type ResourceTier,
+} from '../../src/wasm/layout';
+
+// Get tier from window or default to 'light'
+const tier: ResourceTier =
+  (typeof window !== 'undefined' && (window as any).__INOS_TIER__) || 'light';
+const tierConfig = getLayoutConfig(tier);
 
 const CONFIG = {
-  BIRD_COUNT: 1000,
-  SAB_OFFSET: 0x162000,
+  BIRD_COUNT: tierConfig.recommended,
+  SAB_OFFSET: OFFSET_BIRD_BUFFER_A,
   BYTES_PER_BIRD: 236,
 };
 
@@ -144,15 +157,13 @@ function InstancedBoidsRenderer() {
       const sab = (window as any).__INOS_SAB__;
       if (!sab) return;
 
-      // Determine active matrix buffer from epoch at IDX_MATRIX_EPOCH (13)
+      // Determine active matrix buffer from epoch at IDX_MATRIX_EPOCH
       const flags = new Int32Array(sab, 0, 16);
-      const matrixEpoch = Atomics.load(flags, 13);
+      const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
       const isBufferA = matrixEpoch % 2 === 0;
 
-      // In-sync with sdk/src/layout.rs (absolute offsets from SAB start)
-      const MATRIX_BUFFER_A = 0x622000;
-      const MATRIX_BUFFER_B = 0xb22000;
-      const matrixBase = isBufferA ? MATRIX_BUFFER_A : MATRIX_BUFFER_B;
+      // Use layout constants for buffer offsets
+      const matrixBase = isBufferA ? OFFSET_MATRIX_BUFFER_A : OFFSET_MATRIX_BUFFER_B;
 
       const instances = [
         bodiesRef,
