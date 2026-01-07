@@ -51,6 +51,13 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 		loaded[module.ID] = ul.InstantiateUnit(bridge, module)
 	}
 
+	// 3. EXPLICIT: Create BoidsSupervisor
+	// 'boids' is registered as a CAPABILITY of 'compute', not as a module ID
+	// So the switch case above never matches - we must create it explicitly
+	if _, exists := loaded["boids_supervisor"]; !exists {
+		loaded["boids_supervisor"] = units.NewBoidsSupervisor(bridge, ul.patterns, ul.knowledge, nil)
+	}
+
 	return loaded, bridge
 }
 

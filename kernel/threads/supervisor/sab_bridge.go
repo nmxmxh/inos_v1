@@ -203,7 +203,8 @@ func (sb *SABBridge) SignalInbox() {
 }
 
 // WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
-// Uses Atomics.wait for true zero-CPU waiting (only works in Worker context).
+// On main thread: uses polling fallback with time.Sleep() to yield to JS event loop.
+// In Worker context: uses Atomics.wait for true zero-CPU waiting.
 // Returns: 0 = "ok" (value changed), 1 = "not-equal" (already different), 2 = "timed-out"
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
 	// Initialize JS cache if not done (lazy init for late-bound SAB)
@@ -211,6 +212,12 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 		sb.initJSCache()
 	}
 
+	// Main thread: use polling fallback (Atomics.wait is forbidden)
+	if !sb.isWorkerContext() {
+		return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
+	}
+
+	// Worker context: use true Atomics.wait for zero-CPU blocking
 	// Use cached values to prevent memory leak from repeated Get() calls
 	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
 		// Re-try getting the values (might not be available during early boot)
@@ -238,6 +245,54 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 	default:
 		return 2
 	}
+}
+
+// isWorkerContext detects if we're running in a Web Worker (Atomics.wait allowed)
+// or on the main thread (Atomics.wait forbidden).
+func (sb *SABBridge) isWorkerContext() bool {
+	// In a Web Worker, WorkerGlobalScope is defined and 'self' is an instance of it
+	// On main thread, WorkerGlobalScope is undefined
+	workerScope := js.Global().Get("WorkerGlobalScope")
+	if workerScope.IsUndefined() {
+		return false
+	}
+	// Check if global 'self' is instance of WorkerGlobalScope
+	self := js.Global().Get("self")
+	if self.IsUndefined() {
+		return false
+	}
+	return self.InstanceOf(workerScope)
+}
+
+// pollForEpochChange uses time.Sleep() polling as fallback when Atomics.wait is unavailable.
+// This yields to the JS event loop instead of blocking, allowing goroutines to cooperate.
+func (sb *SABBridge) pollForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
+	// First check: value already different?
+	current := sb.ReadAtomicI32(epochIndex)
+	if current != expectedValue {
+		return 1 // "not-equal" - already changed
+	}
+
+	// Polling with adaptive interval
+	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
+	pollInterval := 10 * time.Millisecond // Start with 10ms
+
+	for time.Now().Before(deadline) {
+		// Yield to JS event loop - this is the key difference from Atomics.wait
+		time.Sleep(pollInterval)
+
+		current = sb.ReadAtomicI32(epochIndex)
+		if current != expectedValue {
+			return 1 // "not-equal" - value changed
+		}
+
+		// Adaptive backoff: increase interval for longer waits (max 50ms)
+		if pollInterval < 50*time.Millisecond {
+			pollInterval = pollInterval * 3 / 2 // 1.5x increase
+		}
+	}
+
+	return 2 // "timed-out"
 }
 
 // NotifyEpochWaiters wakes up threads waiting on the given epoch index.

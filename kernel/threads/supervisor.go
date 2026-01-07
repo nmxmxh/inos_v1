@@ -187,16 +187,16 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.logger.Info("Initializing compute units with shared SAB")
 
 	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
-	units, bridge := loader.LoadUnits()
+	loadedUnits, bridge := loader.LoadUnits()
 	s.bridge = bridge
-	s.units = units
+	s.units = loadedUnits
 
 	// CRITICAL: Release lock BEFORE spawning children to avoid recursive lock
 	// Child spawning acquires its own lock, so we must not hold this one
 	s.mu.Unlock()
 
 	// Start supervisors for initially discovered units (CONCURRENT - failures isolated)
-	for name, unit := range units {
+	for name, unit := range loadedUnits {
 		if starter, ok := unit.(interface{ Start(context.Context) error }); ok {
 			go func(n string, st interface{ Start(context.Context) error }) {
 				s.spawnChild(n, st.Start, 5)

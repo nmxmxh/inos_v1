@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	// SAB layout constants
-	FloatsPerBird = 59 // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
-	BytesPerBird  = FloatsPerBird * 4
-	MaxBirds      = 10000 // support industrial scale
+	// SAB layout constants - MUST MATCH RUST
+	FloatsPerBird = 58  // position(3) + velocity(3) + rotation(4) + padding... = 58 floats in Rust
+	BytesPerBird  = 232 // MUST match Rust: BYTES_PER_BIRD = 232 (NOT 236!)
+	MaxBirds      = 10000
 
-	// Evolution parameters
-	DefaultMutationRate   = 0.1
+	// Evolution parameters - TUNED FOR VISIBLE VARIANCE
+	DefaultMutationRate   = 0.3 // Increased from 0.1 for more visible changes
 	DefaultCrossoverRate  = 0.7
 	DefaultTournamentSize = 3
-	EvolutionInterval     = 5 * time.Second // Evolve every 5 seconds
+	EvolutionInterval     = 2 * time.Second // Faster evolution for demo (was 5s)
 )
 
 // BirdGenes represents the neural network weights for a bird
@@ -90,18 +90,40 @@ func NewBoidsSupervisor(bridge SABInterface, patterns *pattern.TieredPatternStor
 	}
 }
 
-// Start begins the learning supervision loop
+// Start begins the learning supervision loop - BLOCKS until context cancelled
 func (s *BoidsSupervisor) Start(ctx context.Context) error {
-	// Start unified supervisor
-	if err := s.UnifiedSupervisor.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start unified supervisor: %w", err)
+	// Auto-detect bird count from SAB epoch (IDX_BOIDS_COUNT)
+	s.autoDetectBirdCount()
+
+	utils.Info("Boids supervisor started", utils.Int("bird_count", s.birdCount))
+
+	// Run learning loop - this BLOCKS until ctx.Done()
+	// (spawnChild expects the function to block)
+	s.learningLoop(ctx)
+
+	return nil
+}
+
+// autoDetectBirdCount reads the bird count from SAB atomic flags
+func (s *BoidsSupervisor) autoDetectBirdCount() {
+	// Read from IDX_BOIDS_COUNT (index 15 in atomic flags)
+	offset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BOIDS_COUNT*4)
+	countBytes, err := s.bridge.ReadRaw(offset, 4)
+	if err != nil {
+		utils.Warn("Failed to read bird count from SAB, using default", utils.Err(err))
+		s.birdCount = 1000 // Default fallback
+		return
 	}
 
-	// Start learning loop
-	go s.learningLoop(ctx)
+	count := int(binary.LittleEndian.Uint32(countBytes))
+	if count > 0 && count <= MaxBirds {
+		s.birdCount = count
+	} else {
+		// Fallback: read from frontend default
+		s.birdCount = 1000
+	}
 
-	utils.Info("Boids supervisor started")
-	return nil
+	utils.Info("Auto-detected bird count from SAB", utils.Int("count", s.birdCount))
 }
 
 // learningLoop monitors SAB and executes genetic algorithm
@@ -153,6 +175,25 @@ func (s *BoidsSupervisor) checkEvolution() {
 	if s.birdCount == 0 {
 		return // Nothing to do
 	}
+
+	// TODO: Rust bird struct doesn't include neural weights yet
+	// Go expects 236 bytes/bird (with 44 neural weights)
+	// But Rust only has 232 bytes/bird
+	// Skip evolution until layouts are aligned
+	if BytesPerBird != 232 {
+		// Layout mismatch - skip evolution
+		return
+	}
+
+	// For now, just log that evolution is disabled until Rust is updated
+	// Once Rust adds the weight fields, remove this check
+	if s.generation == 0 {
+		utils.Warn("BoidsSupervisor: Evolution disabled - Rust bird struct missing neural weights",
+			utils.Int("go_bytes_per_bird", BytesPerBird),
+			utils.String("todo", "Add weights[44] to Rust bird struct"))
+		s.generation = -1 // Mark as disabled so we only log once
+	}
+	return // Skip evolution until Rust layout includes weights
 
 	if time.Since(s.lastEvolutionTime) < s.evolutionInterval {
 		return // Not time yet
@@ -291,13 +332,15 @@ func (s *BoidsSupervisor) Crossover(parent1, parent2 BirdGenes) BirdGenes {
 
 // Mutate applies Gaussian mutation to genes
 // Added "Neural Glitches": Rare extreme mutation events
+// TUNED FOR VISIBLE VARIANCE
 func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 	// Adjust mutation rate based on mesh nodes (more nodes = less mutation)
 	effectiveMutationRate := s.mutationRate / (1.0 + math.Log2(float64(s.meshNodesActive+1)))
 
 	// --- NEURAL GLITCH: Chaos Mutation ---
-	// 0.1% chance to become a "Chaos Boid" with totally random weights
-	if rand.Float64() < 0.001 {
+	// 1% chance to become a "Chaos Boid" with totally random weights (was 0.1%)
+	if rand.Float64() < 0.01 {
+		utils.Debug("Neural Glitch! Chaos boid created")
 		for i := 0; i < 44; i++ {
 			genes.Weights[i] = rand.Float32()*10.0 - 5.0
 		}
@@ -306,8 +349,8 @@ func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 
 	for i := 0; i < 44; i++ {
 		if rand.Float64() < effectiveMutationRate {
-			// Gaussian noise
-			genes.Weights[i] += float32(rand.NormFloat64() * 0.2)
+			// Larger Gaussian noise for visible effect (0.5 instead of 0.2)
+			genes.Weights[i] += float32(rand.NormFloat64() * 0.5)
 
 			// Clamp to reasonable range
 			if genes.Weights[i] > 5.0 {
