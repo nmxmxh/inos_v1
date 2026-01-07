@@ -181,17 +181,17 @@ This is required because:
 ## SAB Memory Layout (v1.9+)
 
 ```
-Offset      | Size    | Purpose
+Offset (Abs) | Size    | Purpose
 ════════════|═════════|══════════════════════════════════════════
-0x0000      | 64B     | Atomic Flags Region (16 x i32)
+0x01000000  | 64B     | Atomic Flags Region (16 x i32)
             |         |   [IDX 12] Bird Epoch (u32)
             |         |   [IDX 13] Matrix Epoch (u32)
             |         |   [IDX 14] Active Buffer Flag (0=A, 1=B)
             |         |
-0x162000    | ~2.3MB  | Bird State Buffer A (10k birds × 236 bytes)
-0x3C2000    | ~2.3MB  | Bird State Buffer B (10k birds × 236 bytes)
-0x622000    | 640KB   | Matrix Output Buffer A (10k × 64 bytes)
-0x6C2000    | 640KB   | Matrix Output Buffer B (10k × 64 bytes)
+0x01162000  | 2.36MB  | Bird State Buffer A (10k birds × 236 bytes)
+0x013C2000  | 2.36MB  | Bird State Buffer B (10k birds × 236 bytes)
+0x01622000  | 5.12MB  | Matrix Output Buffer A (10k birds × 8 parts × 64 bytes)
+0x01B22000  | 5.12MB  | Matrix Output Buffer B (10k birds × 8 parts × 64 bytes)
 ```
 
 **Total SAB Size**: 32MB (Light Tier Default). Ping-pong regions occupy ~15MB in the Arena.
@@ -213,46 +213,36 @@ Offset      | Size    | Purpose
 
 **Go Kernel (Writer)**:
 ```go
-// threads/supervisor/sab_bridge.go
+// kernel/threads/supervisor/sab_bridge.go
 func (b *SABBridge) FlipBuffers() {
     epoch := atomic.AddUint32(&b.epoch, 1)
-    binary.LittleEndian.PutUint32(b.sab[0:4], epoch)
+    
+    // Layout constants already include the 16MB base
+    b.WriteRaw(OFFSET_BIRD_EPOCH, epoch)
     
     // Write to INACTIVE buffer (will become active next flip)
+    // selection logic handles absolute addressing
     writeBuffer := b.getBirdBuffer(epoch + 1)
     copy(writeBuffer, b.computedBirdState)
-}
-
-func (b *SABBridge) getBirdBuffer(epoch uint32) []byte {
-    if epoch % 2 == 0 {
-        return b.sab[0x0100:0x240100]  // Buffer A
-    }
-    return b.sab[0x240100:0x480200]    // Buffer B
 }
 ```
 
 **Rust Module (Reader/Writer)**:
 ```rust
+// sdk/src/layout.rs
+pub const OFFSET_BIRD_BUFFER_A: usize = 0x01162000;
+pub const OFFSET_BIRD_BUFFER_B: usize = 0x013C2000;
+
 // sdk/src/sab.rs
 impl SafeSAB {
     pub fn get_read_buffer(&self, region: Region) -> &[u8] {
         let epoch = self.read_epoch();
         let base = if epoch % 2 == 0 { 
-            region.buffer_a_offset 
+            region.buffer_a_offset // Absolute offset A
         } else { 
-            region.buffer_b_offset 
+            region.buffer_b_offset // Absolute offset B
         };
-        unsafe { std::slice::from_raw_parts(self.ptr.add(base), region.size) }
-    }
-    
-    pub fn get_write_buffer(&self, region: Region) -> &mut [u8] {
-        let epoch = self.read_epoch();
-        let base = if epoch % 2 == 0 { 
-            region.buffer_b_offset  // Write to OPPOSITE
-        } else { 
-            region.buffer_a_offset 
-        };
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.add(base), region.size) }
+        self.as_slice(base, region.size)
     }
 }
 ```
@@ -261,8 +251,8 @@ impl SafeSAB {
 ```typescript
 // src/wasm/sab.ts
 const getActiveMatrixBuffer = (sab: SharedArrayBuffer): Float32Array => {
-  const epoch = new Uint32Array(sab, 0x08, 1)[0]; // Matrix epoch
-  const offset = epoch % 2 === 0 ? 0x480200 : 0x980200;
+  const epoch = Atomics.load(typedArray, IDX_MATRIX_EPOCH);
+  const offset = epoch % 2 === 0 ? CONSTS.OFFSET_MATRIX_BUFFER_A : CONSTS.OFFSET_MATRIX_BUFFER_B;
   return new Float32Array(sab, offset, BIRD_COUNT * 8 * 16);
 };
 ```

@@ -6,13 +6,16 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestEnhancedEpoch_IncrementAndGet(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	assert.Equal(t, uint32(0), epoch.GetValue())
 
@@ -26,8 +29,9 @@ func TestEnhancedEpoch_IncrementAndGet(t *testing.T) {
 }
 
 func TestEnhancedEpoch_WaitForChange_FastPath(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	// Simulate external update
 	epoch.Increment()
@@ -63,8 +67,9 @@ func TestEnhancedEpoch_WaitForChange_FastPath(t *testing.T) {
 }
 
 func TestEnhancedEpoch_WaitForChange_Timeout(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	changed, err := epoch.WaitForChange(10 * time.Millisecond)
 	require.NoError(t, err)
@@ -72,8 +77,9 @@ func TestEnhancedEpoch_WaitForChange_Timeout(t *testing.T) {
 }
 
 func TestEnhancedEpoch_WaitForChange_SlowPath(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	start := time.Now()
 	go func() {
@@ -88,8 +94,9 @@ func TestEnhancedEpoch_WaitForChange_SlowPath(t *testing.T) {
 }
 
 func TestEnhancedEpoch_ConcurrentWaiters(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	const triggers = 10
 	const waiters = 5

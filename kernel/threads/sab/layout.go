@@ -13,9 +13,13 @@ import (
 // All regions are designed for dynamic expansion with overflow to arena.
 
 const (
+	// ========== SYSTEM BASE OFFSET ==========
+	// Go Kernel binary + heap occupy 0-16MB. All SAB offsets are relative to this.
+	OFFSET_SYSTEM_BASE = system.OffsetSystemBase // 16MB
+
 	// ========== SAB SIZE LIMITS ==========
-	SAB_SIZE_DEFAULT = system.SabSizeDefault // 16MB
-	SAB_SIZE_MIN     = system.SabSizeMin     // 4MB minimum
+	SAB_SIZE_DEFAULT = system.SabSizeDefault // 48MB (includes 16MB Go zone)
+	SAB_SIZE_MIN     = system.SabSizeMin     // 48MB minimum
 	SAB_SIZE_MAX     = system.SabSizeMax     // 1GB
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========
@@ -151,6 +155,7 @@ const (
 	IDX_HEALTH_EPOCH    = system.IdxHealthEpoch
 	IDX_LEARNING_EPOCH  = system.IdxLearningEpoch
 	IDX_ECONOMY_EPOCH   = system.IdxEconomyEpoch
+	IDX_BIRD_COUNT      = system.IdxBirdCount // Index 20
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = system.SupervisorPoolBase

@@ -2,6 +2,7 @@ package supervisor_test
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/stretchr/testify/assert"
@@ -9,8 +10,10 @@ import (
 )
 
 func TestSocialGraphSupervisor_Basic(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	sgs := supervisor.NewSocialGraphSupervisor(sab)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	baseOffset := uint32(100)
+	sgs := supervisor.NewSocialGraphSupervisor(unsafe.Pointer(&sab[0]), sabSize, baseOffset)
 	require.NotNil(t, sgs)
 
 	// 1. Register Social Entry
@@ -18,7 +21,7 @@ func TestSocialGraphSupervisor_Basic(t *testing.T) {
 	referrer := "did:inos:referrer"
 	offset, err := sgs.RegisterSocialEntry(user, referrer)
 	assert.NoError(t, err)
-	assert.Greater(t, offset, uint32(0))
+	assert.Greater(t, offset, baseOffset)
 
 	// 2. Get Referrer
 	ref, err := sgs.GetReferrer(user)
@@ -32,8 +35,10 @@ func TestSocialGraphSupervisor_Basic(t *testing.T) {
 }
 
 func TestSocialGraphSupervisor_CloseIdentities(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	sgs := supervisor.NewSocialGraphSupervisor(sab)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	baseOffset := uint32(100)
+	sgs := supervisor.NewSocialGraphSupervisor(unsafe.Pointer(&sab[0]), sabSize, baseOffset)
 
 	user := "did:inos:user"
 	sgs.RegisterSocialEntry(user, "")

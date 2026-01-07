@@ -424,14 +424,14 @@ We move beyond "Message Passing" to **"Reactive Mutation"**. Components do not s
 **The Pipeline:** `Network (WebRTC)` ➔ `SAB (Memory)` ➔ `Rust (Compute)` ➔ `Go (Logic)` ➔ `JS (Render)`
 
 #### 1. The Shared State (SAB Layout)
-All components share a single 20MB Linear Memory region (SAB).
+All components share a single 48MB Linear Memory region (SAB). The first 16MB are reserved for the Go Kernel.
 
-| Offset | Size | Name | Purpose |
+| Offset (Abs) | Size | Name | Purpose |
 |:---|:---|:---|:---|
-| `0x000000` | 64KB | **Metadata** | Atomic Flags & Manifests (The "Switchboard") |
-| `0x010000` | 256KB | **Inbox** | RingBuffer: Host (JS) ➔ Kernel |
-| `0x050000` | 256KB | **Outbox** | RingBuffer: Kernel ➔ Host (JS) |
-| `0x090000` | 19MB+ | **Arena** | Dynamic Heap for payloads (Zero-Copy) |
+| `0x01000000` | 256B | **Metadata** | Atomic Flags & Manifests (The "Switchboard") |
+| `0x01050000` | 512KB | **Inbox** | RingBuffer: Kernel ➔ Module (JobRequest) |
+| `0x010D0000` | 512KB | **Outbox** | RingBuffer: Module ➔ Kernel (JobResult) |
+| `0x01150000` | 31MB+ | **Arena** | Dynamic Heap for payloads (Zero-Copy) |
 
 #### 2. The Signaling Protocol (Mutate ➔ Signal ➔ React)
 Instead of queues, we use atomic flags.

@@ -17,7 +17,7 @@ The Core SDK defines the shared primitives, memory layout, and communication pro
 | File | Purpose | Progress | Observations |
 | :--- | :--- | :--- | :--- |
 | `src/lib.rs` | Root export and feature flags. | 🟢 Complete | CLEAN. Handles Cap'n Proto module exports and common re-exports. |
-| `src/layout.rs` | Defines SAB memory map constants. | 🟢 Complete | CRITICAL. Defines exact offsets for epochs, registry, arena, etc. Matches Go kernel layout. |
+| `src/layout.rs` | Defines SAB memory map constants. | 🟢 Complete | CRITICAL. Now schema-driven via `sab_layout.capnp`. Defines exact absolute offsets (including 16MB base) for epochs, registry, etc. |
 | `src/registry.rs` | Module Registry implementation. | 🟢 Complete | CRITICAL. Implements `EnhancedModuleEntry` (96b) and `CapabilityEntry` (36b). Includes FNV-1a/CRC32C hashing and double hashing for slot finding. |
 | `src/sab.rs` | Safe wrapper around `SharedArrayBuffer`. | 🟢 Complete | Provides `read`/`write` with bounds checking. Essential for safety. |
 | `src/signal.rs` | Epoch-based signaling primitives. | 🟢 Complete | Implements `Epoch` and `Reactor` for reactive mutation. Uses `Atomics` for thread-safe signaling. |
@@ -136,8 +136,9 @@ The INOS architecture is ambitious and technically sophisticated, achieving its 
 
 ### Achievements (The Good)
 1.  **Zero-Copy Foundation**: The `SABBridge` and `HybridAllocator` (Kernel) working with `SafeSAB` (Rust) creates a high-performance shared memory channel.
-2.  **Reactive Core**: The "Epoch" signaling prevents polling overhead and is correctly implemented across Kernel (`signal_loop.go`) and Modules (`drivers`, `mining`, `science`).
-3.  **Production Mesh**: The `kernel/core/mesh` package is robust.
+2.  **Schema-Driven Harmony**: `sab_layout.capnp` is now the single source of truth for all layers, ensuring absolute address consistency and resolving previous `syscall/js.Value.Call` panics.
+3.  **Reactive Core**: The "Epoch" signaling prevents polling overhead and is correctly implemented across Kernel (`signal_loop.go`) and Modules (`drivers`, `mining`, `science`, `graphics`).
+4.  **Production Mesh**: The `kernel/core/mesh` package is robust.
 
 ### Critical Gaps & Inconsistencies (The Bad)
 > [!IMPORTANT]

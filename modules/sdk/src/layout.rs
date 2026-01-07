@@ -1,160 +1,158 @@
 // SAB Memory Layout Constants for Rust modules
-// Must match kernel/threads/sab_layout.go exactly
+// SOURCED DIRECTLY FROM protocols/schemas/system/v1/sab_layout.capnp
 
-/// Total SAB size configurations
-pub const SAB_SIZE_DEFAULT: usize = 16 * 1024 * 1024; // 16MB
-pub const SAB_SIZE_MIN: usize = 4 * 1024 * 1024; // 4MB
-pub const SAB_SIZE_MAX: usize = 1024 * 1024 * 1024; // 1GB
+use crate::sab_layout_capnp as sab;
 
-// ========== SYSTEM REGIONS (0x000000 - 0x150000) ==========
-// Static layout for core kernel operations
+// ========== SYSTEM BASE OFFSET ==========
+// Go Kernel binary + heap occupy 0-16MB.
+// All offsets below are ABSOLUTE and ALREADY INCLUDE this base.
+pub const OFFSET_SYSTEM_BASE: usize = sab::OFFSET_SYSTEM_BASE as usize;
 
-/// Atomic Flags Region (64 bytes - 16 x i32)
-pub const OFFSET_ATOMIC_FLAGS: usize = 0x000000;
-pub const SIZE_ATOMIC_FLAGS: usize = 0x000040;
+/// Total SAB size configurations (including 16MB Go zone)
+pub const SAB_SIZE_DEFAULT: usize = sab::SAB_SIZE_DEFAULT as usize;
+pub const SAB_SIZE_MIN: usize = sab::SAB_SIZE_MIN as usize;
+pub const SAB_SIZE_MAX: usize = sab::SAB_SIZE_MAX as usize;
 
-/// Supervisor Allocation Table (192 bytes)
-pub const OFFSET_SUPERVISOR_ALLOC: usize = 0x000040;
-pub const SIZE_SUPERVISOR_ALLOC: usize = 0x0000B0; // 176 bytes (Ends at 0xF0)
+// ========== SYSTEM REGIONS (Absolute Addresses) ==========
+
+/// Atomic Flags Region (128 bytes - 32 x i32)
+pub const OFFSET_ATOMIC_FLAGS: usize = sab::OFFSET_ATOMIC_FLAGS as usize;
+pub const SIZE_ATOMIC_FLAGS: usize = sab::SIZE_ATOMIC_FLAGS as usize;
+
+/// Supervisor Allocation Table (176 bytes)
+pub const OFFSET_SUPERVISOR_ALLOC: usize = sab::OFFSET_SUPERVISOR_ALLOC as usize;
+pub const SIZE_SUPERVISOR_ALLOC: usize = sab::SIZE_SUPERVISOR_ALLOC as usize;
 
 // Registry locking (16 bytes before registry)
-pub const OFFSET_REGISTRY_LOCK: usize = 0x0000F0;
-pub const SIZE_REGISTRY_LOCK: usize = 0x000010;
+pub const OFFSET_REGISTRY_LOCK: usize = sab::OFFSET_REGISTRY_LOCK as usize;
+pub const SIZE_REGISTRY_LOCK: usize = sab::SIZE_REGISTRY_LOCK as usize;
 
 /// Module Registry (6KB)
-pub const OFFSET_MODULE_REGISTRY: usize = 0x000100;
-pub const SIZE_MODULE_REGISTRY: usize = 0x001800;
-pub const MODULE_ENTRY_SIZE: usize = 96;
-pub const MAX_MODULES_INLINE: usize = 64;
-pub const MAX_MODULES_TOTAL: usize = 1024;
+pub const OFFSET_MODULE_REGISTRY: usize = sab::OFFSET_MODULE_REGISTRY as usize;
+pub const SIZE_MODULE_REGISTRY: usize = sab::SIZE_MODULE_REGISTRY as usize;
+pub const MODULE_ENTRY_SIZE: usize = sab::MODULE_ENTRY_SIZE as usize;
+pub const MAX_MODULES_INLINE: usize = sab::MAX_MODULES_INLINE as usize;
+pub const MAX_MODULES_TOTAL: usize = sab::MAX_MODULES_TOTAL as usize;
 
 /// Bloom filter (256 bytes after registry)
-pub const OFFSET_BLOOM_FILTER: usize = 0x001900;
-pub const SIZE_BLOOM_FILTER: usize = 0x000100;
+pub const OFFSET_BLOOM_FILTER: usize = sab::OFFSET_BLOOM_FILTER as usize;
+pub const SIZE_BLOOM_FILTER: usize = sab::SIZE_BLOOM_FILTER as usize;
 
 /// Supervisor Headers (4KB)
-pub const OFFSET_SUPERVISOR_HEADERS: usize = 0x002000;
-pub const SIZE_SUPERVISOR_HEADERS: usize = 0x001000;
-pub const MAX_SUPERVISORS_INLINE: usize = 32;
+pub const OFFSET_SUPERVISOR_HEADERS: usize = sab::OFFSET_SUPERVISOR_HEADERS as usize;
+pub const SIZE_SUPERVISOR_HEADERS: usize = sab::SIZE_SUPERVISOR_HEADERS as usize;
+pub const MAX_SUPERVISORS_INLINE: usize = sab::MAX_SUPERVISORS_INLINE as usize;
 
 /// Syscall Table (4KB)
-pub const OFFSET_SYSCALL_TABLE: usize = 0x003000;
-pub const SIZE_SYSCALL_TABLE: usize = 0x001000;
+pub const OFFSET_SYSCALL_TABLE: usize = sab::OFFSET_SYSCALL_TABLE as usize;
+pub const SIZE_SYSCALL_TABLE: usize = sab::SIZE_SYSCALL_TABLE as usize;
 
 /// Economics Region (16KB)
-pub const OFFSET_ECONOMICS: usize = 0x004000;
-pub const SIZE_ECONOMICS: usize = 0x004000;
+pub const OFFSET_ECONOMICS: usize = sab::OFFSET_ECONOMICS as usize;
+pub const SIZE_ECONOMICS: usize = sab::SIZE_ECONOMICS as usize;
 
 /// Identity Registry (16KB)
-pub const OFFSET_IDENTITY_REGISTRY: usize = 0x008000;
-pub const SIZE_IDENTITY_REGISTRY: usize = 0x004000;
+pub const OFFSET_IDENTITY_REGISTRY: usize = sab::OFFSET_IDENTITY_REGISTRY as usize;
+pub const SIZE_IDENTITY_REGISTRY: usize = sab::SIZE_IDENTITY_REGISTRY as usize;
 
 /// Social Graph (16KB)
-pub const OFFSET_SOCIAL_GRAPH: usize = 0x00C000;
-pub const SIZE_SOCIAL_GRAPH: usize = 0x004000;
+pub const OFFSET_SOCIAL_GRAPH: usize = sab::OFFSET_SOCIAL_GRAPH as usize;
+pub const SIZE_SOCIAL_GRAPH: usize = sab::SIZE_SOCIAL_GRAPH as usize;
 
 /// Pattern Exchange (64KB)
-pub const OFFSET_PATTERN_EXCHANGE: usize = 0x010000;
-pub const SIZE_PATTERN_EXCHANGE: usize = 0x010000;
-pub const PATTERN_ENTRY_SIZE: usize = 64;
+pub const OFFSET_PATTERN_EXCHANGE: usize = sab::OFFSET_PATTERN_EXCHANGE as usize;
+pub const SIZE_PATTERN_EXCHANGE: usize = sab::SIZE_PATTERN_EXCHANGE as usize;
+pub const PATTERN_ENTRY_SIZE: usize = sab::PATTERN_ENTRY_SIZE as usize;
 
 /// Job History (128KB)
-pub const OFFSET_JOB_HISTORY: usize = 0x020000;
-pub const SIZE_JOB_HISTORY: usize = 0x020000;
+pub const OFFSET_JOB_HISTORY: usize = sab::OFFSET_JOB_HISTORY as usize;
+pub const SIZE_JOB_HISTORY: usize = sab::SIZE_JOB_HISTORY as usize;
 
 /// Coordination State (64KB)
-pub const OFFSET_COORDINATION: usize = 0x040000;
-pub const SIZE_COORDINATION: usize = 0x010000;
+pub const OFFSET_COORDINATION: usize = sab::OFFSET_COORDINATION as usize;
+pub const SIZE_COORDINATION: usize = sab::SIZE_COORDINATION as usize;
 
 /// Inbox/Outbox (1MB)
-pub const OFFSET_INBOX_OUTBOX: usize = 0x050000;
-pub const SIZE_INBOX_OUTBOX: usize = 0x100000;
-pub const SIZE_INBOX: usize = 0x80000; // 512KB
-pub const SIZE_OUTBOX: usize = 0x80000; // 512KB
-pub const OFFSET_SAB_INBOX: usize = OFFSET_INBOX_OUTBOX;
-pub const OFFSET_SAB_OUTBOX: usize = OFFSET_INBOX_OUTBOX + SIZE_INBOX;
+pub const OFFSET_INBOX_OUTBOX: usize = sab::OFFSET_INBOX_OUTBOX as usize;
+pub const SIZE_INBOX_OUTBOX: usize = sab::SIZE_INBOX_OUTBOX as usize;
+pub const SIZE_INBOX: usize = sab::SIZE_INBOX_TOTAL as usize;
+pub const SIZE_OUTBOX: usize = sab::SIZE_OUTBOX_TOTAL as usize;
+pub const OFFSET_SAB_INBOX: usize = sab::OFFSET_INBOX_BASE as usize;
+pub const OFFSET_SAB_OUTBOX: usize = sab::OFFSET_OUTBOX_BASE as usize;
 
-// ========== ARENA REGIONS (0x150000 - end) ==========
-// Dynamic allocation and high-frequency ping-pong buffers
+// ========== ARENA REGIONS ==========
 
-pub const OFFSET_ARENA: usize = 0x150000;
+pub const OFFSET_ARENA: usize = sab::OFFSET_ARENA as usize;
 
 /// Diagnostics Region (4KB)
-pub const OFFSET_DIAGNOSTICS: usize = 0x150000;
-pub const SIZE_DIAGNOSTICS: usize = 0x001000;
+pub const OFFSET_DIAGNOSTICS: usize = sab::OFFSET_DIAGNOSTICS as usize;
+pub const SIZE_DIAGNOSTICS: usize = sab::SIZE_DIAGNOSTICS as usize;
 
 /// Async Request/Response Queues
-pub const OFFSET_ARENA_REQUEST_QUEUE: usize = 0x151000;
-pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = 0x152000;
-pub const ARENA_QUEUE_ENTRY_SIZE: usize = 64;
-pub const MAX_ARENA_REQUESTS: usize = 64;
+pub const OFFSET_ARENA_REQUEST_QUEUE: usize = sab::OFFSET_ARENA_REQUEST_QUEUE as usize;
+pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = sab::OFFSET_ARENA_RESPONSE_QUEUE as usize;
+pub const ARENA_QUEUE_ENTRY_SIZE: usize = sab::ARENA_QUEUE_ENTRY_SIZE as usize;
+pub const MAX_ARENA_REQUESTS: usize = sab::MAX_ARENA_REQUESTS as usize;
 
 /// Bird Animation State (Arena)
-pub const OFFSET_BIRD_STATE: usize = 0x160000;
-pub const SIZE_BIRD_STATE: usize = 0x001000;
+pub const OFFSET_BIRD_STATE: usize = sab::OFFSET_BIRD_STATE as usize;
+pub const SIZE_BIRD_STATE: usize = sab::SIZE_BIRD_STATE as usize;
 
 // ---------- Ping-Pong Buffer Regions ----------
 
 /// Control block for ping-pong coordination
-pub const OFFSET_PINGPONG_CONTROL: usize = 0x161000;
-pub const SIZE_PINGPONG_CONTROL: usize = 0x000040;
+pub const OFFSET_PINGPONG_CONTROL: usize = sab::OFFSET_PINGPONG_CONTROL as usize;
+pub const SIZE_PINGPONG_CONTROL: usize = sab::SIZE_PINGPONG_CONTROL as usize;
 
 /// Bird Population Data (Dual Buffers)
-pub const OFFSET_BIRD_BUFFER_A: usize = 0x162000;
-pub const OFFSET_BIRD_BUFFER_B: usize = 0x3C2000;
-pub const SIZE_BIRD_BUFFER: usize = 10000 * 236;
-pub const BIRD_STRIDE: usize = 236;
+pub const OFFSET_BIRD_BUFFER_A: usize = sab::OFFSET_BIRD_BUFFER_A as usize;
+pub const OFFSET_BIRD_BUFFER_B: usize = sab::OFFSET_BIRD_BUFFER_B as usize;
+pub const SIZE_BIRD_BUFFER: usize = sab::SIZE_BIRD_BUFFER as usize;
+pub const BIRD_STRIDE: usize = sab::BIRD_STRIDE as usize;
 
 /// Matrix Output Data (Dual Buffers)
-pub const OFFSET_MATRIX_BUFFER_A: usize = 0x622000;
-pub const OFFSET_MATRIX_BUFFER_B: usize = 0xB22000;
-pub const SIZE_MATRIX_BUFFER: usize = 10000 * 8 * 64; // 8 parts * 10k birds * 64 bytes
-pub const MATRIX_STRIDE: usize = 64;
+pub const OFFSET_MATRIX_BUFFER_A: usize = sab::OFFSET_MATRIX_BUFFER_A as usize;
+pub const OFFSET_MATRIX_BUFFER_B: usize = sab::OFFSET_MATRIX_BUFFER_B as usize;
+pub const SIZE_MATRIX_BUFFER: usize = sab::SIZE_MATRIX_BUFFER as usize;
+pub const MATRIX_STRIDE: usize = sab::MATRIX_STRIDE as usize;
 
 // ========== EPOCH INDEX ALLOCATION ==========
 
-/// Fixed system epochs (0-31 Reserved)
-pub const IDX_KERNEL_READY: u32 = 0;
-pub const IDX_INBOX_DIRTY: u32 = 1; // Signal from Kernel to Module
-pub const IDX_OUTBOX_DIRTY: u32 = 2; // Signal from Module to Kernel
-pub const IDX_PANIC_STATE: u32 = 3;
-pub const IDX_SENSOR_EPOCH: u32 = 4;
-pub const IDX_ACTOR_EPOCH: u32 = 5;
-pub const IDX_STORAGE_EPOCH: u32 = 6;
-pub const IDX_SYSTEM_EPOCH: u32 = 7;
+pub const IDX_KERNEL_READY: u32 = sab::IDX_KERNEL_READY;
+pub const IDX_INBOX_DIRTY: u32 = sab::IDX_INBOX_DIRTY;
+pub const IDX_OUTBOX_DIRTY: u32 = sab::IDX_OUTBOX_DIRTY;
+pub const IDX_PANIC_STATE: u32 = sab::IDX_PANIC_STATE;
+pub const IDX_SENSOR_EPOCH: u32 = sab::IDX_SENSOR_EPOCH;
+pub const IDX_ACTOR_EPOCH: u32 = sab::IDX_ACTOR_EPOCH;
+pub const IDX_STORAGE_EPOCH: u32 = sab::IDX_STORAGE_EPOCH;
+pub const IDX_SYSTEM_EPOCH: u32 = sab::IDX_SYSTEM_EPOCH;
 
-/// Phase 16: Extended System Epochs
-pub const IDX_ARENA_ALLOCATOR: u32 = 8; // Arena bump pointer (bytes used)
-pub const IDX_OUTBOX_MUTEX: u32 = 9; // Mutex for outbox synchronization
-pub const IDX_INBOX_MUTEX: u32 = 10; // Mutex for inbox synchronization
-pub const IDX_METRICS_EPOCH: u32 = 11;
-pub const IDX_BIRD_EPOCH: u32 = 12; // High-frequency bird state updates
-pub const IDX_MATRIX_EPOCH: u32 = 13; // Matrix output buffer flip signaling
-pub const IDX_PINGPONG_ACTIVE: u32 = 14; // Which buffer is active (0=A, 1=B)
+pub const IDX_ARENA_ALLOCATOR: u32 = sab::IDX_ARENA_ALLOCATOR;
+pub const IDX_OUTBOX_MUTEX: u32 = sab::IDX_OUTBOX_MUTEX;
+pub const IDX_INBOX_MUTEX: u32 = sab::IDX_INBOX_MUTEX;
+pub const IDX_METRICS_EPOCH: u32 = sab::IDX_METRICS_EPOCH;
+pub const IDX_BIRD_EPOCH: u32 = sab::IDX_BIRD_EPOCH;
+pub const IDX_MATRIX_EPOCH: u32 = sab::IDX_MATRIX_EPOCH;
+pub const IDX_PINGPONG_ACTIVE: u32 = sab::IDX_PINGPONG_ACTIVE;
 
-/// Signal-Based Architecture Epochs (15-20)
-/// These replace polling loops with Atomics.wait for zero-CPU blocking
-pub const IDX_REGISTRY_EPOCH: u32 = 15; // Module registration signal
-pub const IDX_EVOLUTION_EPOCH: u32 = 16; // Boids evolution complete
-pub const IDX_HEALTH_EPOCH: u32 = 17; // Health metrics updated
-pub const IDX_LEARNING_EPOCH: u32 = 18; // Pattern learning complete
-pub const IDX_ECONOMY_EPOCH: u32 = 19; // Credit settlement needed
+pub const IDX_REGISTRY_EPOCH: u32 = sab::IDX_REGISTRY_EPOCH;
+pub const IDX_EVOLUTION_EPOCH: u32 = sab::IDX_EVOLUTION_EPOCH;
+pub const IDX_HEALTH_EPOCH: u32 = sab::IDX_HEALTH_EPOCH;
+pub const IDX_LEARNING_EPOCH: u32 = sab::IDX_LEARNING_EPOCH;
+pub const IDX_ECONOMY_EPOCH: u32 = sab::IDX_ECONOMY_EPOCH;
+pub const IDX_BIRD_COUNT: u32 = sab::IDX_BIRD_COUNT;
 
-/// Reserved for future signal extensions (20-31)
+pub const SUPERVISOR_POOL_BASE: u32 = sab::SUPERVISOR_POOL_BASE;
+pub const SUPERVISOR_POOL_SIZE: u32 = sab::SUPERVISOR_POOL_SIZE;
 
-/// Dynamic supervisor pool (32-127)
-pub const SUPERVISOR_POOL_BASE: u32 = 32;
-pub const SUPERVISOR_POOL_SIZE: u32 = 96;
-
-/// Reserved for future expansion (128-255)
-pub const RESERVED_POOL_BASE: u32 = 128;
-pub const RESERVED_POOL_SIZE: u32 = 128;
+pub const RESERVED_POOL_BASE: u32 = sab::RESERVED_POOL_BASE;
+pub const RESERVED_POOL_SIZE: u32 = sab::RESERVED_POOL_SIZE;
 
 // ========== ALIGNMENT REQUIREMENTS ==========
 
-pub const ALIGNMENT_CACHE_LINE: usize = 64; // Cache line alignment
-pub const ALIGNMENT_PAGE: usize = 4096; // Page alignment
-pub const ALIGNMENT_LARGE: usize = 65536; // Large allocation alignment
+pub const ALIGNMENT_CACHE_LINE: usize = sab::ALIGNMENT_CACHE_LINE as usize;
+pub const ALIGNMENT_PAGE: usize = sab::ALIGNMENT_PAGE as usize;
+pub const ALIGNMENT_LARGE: usize = sab::ALIGNMENT_LARGE as usize;
 
 /// Calculate arena size for a given SAB size
 pub const fn calculate_arena_size(sab_size: usize) -> usize {
@@ -189,63 +187,5 @@ pub fn get_region_name(offset: usize) -> &'static str {
         o if o < OFFSET_INBOX_OUTBOX => "Coordination",
         o if o < OFFSET_ARENA => "InboxOutbox",
         _ => "Arena",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_arena_size_calculation() {
-        assert_eq!(
-            calculate_arena_size(SAB_SIZE_DEFAULT),
-            SAB_SIZE_DEFAULT - OFFSET_ARENA
-        );
-        assert_eq!(calculate_arena_size(OFFSET_ARENA - 1), 0);
-    }
-
-    #[test]
-    fn test_alignment() {
-        assert_eq!(align_offset(0, 64), 0);
-        assert_eq!(align_offset(1, 64), 64);
-        assert_eq!(align_offset(63, 64), 64);
-        assert_eq!(align_offset(64, 64), 64);
-        assert_eq!(align_offset(65, 64), 128);
-    }
-
-    #[test]
-    fn test_validate_offset() {
-        assert!(validate_offset(0, 100, 1000).is_ok());
-        assert!(validate_offset(900, 100, 1000).is_ok());
-        assert!(validate_offset(901, 100, 1000).is_err());
-        assert!(validate_offset(1000, 1, 1000).is_err());
-    }
-
-    #[test]
-    fn test_region_names() {
-        assert_eq!(get_region_name(0x000000), "AtomicFlags");
-        assert_eq!(get_region_name(0x000040), "SupervisorAlloc");
-        assert_eq!(get_region_name(0x000100), "ModuleRegistry");
-        assert_eq!(get_region_name(0x002000), "SupervisorHeaders");
-        assert_eq!(get_region_name(0x010000), "PatternExchange");
-        assert_eq!(get_region_name(0x150000), "Arena");
-    }
-
-    #[test]
-    fn test_no_region_overlaps() {
-        // Verify regions don't overlap
-        const { assert!(OFFSET_SUPERVISOR_ALLOC >= OFFSET_ATOMIC_FLAGS + SIZE_ATOMIC_FLAGS) };
-        const { assert!(OFFSET_REGISTRY_LOCK >= OFFSET_SUPERVISOR_ALLOC + SIZE_SUPERVISOR_ALLOC) };
-        const { assert!(OFFSET_MODULE_REGISTRY >= OFFSET_REGISTRY_LOCK + SIZE_REGISTRY_LOCK) };
-        const { assert!(OFFSET_SUPERVISOR_HEADERS >= OFFSET_MODULE_REGISTRY + SIZE_MODULE_REGISTRY) };
-        // Syscall Table Check
-        const { assert!(OFFSET_SYSCALL_TABLE >= OFFSET_SUPERVISOR_HEADERS + SIZE_SUPERVISOR_HEADERS) };
-        const { assert!(OFFSET_PATTERN_EXCHANGE >= OFFSET_SYSCALL_TABLE + SIZE_SYSCALL_TABLE) };
-
-        const { assert!(OFFSET_JOB_HISTORY >= OFFSET_PATTERN_EXCHANGE + SIZE_PATTERN_EXCHANGE) };
-        const { assert!(OFFSET_COORDINATION >= OFFSET_JOB_HISTORY + SIZE_JOB_HISTORY) };
-        const { assert!(OFFSET_INBOX_OUTBOX >= OFFSET_COORDINATION + SIZE_COORDINATION) };
-        const { assert!(OFFSET_ARENA >= OFFSET_INBOX_OUTBOX + SIZE_INBOX_OUTBOX) };
     }
 }

@@ -6,12 +6,15 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 // EnhancedEpoch provides wait-free notification for epoch changes
 type EnhancedEpoch struct {
 	index     uint8
-	sab       []byte
+	sabPtr    unsafe.Pointer
+	sabSize   uint32
 	lastValue uint32
 
 	// Notification channels for waiters
@@ -32,15 +35,16 @@ type EpochStats struct {
 }
 
 // NewEnhancedEpoch creates a new enhanced epoch
-func NewEnhancedEpoch(sab []byte, index uint8) *EnhancedEpoch {
-	offset := uint32(index) * 4
-	lastValue := atomic.LoadUint32((*uint32)(unsafe.Pointer(&sab[offset])))
+func NewEnhancedEpoch(sabPtr unsafe.Pointer, sabSize uint32, index uint8) *EnhancedEpoch {
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + uint32(index)*4
+	lastValue := atomic.LoadUint32((*uint32)(unsafe.Add(sabPtr, offset)))
 
 	waiters := make([]chan struct{}, 0, 8)
 
 	return &EnhancedEpoch{
 		index:     index,
-		sab:       sab,
+		sabPtr:    sabPtr,
+		sabSize:   sabSize,
 		lastValue: lastValue,
 		waiters:   &waiters,
 		waitersMu: &sync.RWMutex{},
@@ -50,12 +54,13 @@ func NewEnhancedEpoch(sab []byte, index uint8) *EnhancedEpoch {
 
 // Reader creates a new reader instance sharing the signaling mechanism
 func (ee *EnhancedEpoch) Reader() *EnhancedEpoch {
-	offset := uint32(ee.index) * 4
-	lastValue := atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + uint32(ee.index)*4
+	lastValue := atomic.LoadUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)))
 
 	return &EnhancedEpoch{
 		index:     ee.index,
-		sab:       ee.sab,
+		sabPtr:    ee.sabPtr,
+		sabSize:   ee.sabSize,
 		lastValue: lastValue,
 		waiters:   ee.waiters,
 		waitersMu: ee.waitersMu,
@@ -65,11 +70,11 @@ func (ee *EnhancedEpoch) Reader() *EnhancedEpoch {
 
 // WaitForChange waits for epoch change with <1µs latency
 func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
-	offset := uint32(ee.index) * 4
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + uint32(ee.index)*4
 	start := time.Now()
 
 	// Fast path
-	current := atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+	current := atomic.LoadUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)))
 	if current != ee.lastValue {
 		ee.lastValue = current
 		atomic.AddUint64(&ee.stats.Wakes, 1)
@@ -80,7 +85,7 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
 	spinDeadline := start.Add(time.Microsecond)
 	for time.Now().Before(spinDeadline) {
 		runtime.Gosched()
-		current := atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+		current := atomic.LoadUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)))
 		if current != ee.lastValue {
 			ee.lastValue = current
 			atomic.AddUint64(&ee.stats.Wakes, 1)
@@ -95,7 +100,7 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
 
 	select {
 	case <-ch:
-		ee.lastValue = atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+		ee.lastValue = atomic.LoadUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)))
 		atomic.AddUint64(&ee.stats.Wakes, 1)
 		return true, nil
 	case <-time.After(timeout):
@@ -105,15 +110,15 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
 
 // Increment increments the epoch
 func (ee *EnhancedEpoch) Increment() {
-	offset := uint32(ee.index) * 4
-	atomic.AddUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])), 1)
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + uint32(ee.index)*4
+	atomic.AddUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)), 1)
 	atomic.AddUint64(&ee.stats.Increments, 1)
 	go ee.notifyWaiters()
 }
 
 func (ee *EnhancedEpoch) GetValue() uint32 {
-	offset := uint32(ee.index) * 4
-	return atomic.LoadUint32((*uint32)(unsafe.Pointer(&ee.sab[offset])))
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + uint32(ee.index)*4
+	return atomic.LoadUint32((*uint32)(unsafe.Add(ee.sabPtr, offset)))
 }
 
 func (ee *EnhancedEpoch) addWaiter(ch chan struct{}) {

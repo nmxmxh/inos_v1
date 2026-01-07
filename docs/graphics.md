@@ -34,7 +34,7 @@ To eliminate polling overhead entirely:
 └────────────────────────────────────────────────────┘
 ```
 
-**Key Epoch Indices (from `layout.rs`):**
+**Key Epoch Indices (from `protocols/schemas/system/v1/sab_layout.capnp`):**
 | Index | Name | Purpose |
 |-------|------|---------|
 | 12 | `IDX_BIRD_EPOCH` | Bird physics complete |
@@ -66,13 +66,13 @@ To prevent read/write conflicts between layers:
 └─────────────────────────────────────────────────────┘
 ```
 
-**Buffer Layout (from `layout.rs`):**
+**Buffer Layout (Absolute Addressing):**
 | Buffer | Offset | Size | Purpose |
 |--------|--------|------|---------|
-| Bird A | `0x162000` | 2.36MB | Population state (10k × 236B) |
-| Bird B | `0x3C2000` | 2.36MB | Population state |
-| Matrix A | `0x622000` | 5.12MB | Instance matrices (10k × 8 × 64B) |
-| Matrix B | `0xB22000` | 5.12MB | Instance matrices |
+| Bird A | `0x01162000` | 2.36MB | Population state (10k × 236B) |
+| Bird B | `0x013C2000` | 2.36MB | Population state |
+| Matrix A | `0x01622000` | 5.12MB | Instance matrices (10k × 8 × 64B) |
+| Matrix B | `0x01B22000` | 5.12MB | Instance matrices |
 
 ### 4. Persistent Scratch Buffers (Zero Allocation)
 To prevent GC pressure and frame stutters:
@@ -141,7 +141,7 @@ useFrame(() => {
   dispatch.execute('math', 'compute_instance_matrices', { count: 1000 });
   
   // Just copy – no computation
-  const matrixBase = (matrixEpoch % 2 === 0) ? 0x622000 : 0xB22000;
+  const matrixBase = (matrixEpoch % 2 === 0) ? CONSTS.OFFSET_MATRIX_BUFFER_A : CONSTS.OFFSET_MATRIX_BUFFER_B;
   const sabView = new Float32Array(sab, matrixBase, 1000 * 16);
   bodiesRef.current.instanceMatrix.array.set(sabView);
   bodiesRef.current.instanceMatrix.needsUpdate = true;

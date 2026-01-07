@@ -123,9 +123,15 @@ export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise
     let sabOffset = 0;
     let sabSize = sabBase.byteLength;
 
+    // Only overwrite if Kernel provides NON-ZERO values (meaning it's already initialized)
+    // During boot, we MUST use the full buffer length.
     if (window.getSystemSABAddress && window.getSystemSABSize) {
-      sabOffset = window.getSystemSABAddress();
-      sabSize = window.getSystemSABSize();
+      const kAddr = window.getSystemSABAddress();
+      const kSize = window.getSystemSABSize();
+      if (kSize > 0) {
+        sabOffset = kAddr;
+        sabSize = kSize;
+      }
     }
 
     window.__INOS_MEM__ = sharedMemory;

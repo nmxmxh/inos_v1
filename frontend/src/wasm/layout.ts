@@ -39,12 +39,15 @@ export const SAB_SIZE = {
   dedicated: SAB_SIZE_DEDICATED,
 } as const;
 
-/** Memory pages (64KB each) for WebAssembly.Memory */
+/** Memory pages (64KB each) for WebAssembly.Memory
+ * Sizes include 16MB Go Reservation Zone + SAB data area
+ * Light: 48MB (16+32), Moderate: 80MB (16+64), Heavy: 144MB (16+128), Dedicated: 272MB (16+256)
+ */
 export const MEMORY_PAGES = {
-  light: { initial: 512, maximum: 1024 }, // 32-64MB
-  moderate: { initial: 1024, maximum: 2048 }, // 64-128MB
-  heavy: { initial: 2048, maximum: 4096 }, // 128-256MB
-  dedicated: { initial: 4096, maximum: 16384 }, // 256MB-1GB
+  light: { initial: 768, maximum: 1024 }, // 48-64MB
+  moderate: { initial: 1280, maximum: 2048 }, // 80-128MB
+  heavy: { initial: 2304, maximum: 4096 }, // 144-256MB
+  dedicated: { initial: 4352, maximum: 16384 }, // 272MB-1GB
 } as const;
 
 // ========== TIER-AWARE HELPERS ==========

@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 )
@@ -27,6 +29,19 @@ func (m *MockSABBridge) ReadRaw(offset, size uint32) ([]byte, error) {
 	return make([]byte, size), nil
 }
 
+func (m *MockSABBridge) ReadAt(offset uint32, dest []byte) error {
+	size := uint32(len(dest))
+	if data, ok := m.data[offset]; ok && uint32(len(data)) >= size {
+		copy(dest, data[:size])
+		return nil
+	}
+	// Zero out if not found (or partial)
+	for i := range dest {
+		dest[i] = 0
+	}
+	return nil
+}
+
 func (m *MockSABBridge) WriteRaw(offset uint32, data []byte) error {
 	m.data[offset] = make([]byte, len(data))
 	copy(m.data[offset], data)
@@ -37,12 +52,18 @@ func (m *MockSABBridge) SignalInbox() {
 	// No-op
 }
 
+func (m *MockSABBridge) IsReady() bool {
+	return true // Always ready in tests
+}
+
 func TestNewBoidsSupervisor(t *testing.T) {
 	bridge := NewMockSABBridge()
 	// Create dummy SAB for patterns/knowledge
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -57,9 +78,11 @@ func TestNewBoidsSupervisor(t *testing.T) {
 
 func TestSetBirdCount(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -78,9 +101,11 @@ func TestSetBirdCount(t *testing.T) {
 
 func TestSetMeshNodes(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -97,9 +122,11 @@ func TestSetMeshNodes(t *testing.T) {
 
 func TestTournamentSelect(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -125,9 +152,11 @@ func TestTournamentSelect(t *testing.T) {
 
 func TestCrossover(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -161,9 +190,11 @@ func TestCrossover(t *testing.T) {
 
 func TestMutate(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -222,9 +253,11 @@ func TestSortByFitness(t *testing.T) {
 
 func TestSignalEpoch(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 
@@ -249,9 +282,11 @@ func TestSignalEpoch(t *testing.T) {
 
 func TestMeshLearningBoost(t *testing.T) {
 	bridge := NewMockSABBridge()
-	dummySAB := make([]byte, 1024)
-	patterns := pattern.NewTieredPatternStorage(dummySAB, 0, 1024)
-	knowledge := intelligence.NewKnowledgeGraph(dummySAB, 0, 1024)
+	sabSize := uint32(1024)
+	dummySAB := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&dummySAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
 	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
 

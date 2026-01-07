@@ -24,7 +24,8 @@ const (
 
 // TieredPatternStorage manages patterns across multiple storage tiers
 type TieredPatternStorage struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 
 	// Storage tiers
@@ -49,7 +50,8 @@ type TieredPatternStorage struct {
 
 // HotPatternCache stores frequently accessed patterns in SAB
 type HotPatternCache struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 	capacity   uint32 // 1024 patterns
 	entries    []PatternEntry
@@ -146,12 +148,14 @@ type StorageStats struct {
 }
 
 // NewTieredPatternStorage creates a new tiered pattern storage
-func NewTieredPatternStorage(sab []byte, baseOffset, capacity uint32) *TieredPatternStorage {
+func NewTieredPatternStorage(sabPtr unsafe.Pointer, sabSize, baseOffset, capacity uint32) *TieredPatternStorage {
 	return &TieredPatternStorage{
-		sab:        sab,
+		sabPtr:     sabPtr,
+		sabSize:    sabSize,
 		baseOffset: baseOffset,
 		tier1: &HotPatternCache{
-			sab:        sab,
+			sabPtr:     sabPtr,
+			sabSize:    sabSize,
 			baseOffset: baseOffset,
 			capacity:   1024,
 			entries:    make([]PatternEntry, 1024),
@@ -373,7 +377,8 @@ func (hpc *HotPatternCache) Write(pattern *EnhancedPattern) error {
 		if err == nil {
 			dataPtr = ptr
 			// Write payload to Arena (Zero-copy)
-			dest := hpc.sab[dataPtr : dataPtr+payloadSize]
+			destPtr := unsafe.Add(hpc.sabPtr, dataPtr)
+			dest := unsafe.Slice((*byte)(destPtr), payloadSize)
 			copy(dest, pattern.Body.Data.Payload)
 		}
 	}
@@ -398,9 +403,11 @@ func (hpc *HotPatternCache) Write(pattern *EnhancedPattern) error {
 // allocateArena implements a simple atomic bump allocator for the SAB Arena
 func (hpc *HotPatternCache) allocateArena(size uint32) (uint32, error) {
 	// IDX_ARENA_ALLOCATOR = 8 (Index in Atomic Flags)
-	// BaseOffset 0 + (8 * 4) = 32
-	// We use the first byte as pointer source
-	ptr := (*uint32)(unsafe.Pointer(&hpc.sab[32]))
+	// Atomic Flags start at OFFSET_ATOMIC_FLAGS (0x01000000)
+	// 0x01000000 + (8 * 4) = 0x01000020
+	atomicOffset := sab_layout.OFFSET_ATOMIC_FLAGS + (sab_layout.IDX_ARENA_ALLOCATOR * 4)
+	atomicPtr := unsafe.Add(hpc.sabPtr, atomicOffset)
+	ptr := (*uint32)(atomicPtr)
 
 	// Atomic add to get current bump pointer
 	relativeOffset := atomic.AddUint32(ptr, size) - size
@@ -409,7 +416,7 @@ func (hpc *HotPatternCache) allocateArena(size uint32) (uint32, error) {
 	absOffset := sab_layout.OFFSET_ARENA + relativeOffset
 
 	// Boundary check
-	if absOffset+size > uint32(len(hpc.sab)) {
+	if absOffset+size > hpc.sabSize {
 		// Rollback on failure (best effort)
 		atomic.AddUint32(ptr, -size)
 		return 0, fmt.Errorf("arena overflow")
@@ -434,8 +441,10 @@ func (hpc *HotPatternCache) SyncFromSAB(bloom *BloomFilter) error {
 		// Check if we already have this pattern ID
 		_, exists := hpc.accessMap[header.ID]
 		if !exists {
-			// Read DataPtr (last 4 bytes of 64B slot)
-			dataPtr := binary.LittleEndian.Uint32(hpc.sab[hpc.baseOffset+(slot*64)+60 : hpc.baseOffset+(slot*64)+64])
+			// Read DataPtr (last 4 bytes of 64B slot) at OFFSET_PATTERN_EXCHANGE + (slot*64) + 60
+			entryOffset := hpc.baseOffset + (slot * 64)
+			ptr := unsafe.Add(hpc.sabPtr, entryOffset+60)
+			dataPtr := binary.LittleEndian.Uint32(unsafe.Slice((*byte)(ptr), 4))
 
 			// New pattern discovered from Rust!
 			// Import it into our local cache
@@ -460,11 +469,12 @@ func (hpc *HotPatternCache) SyncFromSAB(bloom *BloomFilter) error {
 // Helper: Serialize header to SAB
 func (hpc *HotPatternCache) writeToSAB(slot uint32, header PatternHeader, dataPtr uint32, payloadSize uint16) {
 	offset := hpc.baseOffset + (slot * 64) // 64 byte entries
-	if offset+64 > uint32(len(hpc.sab)) {
+	if offset+64 > hpc.sabSize {
 		return // Guard against overflow
 	}
 
-	data := hpc.sab[offset : offset+64]
+	ptr := unsafe.Add(hpc.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), 64)
 
 	binary.LittleEndian.PutUint64(data[0:8], header.Magic)
 	binary.LittleEndian.PutUint64(data[8:16], header.ID)
@@ -490,11 +500,12 @@ func (hpc *HotPatternCache) writeToSAB(slot uint32, header PatternHeader, dataPt
 // Helper: Deserialize header from SAB
 func (hpc *HotPatternCache) readFromSAB(slot uint32) *PatternHeader {
 	offset := hpc.baseOffset + (slot * 64)
-	if offset+64 > uint32(len(hpc.sab)) {
+	if offset+64 > hpc.sabSize {
 		return nil
 	}
 
-	data := hpc.sab[offset : offset+64]
+	ptr := unsafe.Add(hpc.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), 64)
 	header := &PatternHeader{}
 
 	header.Magic = binary.LittleEndian.Uint64(data[0:8])
@@ -539,27 +550,24 @@ func (hpc *HotPatternCache) Read(id uint64) (*EnhancedPattern, error) {
 	// Read Payload if DataPtr is set
 	if entry.DataPtr > 0 {
 		// Read size from SAB slot (bytes 56-58 contain the size)
-		size := binary.LittleEndian.Uint16(hpc.sab[hpc.baseOffset+(slot*64)+56 : hpc.baseOffset+(slot*64)+58])
-		if size > 0 {
+		entryOffset := hpc.baseOffset + (slot * 64)
+		ptr := unsafe.Add(hpc.sabPtr, entryOffset+56)
+		// Actually let's use a better way to read uint16
+		sizeBytes := unsafe.Slice((*byte)(ptr), 2)
+		valSize := binary.LittleEndian.Uint16(sizeBytes)
+
+		if valSize > 0 {
 			// Read payload from arena using DataPtr
-			payload := make([]byte, size)
-			copy(payload, hpc.sab[entry.DataPtr:entry.DataPtr+uint32(size)])
+			payload := make([]byte, valSize)
+			ptrData := unsafe.Add(hpc.sabPtr, entry.DataPtr)
+			src := unsafe.Slice((*byte)(ptrData), valSize)
+			copy(payload, src)
 			pattern.Body.Data.Payload = payload
-			pattern.Body.Data.Size = size
+			pattern.Body.Data.Size = valSize
 		}
 	}
 
 	return pattern, nil
-}
-
-// readArena reads raw bytes from the SAB Arena
-func (hpc *HotPatternCache) readArena(offset, size uint32) ([]byte, error) {
-	if offset < sab_layout.OFFSET_ARENA || offset+size > uint32(len(hpc.sab)) {
-		return nil, fmt.Errorf("invalid arena access")
-	}
-	data := make([]byte, size)
-	copy(data, hpc.sab[offset:offset+size])
-	return data, nil
 }
 
 func (hpc *HotPatternCache) evictLRU() error {

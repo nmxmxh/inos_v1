@@ -3,7 +3,6 @@ package threads
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sync"
 	"time"
 	"unsafe"
@@ -150,34 +149,58 @@ func (s *Supervisor) Start() {
 	s.logger.Info("Supervisor hierarchy started")
 }
 
+// GetSABPointer returns the base address of the SharedArrayBuffer
+func (s *Supervisor) GetSABPointer() unsafe.Pointer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.sab
+}
+
 // InitializeCompute initializes the compute units with the provided SAB
 func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.mu.Lock()
+
+	// Guard: Don't initialize twice
+	if s.units != nil {
+		s.mu.Unlock()
+		return nil
+	}
 
 	// Update SAB info
 	s.sab = sab
 	s.sabSize = size
 
-	// Initialize shared components
-	var sabSlice []byte
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&sabSlice))
-	header.Data = uintptr(s.sab)
-	header.Len = int(size)
-	header.Cap = int(size)
+	// Registry
+	s.logger.Info("Creating ModuleRegistry", utils.Uint64("sab_addr", uint64(uintptr(s.sab))), utils.Uint64("size", uint64(s.sabSize)))
+	s.registry = registry.NewModuleRegistry(s.sab, s.sabSize)
+	s.logger.Info("Initializing registry region",
+		utils.Uint64("offset", uint64(sab_layout.OFFSET_MODULE_REGISTRY)),
+		utils.Int("size", int(sab_layout.SIZE_MODULE_REGISTRY)))
 
-	s.patterns = pattern.NewTieredPatternStorage(sabSlice, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
-	s.knowledge = intelligence.NewKnowledgeGraph(sabSlice, sab_layout.OFFSET_COORDINATION, sab_layout.SIZE_COORDINATION)
-	s.registry = registry.NewModuleRegistry(sabSlice)
+	// Patterns
+	s.logger.Info("Creating TieredPatternStorage")
+	s.patterns = pattern.NewTieredPatternStorage(s.sab, s.sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
+
+	// Knowledge
+	s.logger.Info("Creating KnowledgeGraph")
+	s.knowledge = intelligence.NewKnowledgeGraph(s.sab, s.sabSize, sab_layout.OFFSET_COORDINATION, sab_layout.SIZE_COORDINATION)
 
 	// Load modules from registry
+	s.logger.Info("Loading modules from SAB...")
 	if err := s.registry.LoadFromSAB(); err != nil {
 		s.logger.Warn("Failed to load module registry from SAB", utils.Err(err))
 	}
+	s.logger.Info("Registry loaded")
 
 	// Initialize Core System Supervisors
-	s.credits = supervisor.NewCreditSupervisor(sabSlice, sab_layout.OFFSET_ECONOMICS)
-	s.identity = supervisor.NewIdentitySupervisor(sabSlice)
-	s.social = supervisor.NewSocialGraphSupervisor(sabSlice)
+	s.credits = supervisor.NewCreditSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_ECONOMICS))
+	s.identity = supervisor.NewIdentitySupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_IDENTITY_REGISTRY))
+	s.social = supervisor.NewSocialGraphSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_SOCIAL_GRAPH))
+
+	s.logger.Info("Core regions established",
+		utils.Uint64("identity_offset", uint64(sab_layout.OFFSET_IDENTITY_REGISTRY)),
+		utils.Uint64("social_offset", uint64(sab_layout.OFFSET_SOCIAL_GRAPH)),
+		utils.Uint64("economics_offset", uint64(sab_layout.OFFSET_ECONOMICS)))
 
 	// Register Core System DIDs
 	if _, err := s.identity.RegisterDID("did:inos:nmxmxh", nil); err != nil {
@@ -504,8 +527,8 @@ func (s *Supervisor) GetSAB() []byte {
 		return nil
 	}
 
-	// Convert unsafe.Pointer to []byte slice
-	return (*[1 << 30]byte)(s.sab)[:s.sabSize:s.sabSize]
+	// Convert unsafe.Pointer to []byte slice safely
+	return unsafe.Slice((*byte)(s.sab), s.sabSize)
 }
 
 // runMatchmaker runs the matchmaker thread

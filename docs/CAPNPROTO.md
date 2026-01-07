@@ -438,17 +438,17 @@ Use `wasm-opt` to strip debug info:
 
 INOS operates as a single, distributed computer. The `SharedArrayBuffer` is the primary linear memory for each "Cell" (Node). We use Cap'n Proto as a lens to view specific regions of this memory.
 
-| Region | Offset | Size | Structure | Purpose |
+| Region | Offset (Abs) | Size | Structure | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **Control Flags** | 0x000000 | 64B | `AtomicFlags` | Core system epochs, bus signals, and sync flags. |
-| **Supervisor Alloc**| 0x000040 | 176B | `AllocTable` | Static allocation map for major supervisors. |
-| **Registry** | 0x000100 | 6KB | `ModuleRegistry` | Live directory of module capabilities and offsets. |
-| **Headers** | 0x002000 | 4KB | `SupHeaders` | Heartbeats, health pulses, and transient state. |
-| **Syscall** | 0x003000 | 4KB | `SyscallTable` | Metadata for in-flight cross-module calls. |
-| **Pattern** | 0x010000 | 64KB | `PatternMap` | Cache for protocol exchange (Cap'n Proto IDs). |
-| **History** | 0x020000 | 128KB | `JobHistory` | Circular buffer of completed job IDs and results. |
-| **In/Outbox** | 0x050000 | 1MB | `RingBuffer` | 512KB Inbox + 512KB Outbox for bulk job data. |
-| **Arena** | 0x150000 | 15MB+ | `DynamicHeap` | High-frequency IO, Ping-Pong buffers, and large data. |
+| **Control Flags** | 0x01000000 | 128B | `AtomicFlags` | Core system epochs, bus signals, and sync flags. |
+| **Supervisor Alloc**| 0x01000080 | 176B | `AllocTable` | Static allocation map for major supervisors. |
+| **Registry** | 0x01000140 | 6KB | `ModuleRegistry` | Live directory of module capabilities and offsets. |
+| **Headers** | 0x01002000 | 4KB | `SupHeaders` | Heartbeats, health pulses, and transient state. |
+| **Syscall** | 0x01003000 | 4KB | `SyscallTable` | Metadata for in-flight cross-module calls. |
+| **Pattern** | 0x01010000 | 64KB | `PatternMap` | Cache for protocol exchange (Cap'n Proto IDs). |
+| **History** | 0x01020000 | 128KB | `JobHistory` | Circular buffer of completed job IDs and results. |
+| **In/Outbox** | 0x01050000 | 1MB | `RingBuffer` | 512KB Inbox + 512KB Outbox for bulk job data. |
+| **Arena** | 0x01150000 | 31MB+ | `DynamicHeap` | High-frequency IO, Ping-Pong buffers, and large data. |
 
 ### The "Universal Ring" Pattern
 All data follows a circular flow:

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/optimization"
@@ -13,7 +14,8 @@ import (
 
 // UnifiedIntelligenceCoordinator orchestrates all intelligence engines
 type UnifiedIntelligenceCoordinator struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 
 	// Core engines (will be implemented in subsequent files)
@@ -52,16 +54,18 @@ type CoordinatorStats struct {
 
 // NewUnifiedIntelligenceCoordinator creates a new intelligence coordinator
 func NewUnifiedIntelligenceCoordinator(
-	sab []byte,
+	sabPtr unsafe.Pointer,
+	sabSize uint32,
 	baseOffset uint32,
 	epoch *foundation.EnhancedEpoch,
 	messageQueue *foundation.MessageQueue,
 	patterns *pattern.TieredPatternStorage,
 ) *UnifiedIntelligenceCoordinator {
 	uic := &UnifiedIntelligenceCoordinator{
-		sab:          sab,
+		sabPtr:       sabPtr,
+		sabSize:      sabSize,
 		baseOffset:   baseOffset,
-		knowledge:    NewKnowledgeGraph(sab, baseOffset, 1024),
+		knowledge:    NewKnowledgeGraph(sabPtr, sabSize, baseOffset, 1024),
 		feedback:     NewFeedbackLoopManager(),
 		epoch:        epoch,
 		messageQueue: messageQueue,

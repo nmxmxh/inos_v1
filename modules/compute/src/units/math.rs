@@ -919,7 +919,7 @@ mod tests {
         let sab_inner = sdk::sab::SafeSAB::with_size(sab_size);
         crate::set_cached_sab(sab_inner.clone());
 
-        const BYTES_PER_BIRD: usize = 232;
+        const BYTES_PER_BIRD: usize = 236; // MUST match sdk::layout::BIRD_STRIDE
         let count = 2;
         let source_offset = 0x400000;
         let target_offset = 0x500000;

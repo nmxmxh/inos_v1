@@ -7,17 +7,20 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/stretchr/testify/assert"
 )
 
 // TestEpoch_Persistence verifies that epoch state is preserved in SAB
 // and can be recovered by a new EnhancedEpoch instance shared on the same memory.
 func TestEpoch_Persistence(t *testing.T) {
-	sab := make([]byte, 1024)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
 
 	// Phase 1: Initialize and Increment
 	{
-		epoch1 := NewEnhancedEpoch(sab, 0)
+		epoch1 := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 		epoch1.Increment()
 		epoch1.Increment()
 		assert.Equal(t, uint32(2), epoch1.GetValue())
@@ -29,7 +32,7 @@ func TestEpoch_Persistence(t *testing.T) {
 
 	// Phase 2: "Reboot" - New Instance
 	{
-		epoch2 := NewEnhancedEpoch(sab, 0)
+		epoch2 := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 		// Should read existing value 2
 		assert.Equal(t, uint32(2), epoch2.GetValue())
 		assert.Equal(t, uint32(2), epoch2.lastValue) // Should init lastValue from SAB
@@ -46,8 +49,9 @@ func TestEpoch_Persistence(t *testing.T) {
 
 // TestEpoch_HighContention stresses the epoch with concurrent readers and writers
 func TestEpoch_HighContention(t *testing.T) {
-	sab := make([]byte, 1024)
-	epoch := NewEnhancedEpoch(sab, 0)
+	sabSize := uint32(1024)
+	sab := make([]byte, sabSize)
+	epoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	// Configuration
 	writers := 5
@@ -96,7 +100,7 @@ func TestEpoch_HighContention(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			localEpoch := NewEnhancedEpoch(sab, 0) // Simulate separate components reading same SAB
+			localEpoch := NewEnhancedEpoch(unsafe.Pointer(&sab[0]), sabSize, 0) // Simulate separate components reading same SAB
 
 			for {
 				select {

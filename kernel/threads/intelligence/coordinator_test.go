@@ -3,6 +3,8 @@ package intelligence
 import (
 	"testing"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 	"github.com/stretchr/testify/assert"
@@ -10,12 +12,14 @@ import (
 )
 
 func createTestCoordinator() *UnifiedIntelligenceCoordinator {
-	sab := make([]byte, 1024*1024)
-	epoch := foundation.NewEnhancedEpoch(sab, 0)
-	mq := foundation.NewMessageQueue(sab, 256, 4)
-	patterns := pattern.NewTieredPatternStorage(sab, 1024, 100)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	epoch := foundation.NewEnhancedEpoch(sabPtr, sabSize, 0)
+	mq := foundation.NewMessageQueue(sabPtr, sabSize, 256, 4)
+	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 1024, 100)
 
-	return NewUnifiedIntelligenceCoordinator(sab, 0, epoch, mq, patterns)
+	return NewUnifiedIntelligenceCoordinator(sabPtr, sabSize, 0, epoch, mq, patterns)
 }
 
 func TestCoordinator_Initialization(t *testing.T) {

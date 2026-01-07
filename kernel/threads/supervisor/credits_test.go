@@ -6,17 +6,19 @@ import (
 	"math"
 	"testing"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCreditSupervisor_Basic(t *testing.T) {
-	sabSize := 1024 * 1024 // 1MB for test
+	sabSize := uint32(1024 * 1024) // 1MB for test
 	sab := make([]byte, sabSize)
 	baseOffset := uint32(1024)
 
-	cs := supervisor.NewCreditSupervisor(sab, baseOffset)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, baseOffset)
 	require.NotNil(t, cs)
 
 	// 1. Register Account
@@ -35,10 +37,10 @@ func TestCreditSupervisor_Basic(t *testing.T) {
 }
 
 func TestCreditSupervisor_OnEpoch(t *testing.T) {
-	sabSize := 1024 * 1024
+	sabSize := uint32(1024 * 1024)
 	sab := make([]byte, sabSize)
 	baseOffset := uint32(1024)
-	cs := supervisor.NewCreditSupervisor(sab, baseOffset)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, baseOffset)
 
 	// 1. Register Account
 	id := "user1"
@@ -46,8 +48,7 @@ func TestCreditSupervisor_OnEpoch(t *testing.T) {
 
 	// 2. Setup Metrics in SAB
 	// Metrics are at baseOffset + OFFSET_ECONOMICS_METRICS
-	// OFFSET_ECONOMICS_METRICS = 64 (Metadata) + (1024 * 128 (Accounts)) = 131136
-	metricsOffset := baseOffset + 64 + (1024 * 128)
+	metricsOffset := baseOffset + 8256 // 64 (Metadata) + (64 * 128 (Accounts))
 
 	// Write some usage metrics
 	binary.LittleEndian.PutUint64(sab[metricsOffset:metricsOffset+8], 1000)   // ComputeCyclesUsed
@@ -75,17 +76,18 @@ func TestCreditSupervisor_OnEpoch(t *testing.T) {
 
 func TestCreditSupervisor_Bounds(t *testing.T) {
 	sab := make([]byte, 100) // Too small
-	cs := supervisor.NewCreditSupervisor(sab, 0)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), 100, 0)
 
 	_, err := cs.RegisterAccount("test")
 	assert.Error(t, err)
 }
 
 func TestCreditSupervisor_MaxAccounts(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	cs := supervisor.NewCreditSupervisor(sab, 0)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, 0)
 
-	for i := 0; i < 1024; i++ {
+	for i := 0; i < 64; i++ {
 		_, err := cs.RegisterAccount(fmt.Sprintf("user%d", i))
 		require.NoError(t, err)
 	}
@@ -96,8 +98,9 @@ func TestCreditSupervisor_MaxAccounts(t *testing.T) {
 }
 
 func TestCreditSupervisor_Multipliers(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	cs := supervisor.NewCreditSupervisor(sab, 0)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	// Use writeAccount manually to set higher device count
 	offset, _ := cs.RegisterAccount("user1")
@@ -107,7 +110,7 @@ func TestCreditSupervisor_Multipliers(t *testing.T) {
 	binary.LittleEndian.PutUint16(data[36:38], 10) // 10 devices -> 1.01 multiplier
 
 	// Metrics
-	metricsOffset := uint32(64 + (1024 * 128))
+	metricsOffset := uint32(8256)
 	binary.LittleEndian.PutUint64(sab[metricsOffset:metricsOffset+8], 1000000) // 1M cycles
 
 	err := cs.OnEpoch(2)
@@ -120,8 +123,9 @@ func TestCreditSupervisor_Multipliers(t *testing.T) {
 }
 
 func TestCreditSupervisor_ProtocolFee(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	cs := supervisor.NewCreditSupervisor(sab, 0)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, 0)
 
 	// Register accounts
 	worker := "did:inos:worker"

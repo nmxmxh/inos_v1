@@ -4,17 +4,20 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCoordinator_Basic(t *testing.T) {
-	sab := make([]byte, 1024*1024)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
 
 	// Initialize MessageQueues
-	inbox := foundation.NewMessageQueue(sab, 1024, 256)
-	outbox := foundation.NewMessageQueue(sab, 2048, 256)
+	inbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 1024, 256)
+	outbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 2048, 256)
 
 	protocol := NewProtocol(sab, 1, outbox, inbox)
 	epoch := &foundation.EnhancedEpoch{}
@@ -97,9 +100,10 @@ func TestCoordinator_StatsUpdate(t *testing.T) {
 }
 
 func TestCoordinator_RouteMessage(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	inbox := foundation.NewMessageQueue(sab, 1024, 256)
-	outbox := foundation.NewMessageQueue(sab, 2048, 256)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	inbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 1024, 256)
+	outbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 2048, 256)
 	protocol := NewProtocol(sab, 1, outbox, inbox)
 	flow := NewFlowController(sab)
 

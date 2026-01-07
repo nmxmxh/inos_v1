@@ -110,12 +110,14 @@ A supervisor is NOT a simple router. It's an **intelligent manager** with six co
 
 ### Complete Memory Map (16MB Default, 4MB-64MB Configurable)
 
+The first 16MB (`0x00000000` - `0x01000000`) are reserved for the Go Kernel heap and binary. All INOS regions below use **absolute addresses** starting after this reservation.
+
 ```
-SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
+SharedArrayBuffer Layout v2.1 (Production-Grade with Dynamic Expansion):
 ┌─────────────────────────────────────────────────────────────────────┐
-│ METADATA REGION (0x000000 - 0x000100) - 256 bytes                  │
+│ METADATA REGION (0x01000000 - 0x01000100) - 256 bytes              │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Atomic Flags (0x000000 - 0x000040) - 64 bytes                      │
+│ Atomic Flags (0x01000000 - 0x01000080) - 128 bytes                 │
 │   • IDX_KERNEL_READY: 0        - Kernel initialization complete    │
 │   • IDX_INBOX_DIRTY: 1         - Legacy v1.8 (deprecated)          │
 │   • IDX_OUTBOX_DIRTY: 2        - Legacy v1.8 (deprecated)          │
@@ -124,30 +126,30 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 │   • IDX_ACTOR_EPOCH: 5         - Actor state changes               │
 │   • IDX_STORAGE_EPOCH: 6       - Storage operations                │
 │   • IDX_SYSTEM_EPOCH: 7        - System events                     │
-│   • Supervisor Pool (8-127)    - Dynamic supervisor epochs         │
+│   • Supervisor Pool (32-127)   - Dynamic supervisor pool epochs    │
 │   • Reserved (128-255)         - Future expansion                  │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Supervisor Allocation Table (0x000040 - 0x0000F0) - 176 bytes      │
+│ Supervisor Allocation Table (0x01000080 - 0x01000130) - 176 bytes    │
 │   • UsedBitmap[16]             - Bitmap of allocated epochs        │
 │   • NextIndex (4 bytes)        - Next available epoch hint         │
 │   • AllocatedCount (4 bytes)   - Number of allocated supervisors   │
 │   • Allocations (variable)     - Hash → Epoch index mapping        │
 │   Supports: ~110 supervisors dynamically allocated                 │
 │                                                                     │
-│ Registry Locking (0x0000F0 - 0x000100) - 16 bytes                  │
+│ Registry Locking (0x01000130 - 0x01000140) - 16 bytes              │
 │   • Mutex State (u32)          - Global registry write lock        │
 │   • Owner ID (u32)             - Supervisor holding lock           │
 │   • Timeout/Epoch (u64)        - Deadlock prevention               │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ MODULE REGISTRY (0x000100 - 0x001000) - 3.75KB                     │
+│ MODULE REGISTRY (0x01000140 - 0x01001940) - 6KB                    │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Compact Module Entries (64 bytes each)                             │
-│   • Inline Capacity: 60 modules                                    │
-│   • Total Capacity: 256 modules (overflow to arena)                │
+│ Compact Module Entries (96 bytes each)                             │
+│   • Inline Capacity: 64 modules                                    │
+│   • Total Capacity: 1024 modules (overflow to arena)               │
 │                                                                     │
-│ Entry Structure (64 bytes):                                        │
+│ Entry Structure (96 bytes):                                        │
 │   [0-3]   id_hash (CRC32)      - Module identifier hash            │
 │   [4-6]   version (major.minor.patch)                              │
 │   [7]     flags                - Capability/dependency flags       │
@@ -155,13 +157,13 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 │   [16-17] resource_flags       - CPU/GPU/Memory/IO intensive       │
 │   [18-22] cost_model           - Base, per-MB, per-second costs    │
 │   [23-34] dep_hash1/2/3        - Top 3 dependencies (CRC32)        │
-│   [35-63] reserved             - Future expansion                  │
+│   [35-95] reserved             - Future expansion                  │
 │                                                                     │
 │ Hash-based slot assignment with linear probing for collisions      │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ SUPERVISOR HEADERS (0x001000 - 0x002000) - 4KB                     │
+│ SUPERVISOR HEADERS (0x01002000 - 0x01003000) - 4KB                 │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Compact Supervisor Headers (128 bytes each)                        │
 │   • Inline Capacity: 32 supervisors                                │
@@ -169,7 +171,7 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 │                                                                     │
 │ Header Structure (128 bytes):                                      │
 │   [0-3]   supervisor_id        - CRC32 hash                        │
-│   [4]     epoch_index          - Allocated epoch (8-127)           │
+│   [4]     epoch_index          - Allocated epoch (32-127)          │
 │   [5]     status               - Starting/Healthy/Degraded/Zombie  │
 │   [6-7]   reserved             - Alignment                         │
 │   [8-15]  state_offset/size    - Dynamic state in arena            │
@@ -182,7 +184,7 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ PATTERN EXCHANGE (0x010000 - 0x020000) - 64KB                      │
+│ PATTERN EXCHANGE (0x01010000 - 0x01020000) - 64KB                  │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Learned Pattern Storage (64 bytes each)                            │
 │   • Inline Capacity: 1024 patterns                                 │
@@ -200,7 +202,7 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ JOB HISTORY (0x020000 - 0x040000) - 128KB                          │
+│ JOB HISTORY (0x01020000 - 0x01040000) - 128KB                      │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Circular Buffer for Job Execution History                          │
 │   [0-11]  Metadata (head, tail, count)                             │
@@ -211,7 +213,7 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ COORDINATION STATE (0x040000 - 0x050000) - 64KB                    │
+│ COORDINATION STATE (0x01040000 - 0x01050000) - 64KB                │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Cross-Unit Coordination State                                      │
 │   • Resource allocations                                           │
@@ -223,11 +225,11 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ INBOX/OUTBOX (0x050000 - 0x0D0000) - 1MB (512KB each)              │
+│ INBOX/OUTBOX (0x01050000 - 0x01150000) - 1MB (512KB each)            │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Ring Buffer Communication (High-Throughput, Lock-Free)             │
-│   • Inbox (0x050000 - 0x0D0000): Kernel → Module (JobRequest)      │
-│   • Outbox (0x0D0000 - 0x150000): Module → Kernel (JobResult)      │
+│   • Inbox (0x01050000 - 0x010D0000): Kernel → Module (JobRequest)    │
+│   • Outbox (0x010D0000 - 0x01150000): Module → Kernel (JobResult)    │
 │                                                                     │
 │ Ring Buffer Layout (Per Region):                                   │
 │   [0-3]   Head (u32)           - Consumer Index                    │
@@ -243,10 +245,10 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
-│ ARENA (0x0D0000 - end) - ~15MB (for 16MB SAB)                      │
+│ ARENA (0x01150000 - end) - ~31MB (for 48MB default SAB)            │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Dynamic Allocation Region (Buddy Allocator)                        │
-│   • Module registry overflow (60+ modules)                         │
+│   • Module registry overflow (64+ modules)                         │
 │   • Supervisor state overflow (32+ supervisors)                    │
 │   • Pattern storage overflow (1024+ patterns)                      │
 │   • Large job data buffers                                         │
@@ -319,8 +321,8 @@ SharedArrayBuffer Layout v2.0 (Production-Grade with Dynamic Expansion):
 - 3: PANIC_STATE
 - 4-7: System epochs (sensor, actor, storage, system)
 
-**Dynamic Supervisor Pool (8-127)**:
-- 120 available indices
+**Dynamic Supervisor Pool (32-127)**:
+- 96 available indices
 - Bitmap tracking in SAB (16 bytes)
 - Hash-based allocation (supervisorID → epoch index)
 - Automatic deallocation on supervisor shutdown
@@ -380,23 +382,25 @@ Modules register by writing to SAB metadata region:
 ```rust
 // modules/ml/src/lib.rs
 use sdk::sab::SafeSAB;
-
-const OFFSET_MODULE_REGISTRY: usize = 0x000100;  // After atomic flags
-const MODULE_ENTRY_SIZE: usize = 256;            // 256 bytes per module
+use sdk::layout::{OFFSET_MODULE_REGISTRY, MODULE_ENTRY_SIZE};
 
 #[repr(C, packed)]
 struct ModuleRegistryEntry {
-    id: [u8; 32],              // "ml\0\0..."
-    version: [u8; 16],         // "1.0.0\0..."
-    capabilities_offset: u32,  // Offset to capabilities in SAB
-    capabilities_count: u16,
-    dependencies_offset: u32,  // Offset to dependencies in SAB
-    dependencies_count: u16,
-    resource_profile: u8,      // Bitflags: cpu_intensive, gpu_intensive, etc.
-    cost_base: u32,            // Base cost in micro-credits
+    id_hash: u32,              // CRC32 hash of module name
+    version_major: u8,
+    version_minor: u8,
+    version_patch: u8,
+    flags: u8,
+    data_offset: u64,          // Arena offset for extended metadata
+    data_size: u64,
+    resource_flags: u16,
+    cost_base: u32,
     cost_per_mb: u32,
     cost_per_second: u32,
-    reserved: [u8; 176],       // Future expansion
+    dep_hash1: u32,
+    dep_hash2: u32,
+    dep_hash3: u32,
+    reserved: [u8; 61],        // Total 96 bytes
 }
 
 #[wasm_bindgen]
@@ -407,38 +411,12 @@ pub fn init_ml_module(sab: &SharedArrayBuffer) {
     let module_index = 0;  // ML is module 0
     let offset = OFFSET_MODULE_REGISTRY + (module_index * MODULE_ENTRY_SIZE);
     
-    // Create registry entry
-    let entry = ModuleRegistryEntry {
-        id: b"ml\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
-        version: b"1.0.0\0\0\0\0\0\0\0\0\0\0\0",
-        capabilities_offset: 0x002000,  // Capabilities stored here
-        capabilities_count: 2,
-        dependencies_offset: 0x003000,  // Dependencies stored here
-        dependencies_count: 2,          // ["gpu", "storage"]
-        resource_profile: 0b00001110,   // gpu_intensive | memory_intensive
-        cost_base: 1000,                // 0.001 credits
-        cost_per_mb: 100,
-        cost_per_second: 10000,
-        reserved: [0; 176],
-    };
-    
     // Write to SAB (ZERO-COPY)
-    let bytes = unsafe {
-        std::slice::from_raw_parts(
-            &entry as *const _ as *const u8,
-            std::mem::size_of::<ModuleRegistryEntry>()
-        )
-    };
-    safe_sab.write(offset, bytes).unwrap();
+    // ... logic to populate and write ModuleRegistryEntry ...
     
-    // Write capabilities
-    write_capabilities(&safe_sab, 0x002000, &[
-        Capability { id: b"inference", requires_gpu: true, min_memory_mb: 512 },
-        Capability { id: b"training", requires_gpu: true, min_memory_mb: 2048 },
-    ]);
-    
-    // Write dependencies
-    write_dependencies(&safe_sab, 0x003000, &[b"gpu", b"storage"]);
+    // Write capabilities to Arena
+    let cap_offset = 0x01150000; // Start of Arena
+    // ...
 }
 ```
 
@@ -452,9 +430,9 @@ type ComputeUnitRegistry struct {
 }
 
 func (r *ComputeUnitRegistry) LoadFromSAB() error {
-    const OffsetModuleRegistry = 0x000100
-    const ModuleEntrySize = 256
-    const MaxModules = 16
+    const OffsetModuleRegistry = 0x01000140
+    const ModuleEntrySize = 96
+    const MaxModules = 64
     
     for i := 0; i < MaxModules; i++ {
         offset := OffsetModuleRegistry + (i * ModuleEntrySize)
@@ -1434,14 +1412,14 @@ modules/
 **Goal**: Establish SAB memory layout and basic infrastructure
 
 **Tasks**:
-- [ ] Define complete SAB memory layout with offsets
-  - Module Registry: 0x000100 - 0x001000 (3.75KB, 15 modules @ 256 bytes)
-  - Supervisor State: 0x001000 - 0x010000 (60KB, 10 supervisors @ 6KB)
-  - Pattern Exchange: 0x010000 - 0x020000 (64KB)
-  - Job History: 0x020000 - 0x040000 (128KB)
-  - Coordination State: 0x040000 - 0x050000 (64KB)
-  - Inbox/Outbox: 0x050000 - 0x0D0000 (512KB)
-  - Arena: 0x0D0000 - end (~15MB)
+- [x] Define complete SAB memory layout with absolute offsets
+  - Module Registry: 0x01000140 - 0x01001940 (6KB, 64 modules @ 96 bytes)
+  - Supervisor State: 0x01002000 - 0x01003000 (4KB, 32 supervisors @ 128 bytes)
+  - Pattern Exchange: 0x01010000 - 0x01020000 (64KB)
+  - Job History: 0x01020000 - 0x01040000 (128KB)
+  - Coordination State: 0x01040000 - 0x01050000 (64KB)
+  - Inbox/Outbox: 0x01050000 - 0x01150000 (1MB)
+  - Arena: 0x01150000 - end (~31MB)
 - [ ] Create `ModuleRegistryEntry` struct in Rust (`modules/sdk/src/registry.rs`)
 - [ ] Implement SAB initialization in Go (`kernel/threads/sab_init.go`)
 - [ ] Test atomic operations and Epoch signaling

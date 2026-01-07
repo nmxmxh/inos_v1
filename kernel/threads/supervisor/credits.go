@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 )
@@ -14,8 +15,8 @@ const (
 	ECONOMICS_METADATA_SIZE = 64
 	ECONOMICS_ACCOUNT_SIZE  = 128 // Unified v1.9 (Account struct size)
 	ECONOMICS_METRICS_SIZE  = 64
-	ECONOMICS_MAX_ACCOUNTS  = 1024
-	ECONOMICS_MAX_METRICS   = 256
+	ECONOMICS_MAX_ACCOUNTS  = 64
+	ECONOMICS_MAX_METRICS   = 64
 )
 
 // Economics Offsets within the Economics region
@@ -27,7 +28,8 @@ const (
 
 // CreditSupervisor manages the economic state in SAB
 type CreditSupervisor struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 	capacity   uint32
 
@@ -40,9 +42,10 @@ type CreditSupervisor struct {
 }
 
 // NewCreditSupervisor creates a new credit supervisor managing SAB economics
-func NewCreditSupervisor(sabData []byte, baseOffset uint32) *CreditSupervisor {
+func NewCreditSupervisor(sabPtr unsafe.Pointer, sabSize, baseOffset uint32) *CreditSupervisor {
 	return &CreditSupervisor{
-		sab:        sabData,
+		sabPtr:     sabPtr,
+		sabSize:    sabSize,
 		baseOffset: baseOffset,
 		capacity:   ECONOMICS_MAX_ACCOUNTS,
 		accounts:   make(map[string]uint32),
@@ -200,11 +203,12 @@ func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
 // Internal Accessors
 
 func (cs *CreditSupervisor) readAccount(offset uint32) (*foundation.CreditAccount, error) {
-	if offset+ECONOMICS_ACCOUNT_SIZE > uint32(len(cs.sab)) {
+	if offset+ECONOMICS_ACCOUNT_SIZE > cs.sabSize {
 		return nil, fmt.Errorf("offset out of bounds")
 	}
 
-	data := cs.sab[offset : offset+ECONOMICS_ACCOUNT_SIZE]
+	ptr := unsafe.Add(cs.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), ECONOMICS_ACCOUNT_SIZE)
 	return &foundation.CreditAccount{
 		Balance:           int64(binary.LittleEndian.Uint64(data[0:8])),
 		EarnedTotal:       binary.LittleEndian.Uint64(data[8:16]),
@@ -226,11 +230,12 @@ func (cs *CreditSupervisor) readAccount(offset uint32) (*foundation.CreditAccoun
 }
 
 func (cs *CreditSupervisor) writeAccount(offset uint32, acc *foundation.CreditAccount) error {
-	if offset+ECONOMICS_ACCOUNT_SIZE > uint32(len(cs.sab)) {
+	if offset+ECONOMICS_ACCOUNT_SIZE > cs.sabSize {
 		return fmt.Errorf("offset out of bounds")
 	}
 
-	data := cs.sab[offset : offset+ECONOMICS_ACCOUNT_SIZE]
+	ptr := unsafe.Add(cs.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), ECONOMICS_ACCOUNT_SIZE)
 	binary.LittleEndian.PutUint64(data[0:8], uint64(acc.Balance))
 	binary.LittleEndian.PutUint64(data[8:16], acc.EarnedTotal)
 	binary.LittleEndian.PutUint64(data[16:24], acc.SpentTotal)
@@ -251,11 +256,12 @@ func (cs *CreditSupervisor) writeAccount(offset uint32, acc *foundation.CreditAc
 }
 
 func (cs *CreditSupervisor) readMetrics(offset uint32) (*foundation.ResourceMetrics, error) {
-	if offset+ECONOMICS_METRICS_SIZE > uint32(len(cs.sab)) {
+	if offset+ECONOMICS_METRICS_SIZE > cs.sabSize {
 		return nil, fmt.Errorf("offset out of bounds")
 	}
 
-	data := cs.sab[offset : offset+ECONOMICS_METRICS_SIZE]
+	ptr := unsafe.Add(cs.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), ECONOMICS_METRICS_SIZE)
 	return &foundation.ResourceMetrics{
 		ComputeCyclesUsed:   binary.LittleEndian.Uint64(data[0:8]),
 		BytesServed:         binary.LittleEndian.Uint64(data[8:16]),
@@ -270,7 +276,8 @@ func (cs *CreditSupervisor) readMetrics(offset uint32) (*foundation.ResourceMetr
 }
 
 func (cs *CreditSupervisor) resetMetrics(offset uint32) {
-	data := cs.sab[offset : offset+ECONOMICS_METRICS_SIZE]
+	ptr := unsafe.Add(cs.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), ECONOMICS_METRICS_SIZE)
 	for i := range data {
 		data[i] = 0
 	}

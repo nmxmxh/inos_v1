@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	// SAB layout constants - MUST MATCH RUST
-	FloatsPerBird = 58  // position(3) + velocity(3) + rotation(4) + padding... = 58 floats in Rust
-	BytesPerBird  = 232 // MUST match Rust: BYTES_PER_BIRD = 232 (NOT 236!)
+	// SAB layout constants - MUST MATCH RUST (sdk::layout::BIRD_STRIDE)
+	FloatsPerBird = 59  // position(3) + velocity(3) + rotation(4) + angular(1) + wings(3) + fitness(1) + weights(44)
+	BytesPerBird  = 236 // 59 floats * 4 bytes = 236 (matches Rust BIRD_STRIDE)
 	MaxBirds      = 10000
 
 	// Evolution parameters - TUNED FOR VISIBLE VARIANCE
@@ -41,8 +41,10 @@ type BirdGenes struct {
 // SABInterface defines the methods needed from the bridge
 type SABInterface interface {
 	ReadRaw(offset uint32, size uint32) ([]byte, error)
+	ReadAt(offset uint32, dest []byte) error // Zero-allocation optimized read
 	WriteRaw(offset uint32, data []byte) error
 	SignalInbox()
+	IsReady() bool // Check if SAB is initialized
 }
 
 // BoidsSupervisor manages distributed learning for bird simulation
@@ -65,6 +67,9 @@ type BoidsSupervisor struct {
 
 	// P2P mesh boost
 	meshNodesActive int
+
+	// Optimization: Reusable buffer for population reads to avoid GC pressure
+	populationBuf []byte
 }
 
 // NewBoidsSupervisor creates a supervisor for learning birds
@@ -106,24 +111,32 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 
 // autoDetectBirdCount reads the bird count from SAB atomic flags
 func (s *BoidsSupervisor) autoDetectBirdCount() {
-	// Read from IDX_BOIDS_COUNT (index 15 in atomic flags)
-	offset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BOIDS_COUNT*4)
-	countBytes, err := s.bridge.ReadRaw(offset, 4)
-	if err != nil {
-		utils.Warn("Failed to read bird count from SAB, using default", utils.Err(err))
-		s.birdCount = 1000 // Default fallback
-		return
+	// Retry loop to wait for Rust module to write the count
+	for i := 0; i < 20; i++ {
+		// Read from IDX_BIRD_COUNT (index 20) where Rust writes the bird count
+		// This is a dedicated mutable field for bird count
+		targetAddr := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BIRD_COUNT*4
+		data, err := s.bridge.ReadRaw(targetAddr, 4)
+		if err == nil {
+			count := binary.LittleEndian.Uint32(data)
+			utils.Info("DEBUG: BirdCount Read",
+				utils.String("addr", fmt.Sprintf("0x%X", targetAddr)),
+				utils.Int("val", int(count)),
+				utils.Int("attempt", i))
+
+			if count > 0 && count <= MaxBirds {
+				s.birdCount = int(count)
+				utils.Info("Boids bird count detected from SAB", utils.Int("count", s.birdCount))
+				return
+			}
+		} else {
+			utils.Warn("DEBUG: BirdCount Read Failed", utils.String("error", err.Error()))
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	count := int(binary.LittleEndian.Uint32(countBytes))
-	if count > 0 && count <= MaxBirds {
-		s.birdCount = count
-	} else {
-		// Fallback: read from frontend default
-		s.birdCount = 1000
-	}
-
-	utils.Info("Auto-detected bird count from SAB", utils.Int("count", s.birdCount))
+	utils.Warn("Timeout waiting for bird count in SAB, using default", utils.Int("default", 1000))
+	s.birdCount = 1000 // Fallback
 }
 
 // learningLoop monitors SAB and executes genetic algorithm
@@ -175,25 +188,6 @@ func (s *BoidsSupervisor) checkEvolution() {
 	if s.birdCount == 0 {
 		return // Nothing to do
 	}
-
-	// TODO: Rust bird struct doesn't include neural weights yet
-	// Go expects 236 bytes/bird (with 44 neural weights)
-	// But Rust only has 232 bytes/bird
-	// Skip evolution until layouts are aligned
-	if BytesPerBird != 232 {
-		// Layout mismatch - skip evolution
-		return
-	}
-
-	// For now, just log that evolution is disabled until Rust is updated
-	// Once Rust adds the weight fields, remove this check
-	if s.generation == 0 {
-		utils.Warn("BoidsSupervisor: Evolution disabled - Rust bird struct missing neural weights",
-			utils.Int("go_bytes_per_bird", BytesPerBird),
-			utils.String("todo", "Add weights[44] to Rust bird struct"))
-		s.generation = -1 // Mark as disabled so we only log once
-	}
-	return // Skip evolution until Rust layout includes weights
 
 	if time.Since(s.lastEvolutionTime) < s.evolutionInterval {
 		return // Not time yet
@@ -380,10 +374,22 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
 	}
 
+	utils.Info("DEBUG: ReadPopulation",
+		utils.Int("active", int(active)),
+		utils.String("offset", fmt.Sprintf("0x%X", offset)),
+		utils.Int("count", s.birdCount))
+
 	// --- BULK READ: 1 interop call instead of 2*N ---
+	// Resize reuse buffer if needed
 	totalSize := uint32(s.birdCount * BytesPerBird)
-	data, err := s.bridge.ReadRaw(offset, totalSize)
-	if err != nil {
+	if uint32(cap(s.populationBuf)) < totalSize {
+		s.populationBuf = make([]byte, totalSize)
+	}
+	s.populationBuf = s.populationBuf[:totalSize]
+
+	// Use Zero-Allocation ReadAt
+	if err := s.bridge.ReadAt(offset, s.populationBuf); err != nil {
+		utils.Warn("Failed to read boids population from SAB", utils.Err(err))
 		return nil, fmt.Errorf("bulk read failed at offset %x: %w", offset, err)
 	}
 
@@ -392,13 +398,13 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 
 		// Fitness at float index 14
 		fitnessOffset := 14 * 4
-		fitness := math.Float32frombits(binary.LittleEndian.Uint32(data[birdBase+fitnessOffset : birdBase+fitnessOffset+4]))
+		fitness := math.Float32frombits(binary.LittleEndian.Uint32(s.populationBuf[birdBase+fitnessOffset : birdBase+fitnessOffset+4]))
 
 		// Weights at float index 15-58 (44 floats)
 		weightsOffset := 15 * 4
 		var weights [44]float32
 		for j := 0; j < 44; j++ {
-			bits := binary.LittleEndian.Uint32(data[birdBase+weightsOffset+j*4 : birdBase+weightsOffset+(j+1)*4])
+			bits := binary.LittleEndian.Uint32(s.populationBuf[birdBase+weightsOffset+j*4 : birdBase+weightsOffset+(j+1)*4])
 			weights[j] = math.Float32frombits(bits)
 		}
 
@@ -461,8 +467,8 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 
 // SignalEpoch increments the epoch flag to trigger frontend reactivity
 func (s *BoidsSupervisor) SignalEpoch() {
-	// Standardized Global Epoch at 0x000000
-	offset := uint32(0)
+	// Evolution Epoch at Idx 16
+	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_EVOLUTION_EPOCH*4
 
 	// Read current epoch from offset
 	epochBytes, err := s.bridge.ReadRaw(offset, 4)

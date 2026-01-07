@@ -1,0 +1,161 @@
+# github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units [github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units.test]
+threads/supervisor/units/audio_supervisor.go:14:21: undefined: supervisor.SABBridge
+threads/supervisor/units/audio_supervisor.go:17:44: undefined: supervisor.SABBridge
+threads/supervisor/units/crypto_supervisor.go:14:21: undefined: supervisor.SABBridge
+threads/supervisor/units/crypto_supervisor.go:17:45: undefined: supervisor.SABBridge
+threads/supervisor/units/data_supervisor.go:14:21: undefined: supervisor.SABBridge
+threads/supervisor/units/data_supervisor.go:17:43: undefined: supervisor.SABBridge
+threads/supervisor/units/driver_supervisor.go:14:22: undefined: supervisor.SABBridge
+threads/supervisor/units/gpu_supervisor.go:14:21: undefined: supervisor.SABBridge
+threads/supervisor/units/image_supervisor.go:14:21: undefined: supervisor.SABBridge
+threads/supervisor/units/storage_supervisor.go:18:21: undefined: supervisor.SABBridge
+threads/supervisor/units/data_supervisor.go:17:43: too many errors
+=== RUN   TestCoordinator_Basic
+--- PASS: TestCoordinator_Basic (0.00s)
+=== RUN   TestCoordinator_SelectionStrategies
+--- PASS: TestCoordinator_SelectionStrategies (0.00s)
+=== RUN   TestCoordinator_CapabilityMatching
+--- PASS: TestCoordinator_CapabilityMatching (0.00s)
+=== RUN   TestCoordinator_StatsUpdate
+--- PASS: TestCoordinator_StatsUpdate (0.00s)
+=== RUN   TestCoordinator_RouteMessage
+--- PASS: TestCoordinator_RouteMessage (0.01s)
+=== RUN   TestFlowController_Thresholds
+--- PASS: TestFlowController_Thresholds (0.00s)
+=== RUN   TestFlowController_Stats
+--- PASS: TestFlowController_Stats (0.00s)
+=== RUN   TestProtocol_SendReceive
+--- PASS: TestProtocol_SendReceive (0.00s)
+=== RUN   TestProtocol_AckTimeout
+--- PASS: TestProtocol_AckTimeout (0.01s)
+=== RUN   TestProtocol_NotifyAck
+--- PASS: TestProtocol_NotifyAck (0.01s)
+=== RUN   TestCreditSupervisor_Basic
+--- PASS: TestCreditSupervisor_Basic (0.00s)
+=== RUN   TestCreditSupervisor_OnEpoch
+Settled account user1: delta 1001.000000, new balance 1000
+--- PASS: TestCreditSupervisor_OnEpoch (0.00s)
+=== RUN   TestCreditSupervisor_Bounds
+--- PASS: TestCreditSupervisor_Bounds (0.00s)
+=== RUN   TestCreditSupervisor_MaxAccounts
+--- PASS: TestCreditSupervisor_MaxAccounts (0.00s)
+=== RUN   TestCreditSupervisor_Multipliers
+Settled account user1: delta 1010000.000000, new balance 1010000
+--- PASS: TestCreditSupervisor_Multipliers (0.00s)
+=== RUN   TestCreditSupervisor_ProtocolFee
+--- PASS: TestCreditSupervisor_ProtocolFee (0.00s)
+=== RUN   TestIdentitySupervisor_Basic
+    identity_test.go:21: 
+        	Error Trace:	/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/kernel/threads/supervisor/identity_test.go:21
+        	Error:      	"0" is not greater than "0"
+        	Test:       	TestIdentitySupervisor_Basic
+--- FAIL: TestIdentitySupervisor_Basic (0.00s)
+=== RUN   TestIdentitySupervisor_SystemWallets
+    identity_test.go:43: 
+        	Error Trace:	/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/kernel/threads/supervisor/identity_test.go:43
+        	Error:      	"0" is not greater than "0"
+        	Test:       	TestIdentitySupervisor_SystemWallets
+--- FAIL: TestIdentitySupervisor_SystemWallets (0.00s)
+=== RUN   TestSocialGraphSupervisor_Basic
+    social_test.go:21: 
+        	Error Trace:	/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/kernel/threads/supervisor/social_test.go:21
+        	Error:      	"0" is not greater than "0"
+        	Test:       	TestSocialGraphSupervisor_Basic
+--- FAIL: TestSocialGraphSupervisor_Basic (0.00s)
+=== RUN   TestSocialGraphSupervisor_CloseIdentities
+--- PASS: TestSocialGraphSupervisor_CloseIdentities (0.00s)
+=== RUN   TestUnifiedSupervisor_Creation
+=== RUN   TestUnifiedSupervisor_Creation/Audio
+=== RUN   TestUnifiedSupervisor_Creation/Crypto
+=== RUN   TestUnifiedSupervisor_Creation/GPU
+=== RUN   TestUnifiedSupervisor_Creation/Data
+--- PASS: TestUnifiedSupervisor_Creation (0.00s)
+    --- PASS: TestUnifiedSupervisor_Creation/Audio (0.00s)
+    --- PASS: TestUnifiedSupervisor_Creation/Crypto (0.00s)
+    --- PASS: TestUnifiedSupervisor_Creation/GPU (0.00s)
+    --- PASS: TestUnifiedSupervisor_Creation/Data (0.00s)
+=== RUN   TestUnifiedSupervisor_StartStop
+--- PASS: TestUnifiedSupervisor_StartStop (0.00s)
+=== RUN   TestUnifiedSupervisor_JobSubmission
+--- PASS: TestUnifiedSupervisor_JobSubmission (0.00s)
+=== RUN   TestUnifiedSupervisor_BatchSubmission
+--- PASS: TestUnifiedSupervisor_BatchSubmission (0.00s)
+=== RUN   TestUnifiedSupervisor_Learning
+--- PASS: TestUnifiedSupervisor_Learning (0.00s)
+=== RUN   TestUnifiedSupervisor_Optimization
+Training:
+	Model: Logistic (Binary) Classification
+	Optimization Method: Batch Gradient Ascent
+	Training Examples: 1
+	Features: 3
+	Learning Rate α: 0.0001
+	Regularization Parameter λ: 0
+...
+
+--- PASS: TestUnifiedSupervisor_Optimization (0.00s)
+=== RUN   TestUnifiedSupervisor_Prediction
+Training Completed.
+h(θ,x) = 1 / (1 + exp(-θx))
+θx = 0.000 + 0.00000(x[1]) + 0.00000(x[2]) + 0.00000(x[3])
+
+Training:
+	Model: Logistic (Binary) Classification
+	Optimization Method: Batch Gradient Ascent
+	Training Examples: 1
+	Features: 3
+	Learning Rate α: 0.0001
+	Regularization Parameter λ: 0
+...
+
+Training Completed.
+h(θ,x) = 0.000 + 0.00000(x[1]) + 0.00000(x[2]) + 0.00000(x[3])
+
+--- PASS: TestUnifiedSupervisor_Prediction (0.00s)
+=== RUN   TestUnifiedSupervisor_Metrics
+--- PASS: TestUnifiedSupervisor_Metrics (0.00s)
+=== RUN   TestUnifiedSupervisor_InvalidJob
+--- PASS: TestUnifiedSupervisor_InvalidJob (0.00s)
+=== RUN   TestUnifiedSupervisor_ExpiredDeadline
+--- PASS: TestUnifiedSupervisor_ExpiredDeadline (0.00s)
+=== RUN   TestUnifiedSupervisor_ConcurrentSubmissions
+--- PASS: TestUnifiedSupervisor_ConcurrentSubmissions (0.00s)
+=== RUN   TestUnifiedSupervisor_CapabilityCheck
+--- PASS: TestUnifiedSupervisor_CapabilityCheck (0.00s)
+=== RUN   TestUnifiedSupervisor_HealthMonitoring
+--- PASS: TestUnifiedSupervisor_HealthMonitoring (0.00s)
+=== RUN   TestUnifiedSupervisor_AnomalyDetection
+--- PASS: TestUnifiedSupervisor_AnomalyDetection (0.00s)
+=== RUN   TestUnifiedSupervisor_FullWorkflow
+Training:
+	Model: Logistic (Binary) Classification
+	Optimization Method: Batch Gradient Ascent
+	Training Examples: 1
+	Features: 3
+	Learning Rate α: 0.0001
+	Regularization Parameter λ: 0
+...
+
+--- PASS: TestUnifiedSupervisor_FullWorkflow (0.00s)
+Training Completed.
+h(θ,x) = 0.000 + 0.00000(x[1]) + 0.00000(x[2]) + 0.00000(x[3])
+
+Training:
+	Model: Logistic (Binary) Classification
+	Optimization Method: Batch Gradient Ascent
+	Training Examples: 1
+	Features: 3
+	Learning Rate α: 0.0001
+	Regularization Parameter λ: 0
+...
+
+=== RUN   TestUnifiedSupervisor_Throughput
+Training Completed.
+h(θ,x) = 1 / (1 + exp(-θx))
+θx = 0.000 + 0.00000(x[1]) + 0.00000(x[2]) + 0.00000(x[3])
+
+    unified_test.go:484: Throughput: 670297.44 jobs/sec
+--- PASS: TestUnifiedSupervisor_Throughput (0.00s)
+FAIL
+FAIL	github.com/nmxmxh/inos_v1/kernel/threads/supervisor	0.486s
+FAIL	github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units [build failed]
+FAIL

@@ -17,7 +17,8 @@ const (
 
 // MessageQueue implements a zero-copy ring buffer in SAB
 type MessageQueue struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 	capacity   uint32
 	headOffset uint32
@@ -48,14 +49,15 @@ type MessageHeader struct {
 }
 
 // NewMessageQueue creates a new message queue
-func NewMessageQueue(sab []byte, baseOffset, capacity uint32) *MessageQueue {
+func NewMessageQueue(sabPtr unsafe.Pointer, sabSize uint32, baseOffset, capacity uint32) *MessageQueue {
 	if capacity&(capacity-1) != 0 {
 		panic("capacity must be power of 2")
 	}
 	headOffset := baseOffset - 8
 	tailOffset := baseOffset - 4
 	return &MessageQueue{
-		sab:        sab,
+		sabPtr:     sabPtr,
+		sabSize:    sabSize,
 		baseOffset: baseOffset,
 		capacity:   capacity,
 		headOffset: headOffset,
@@ -67,9 +69,9 @@ func (mq *MessageQueue) EnqueueZeroCopy(msgType, priority uint8, dataSize uint16
 	if dataSize > MESSAGE_PAYLOAD_SIZE {
 		return 0, fmt.Errorf("data size exceeds max payload")
 	}
-	tail := atomic.LoadUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.tailOffset])))
+	tail := atomic.LoadUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.tailOffset)))
 	nextTail := (tail + 1) & (mq.capacity - 1)
-	head := atomic.LoadUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.headOffset])))
+	head := atomic.LoadUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.headOffset)))
 	if nextTail == head {
 		atomic.AddUint64(&mq.stats.Dropped, 1)
 		return 0, fmt.Errorf("queue full")
@@ -83,13 +85,13 @@ func (mq *MessageQueue) EnqueueZeroCopy(msgType, priority uint8, dataSize uint16
 		DataSize: dataSize,
 	}
 	mq.writeHeader(msgOffset, &header)
-	atomic.StoreUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.tailOffset])), nextTail)
+	atomic.StoreUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.tailOffset)), nextTail)
 	return msgOffset + MESSAGE_HEADER_SIZE, nil
 }
 
 func (mq *MessageQueue) DequeueZeroCopy() (uint8, uint16, uint32, error) {
-	head := atomic.LoadUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.headOffset])))
-	tail := atomic.LoadUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.tailOffset])))
+	head := atomic.LoadUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.headOffset)))
+	tail := atomic.LoadUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.tailOffset)))
 	if head == tail {
 		return 0, 0, 0, fmt.Errorf("queue empty")
 	}
@@ -99,7 +101,7 @@ func (mq *MessageQueue) DequeueZeroCopy() (uint8, uint16, uint32, error) {
 		return 0, 0, 0, fmt.Errorf("corrupted message")
 	}
 	nextHead := (head + 1) & (mq.capacity - 1)
-	atomic.StoreUint32((*uint32)(unsafe.Pointer(&mq.sab[mq.headOffset])), nextHead)
+	atomic.StoreUint32((*uint32)(unsafe.Add(mq.sabPtr, mq.headOffset)), nextHead)
 	atomic.AddUint64(&mq.stats.Dequeued, 1)
 	return header.MsgType, header.DataSize, msgOffset + MESSAGE_HEADER_SIZE, nil
 }
@@ -113,27 +115,37 @@ func (mq *MessageQueue) FinalizeMessage(headerOffset uint32, data []byte) {
 	}
 
 	// Update checksum in header at offset+24
-	binary.LittleEndian.PutUint16(mq.sab[headerOffset+24:], checksum)
+	ptr := (*uint16)(unsafe.Add(mq.sabPtr, headerOffset+24))
+	*ptr = checksum
 }
 
 func (mq *MessageQueue) writeHeader(offset uint32, header *MessageHeader) {
-	binary.LittleEndian.PutUint64(mq.sab[offset:], header.Magic)
-	binary.LittleEndian.PutUint64(mq.sab[offset+8:], header.Sequence)
-	mq.sab[offset+16] = header.MsgType
-	mq.sab[offset+17] = header.Priority
-	mq.sab[offset+18] = header.SenderEpoch
-	mq.sab[offset+19] = header.ReceiverEpoch
-	binary.LittleEndian.PutUint16(mq.sab[offset+20:], header.Flags)
-	binary.LittleEndian.PutUint16(mq.sab[offset+22:], header.DataSize)
-	binary.LittleEndian.PutUint16(mq.sab[offset+24:], header.Checksum)
+	if offset+MESSAGE_HEADER_SIZE > mq.sabSize {
+		return // Should we panic or return error?
+	}
+	ptr := unsafe.Add(mq.sabPtr, offset)
+	// Use fixed size slices for safety
+	binary.LittleEndian.PutUint64(unsafe.Slice((*byte)(ptr), 8), header.Magic)
+	binary.LittleEndian.PutUint64(unsafe.Slice((*byte)(unsafe.Add(ptr, 8)), 8), header.Sequence)
+	*(*uint8)(unsafe.Add(ptr, 16)) = header.MsgType
+	*(*uint8)(unsafe.Add(ptr, 17)) = header.Priority
+	*(*uint8)(unsafe.Add(ptr, 18)) = header.SenderEpoch
+	*(*uint8)(unsafe.Add(ptr, 19)) = header.ReceiverEpoch
+	binary.LittleEndian.PutUint16(unsafe.Slice((*byte)(unsafe.Add(ptr, 20)), 2), header.Flags)
+	binary.LittleEndian.PutUint16(unsafe.Slice((*byte)(unsafe.Add(ptr, 22)), 2), header.DataSize)
+	binary.LittleEndian.PutUint16(unsafe.Slice((*byte)(unsafe.Add(ptr, 24)), 2), header.Checksum)
 }
 
 func (mq *MessageQueue) readHeader(offset uint32) MessageHeader {
+	if offset+MESSAGE_HEADER_SIZE > mq.sabSize {
+		return MessageHeader{}
+	}
+	ptr := unsafe.Add(mq.sabPtr, offset)
 	return MessageHeader{
-		Magic:    binary.LittleEndian.Uint64(mq.sab[offset:]),
-		Sequence: binary.LittleEndian.Uint64(mq.sab[offset+8:]),
-		MsgType:  mq.sab[offset+16],
-		Priority: mq.sab[offset+17],
-		DataSize: binary.LittleEndian.Uint16(mq.sab[offset+22:]),
+		Magic:    binary.LittleEndian.Uint64(unsafe.Slice((*byte)(ptr), 8)),
+		Sequence: binary.LittleEndian.Uint64(unsafe.Slice((*byte)(unsafe.Add(ptr, 8)), 8)),
+		MsgType:  *(*uint8)(unsafe.Add(ptr, 16)),
+		Priority: *(*uint8)(unsafe.Add(ptr, 17)),
+		DataSize: binary.LittleEndian.Uint16(unsafe.Slice((*byte)(unsafe.Add(ptr, 22)), 2)),
 	}
 }

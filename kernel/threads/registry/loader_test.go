@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +18,7 @@ func TestModuleRegistry_LoadFromSAB(t *testing.T) {
 	builder.AddModule("compute", [3]uint8{2, 1, 0}, nil, nil)
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 
@@ -39,7 +41,7 @@ func TestModuleRegistry_LoadEmpty(t *testing.T) {
 	// No modules added
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 
@@ -54,7 +56,7 @@ func TestModuleRegistry_DependencyResolution(t *testing.T) {
 	builder.AddModule("mod_c", [3]uint8{1, 0, 0}, nil, []string{"mod_b"})
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 
@@ -78,7 +80,7 @@ func TestModuleRegistry_CircularDependencyDetection(t *testing.T) {
 	builder.AddModule("circular_b", [3]uint8{1, 0, 0}, nil, []string{"circular_a"})
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 
@@ -101,7 +103,7 @@ func TestModuleRegistry_CapabilityParsing(t *testing.T) {
 	builder.AddModule("gpu_mod", [3]uint8{1, 0, 0}, []string{"compute_heavy", "rendering"}, nil)
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 
@@ -150,7 +152,7 @@ func TestModuleRegistry_Stats(t *testing.T) {
 	builder.AddModule("mod_1", [3]uint8{1, 0, 0}, nil, nil)
 	sab := builder.Build()
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	mr.LoadFromSAB()
 
 	stats := mr.GetStats()
@@ -176,7 +178,7 @@ func TestModuleRegistry_HashMismatch(t *testing.T) {
 	offset := 0x000100 + 8
 	binary.LittleEndian.PutUint32(sab[offset:], 0xDEADBEEF)
 
-	mr := NewModuleRegistry(sab)
+	mr := NewModuleRegistry(unsafe.Pointer(&sab[0]), uint32(len(sab)))
 	err := mr.LoadFromSAB()
 	require.NoError(t, err)
 

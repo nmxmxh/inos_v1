@@ -3,32 +3,39 @@ package supervisor
 import (
 	"fmt"
 	"sync"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
-	"github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 const (
-	SOCIAL_ENTRY_SIZE = 1024 // 128 (approx) + 15 * 64 = 1088. Let's make it 1024 for now and adjust.
-	// Actually: 64 (Owner) + 64 (Referrer) + 15 * 64 (CloseIds) = 1152 bytes.
-	// Let's use 2048 to be safe and allow expansion.
-	SOCIAL_ACCOUNT_SIZE = 1248 // 64+64 + 15*64 + padding
-	MAX_SOCIAL_ENTRIES  = 128
+	SOCIAL_METADATA_SIZE = 64
+	// 64 (Owner) + 64 (Referrer) + 15 * 64 (CloseIds) = 1088 bytes.
+	SOCIAL_ACCOUNT_SIZE = 1248 // Unified v1.9+ size
+	MAX_SOCIAL_ENTRIES  = 12   // Fits 16KB with header
+)
+
+// Social Offsets
+const (
+	OFFSET_SOCIAL_METADATA = 0
+	OFFSET_SOCIAL_ENTRIES  = SOCIAL_METADATA_SIZE
 )
 
 // SocialGraphSupervisor manages the Social Graph in SAB
 type SocialGraphSupervisor struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 
 	entries map[string]uint32 // DID -> SAB Offset
 	mu      sync.RWMutex
 }
 
-func NewSocialGraphSupervisor(sabData []byte) *SocialGraphSupervisor {
+func NewSocialGraphSupervisor(sabPtr unsafe.Pointer, sabSize, offset uint32) *SocialGraphSupervisor {
 	return &SocialGraphSupervisor{
-		sab:        sabData,
-		baseOffset: sab.OFFSET_SOCIAL_GRAPH,
+		sabPtr:     sabPtr,
+		sabSize:    sabSize,
+		baseOffset: offset,
 		entries:    make(map[string]uint32),
 	}
 }
@@ -134,7 +141,7 @@ func (ss *SocialGraphSupervisor) RegisterSocialEntry(did, referrer string) (uint
 	}
 
 	index := uint32(len(ss.entries))
-	offset := ss.baseOffset + (index * SOCIAL_ACCOUNT_SIZE)
+	offset := ss.baseOffset + OFFSET_SOCIAL_ENTRIES + (index * SOCIAL_ACCOUNT_SIZE)
 	ss.entries[did] = offset
 
 	entry := &foundation.SocialEntry{}
@@ -145,11 +152,12 @@ func (ss *SocialGraphSupervisor) RegisterSocialEntry(did, referrer string) (uint
 }
 
 func (ss *SocialGraphSupervisor) writeEntry(offset uint32, entry *foundation.SocialEntry) error {
-	if offset+SOCIAL_ACCOUNT_SIZE > uint32(len(ss.sab)) {
+	if offset+SOCIAL_ACCOUNT_SIZE > ss.sabSize {
 		return fmt.Errorf("offset out of bounds")
 	}
 
-	data := ss.sab[offset : offset+SOCIAL_ACCOUNT_SIZE]
+	ptr := unsafe.Add(ss.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), SOCIAL_ACCOUNT_SIZE)
 	copy(data[0:64], entry.OwnerDid[:])
 	copy(data[64:128], entry.ReferrerDid[:])
 
@@ -161,11 +169,12 @@ func (ss *SocialGraphSupervisor) writeEntry(offset uint32, entry *foundation.Soc
 }
 
 func (ss *SocialGraphSupervisor) readEntry(offset uint32) (*foundation.SocialEntry, error) {
-	if offset+SOCIAL_ACCOUNT_SIZE > uint32(len(ss.sab)) {
+	if offset+SOCIAL_ACCOUNT_SIZE > ss.sabSize {
 		return nil, fmt.Errorf("offset out of bounds")
 	}
 
-	data := ss.sab[offset : offset+SOCIAL_ACCOUNT_SIZE]
+	ptr := unsafe.Add(ss.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), SOCIAL_ACCOUNT_SIZE)
 	entry := &foundation.SocialEntry{}
 	copy(entry.OwnerDid[:], data[0:64])
 	copy(entry.ReferrerDid[:], data[64:128])

@@ -1,3 +1,5 @@
+//go:build wasm
+
 package supervisor
 
 import (
@@ -29,9 +31,10 @@ type SABBridge struct {
 	mu          sync.RWMutex
 
 	// Cached JS values to prevent memory leak from repeated Get() calls
-	// Each js.Global().Get() allocates memory that leaks over time
 	jsAtomics     js.Value
 	jsInt32View   js.Value
+	jsUint8View   js.Value // Cached Uint8Array view of SAB
+	isWorker      bool     // Cached worker status
 	jsInitialized bool
 }
 
@@ -53,6 +56,11 @@ func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffs
 	return bridge
 }
 
+// IsReady returns true if the bridge has been initialized with memory capacity.
+func (sb *SABBridge) IsReady() bool {
+	return sb.sabSize > 0
+}
+
 // initJSCache initializes cached JS values (called once)
 func (sb *SABBridge) initJSCache() {
 	sb.mu.Lock()
@@ -62,8 +70,27 @@ func (sb *SABBridge) initJSCache() {
 		return
 	}
 
+	// Only attempt JS calls if we're in a WASM environment
+	// (Prevents panic during host-side testing if syscall/js is mocked/stubbed)
+	defer func() {
+		if r := recover(); r != nil {
+			// Failed to Get globals, likely host-side test
+			sb.jsInitialized = true
+		}
+	}()
+
 	sb.jsAtomics = js.Global().Get("Atomics")
 	sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
+
+	// Cache Uint8Array view of the SAME buffer
+	if !sb.jsInt32View.IsUndefined() {
+		buffer := sb.jsInt32View.Get("buffer")
+		sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer)
+	}
+
+	// Cache worker context status
+	sb.isWorker = sb.detectWorkerContext()
+
 	sb.jsInitialized = true
 }
 
@@ -72,7 +99,7 @@ func (sb *SABBridge) RegisterJob(jobID string) chan *foundation.Result {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	ch := make(chan *foundation.Result, 1) // Buffered to prevent blocking resolver
+	ch := make(chan *foundation.Result, 1)
 	sb.pendingJobs[jobID] = ch
 	return ch
 }
@@ -97,13 +124,11 @@ func (sb *SABBridge) WriteJob(job *foundation.Job) error {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	// Serialize job to Cap'n Proto message
 	data, err := sb.serializeJob(job)
 	if err != nil {
 		return fmt.Errorf("failed to serialize job: %w", err)
 	}
 
-	// Write to inbox
 	if err := sb.writeToSAB(sb.inboxOffset, data); err != nil {
 		return fmt.Errorf("failed to write to inbox: %w", err)
 	}
@@ -111,26 +136,22 @@ func (sb *SABBridge) WriteJob(job *foundation.Job) error {
 	return nil
 }
 
-// PollCompletion waits for job completion using signal-based blocking (zero CPU)
-// Uses Atomics.wait instead of polling for true zero-CPU waiting
+// PollCompletion waits for job completion using signal-based blocking
 func (sb *SABBridge) PollCompletion(timeout time.Duration) (bool, error) {
 	startEpoch := sb.readEpoch()
 	timeoutMs := float64(timeout.Milliseconds())
 
-	// Use signal-based waiting (Atomics.wait)
 	result := sb.WaitForEpochChange(
 		sab_layout.IDX_OUTBOX_DIRTY,
 		int32(startEpoch),
 		timeoutMs,
 	)
 
-	// Check if epoch actually changed
 	currentEpoch := sb.readEpoch()
 	if currentEpoch > startEpoch {
 		return true, nil
 	}
 
-	// Result 2 = timed out, 0/1 = epoch changed but we double check above
 	_ = result
 	return false, nil
 }
@@ -139,99 +160,64 @@ func (sb *SABBridge) PollCompletion(timeout time.Duration) (bool, error) {
 func (sb *SABBridge) ReadOutboxRaw() ([]byte, error) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
-
-	// Read from outbox
-	return sb.readFromSAB(sb.outboxOffset, 1024*1024) // 1MB Limit
+	return sb.readFromSAB(sb.outboxOffset, 1024*1024)
 }
 
-// ReadResult reads result from SAB outbox (Legacy/JobResult path)
+// ReadResult reads result from SAB outbox
 func (sb *SABBridge) ReadResult() (*foundation.Result, error) {
 	data, err := sb.ReadOutboxRaw()
 	if err != nil {
 		return nil, err
 	}
-	// Deserialize result
-	result := sb.DeserializeResult(data)
-	return result, nil
+	return sb.DeserializeResult(data), nil
 }
 
-// Helper: Read epoch value (atomic)
 func (sb *SABBridge) readEpoch() uint32 {
 	ptr := unsafe.Add(sb.sab, sb.epochOffset)
 	return atomic.LoadUint32((*uint32)(ptr))
 }
 
-// ReadOutboxSequence reads the atomic sequence counter for the Outbox
-// Corresponds to IDX_OUTBOX_DIRTY (Index 2) in Atomic Flags region
 func (sb *SABBridge) ReadOutboxSequence() uint32 {
-	// Offset 0x000000 is Atomic Flags Base
-	// Use standardized index from layout
 	ptr := unsafe.Add(sb.sab, sab_layout.IDX_OUTBOX_DIRTY*4)
 	return atomic.LoadUint32((*uint32)(ptr))
 }
 
-// ReadSystemEpoch reads the global system epoch counter (Index 7)
 func (sb *SABBridge) ReadSystemEpoch() uint64 {
 	ptr := unsafe.Add(sb.sab, sab_layout.IDX_SYSTEM_EPOCH*4)
-	// Even though it's an i32/u32 in Atomic Flags, we treat it as uint64 for the economy loop
 	return uint64(atomic.LoadUint32((*uint32)(ptr)))
 }
 
-// ReadAtomicI32 reads an atomic i32 value at the given epoch index
-// Used by signal-based loops to check current epoch value
 func (sb *SABBridge) ReadAtomicI32(epochIndex uint32) int32 {
 	ptr := unsafe.Add(sb.sab, epochIndex*4)
 	return int32(atomic.LoadUint32((*uint32)(ptr)))
 }
 
-// WriteInbox writes raw data to SAB Inbox (for Kernel -> Module return path)
-// Thread-safe.
 func (sb *SABBridge) WriteInbox(data []byte) error {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 	return sb.writeToSAB(sb.inboxOffset, data)
 }
 
-// SignalInbox atomically increments the Inbox Sequence Counter/Flag
-// Corresponds to IDX_INBOX_DIRTY (Index 1) in Atomic Flags region
 func (sb *SABBridge) SignalInbox() {
-	// Use standardized index from layout
 	ptr := unsafe.Add(sb.sab, sab_layout.IDX_INBOX_DIRTY*4)
 	atomic.AddUint32((*uint32)(ptr), 1)
-	// Notify any waiters (Rust modules blocking on Atomics.wait)
 	sb.NotifyEpochWaiters(sab_layout.IDX_INBOX_DIRTY)
 }
 
 // WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
-// On main thread: uses polling fallback with time.Sleep() to yield to JS event loop.
-// In Worker context: uses Atomics.wait for true zero-CPU waiting.
-// Returns: 0 = "ok" (value changed), 1 = "not-equal" (already different), 2 = "timed-out"
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
-	// Initialize JS cache if not done (lazy init for late-bound SAB)
 	if !sb.jsInitialized {
 		sb.initJSCache()
 	}
 
-	// Main thread: use polling fallback (Atomics.wait is forbidden)
-	if !sb.isWorkerContext() {
+	if !sb.isWorker {
 		return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
 	}
 
-	// Worker context: use true Atomics.wait for zero-CPU blocking
-	// Use cached values to prevent memory leak from repeated Get() calls
 	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
-		// Re-try getting the values (might not be available during early boot)
-		sb.mu.Lock()
-		sb.jsAtomics = js.Global().Get("Atomics")
-		sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
-		sb.mu.Unlock()
-
-		if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
-			return 2 // Atomics or Int32View not available, treat as timeout
-		}
+		return 2
 	}
 
-	// Call Atomics.wait(int32Array, index, expectedValue, timeout)
 	result := sb.jsAtomics.Call("wait", sb.jsInt32View, epochIndex, expectedValue, timeoutMs)
 	resultStr := result.String()
 
@@ -240,23 +226,17 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 		return 0
 	case "not-equal":
 		return 1
-	case "timed-out":
-		return 2
 	default:
 		return 2
 	}
 }
 
-// isWorkerContext detects if we're running in a Web Worker (Atomics.wait allowed)
-// or on the main thread (Atomics.wait forbidden).
-func (sb *SABBridge) isWorkerContext() bool {
-	// In a Web Worker, WorkerGlobalScope is defined and 'self' is an instance of it
-	// On main thread, WorkerGlobalScope is undefined
+// detectWorkerContext detects if we're running in a Web Worker (Atomics.wait allowed)
+func (sb *SABBridge) detectWorkerContext() bool {
 	workerScope := js.Global().Get("WorkerGlobalScope")
 	if workerScope.IsUndefined() {
 		return false
 	}
-	// Check if global 'self' is instance of WorkerGlobalScope
 	self := js.Global().Get("self")
 	if self.IsUndefined() {
 		return false
@@ -264,61 +244,35 @@ func (sb *SABBridge) isWorkerContext() bool {
 	return self.InstanceOf(workerScope)
 }
 
-// pollForEpochChange uses time.Sleep() polling as fallback when Atomics.wait is unavailable.
-// This yields to the JS event loop instead of blocking, allowing goroutines to cooperate.
+// pollForEpochChange uses time.Sleep() polling as fallback
 func (sb *SABBridge) pollForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
-	// First check: value already different?
-	current := sb.ReadAtomicI32(epochIndex)
-	if current != expectedValue {
-		return 1 // "not-equal" - already changed
-	}
-
-	// Polling with adaptive interval
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
-	pollInterval := 10 * time.Millisecond // Start with 10ms
-
 	for time.Now().Before(deadline) {
-		// Yield to JS event loop - this is the key difference from Atomics.wait
-		time.Sleep(pollInterval)
-
-		current = sb.ReadAtomicI32(epochIndex)
-		if current != expectedValue {
-			return 1 // "not-equal" - value changed
+		if sb.ReadAtomicI32(epochIndex) != expectedValue {
+			return 1
 		}
-
-		// Adaptive backoff: increase interval for longer waits (max 50ms)
-		if pollInterval < 50*time.Millisecond {
-			pollInterval = pollInterval * 3 / 2 // 1.5x increase
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
-
-	return 2 // "timed-out"
+	return 2
 }
 
 // NotifyEpochWaiters wakes up threads waiting on the given epoch index.
-// Returns the number of waiters that were notified.
 func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
-	// Initialize JS cache if not done (lazy init for late-bound SAB)
 	if !sb.jsInitialized {
 		sb.initJSCache()
 	}
 
-	// Use cached values to prevent memory leak
 	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
 		return 0
 	}
 
-	// Call Atomics.notify(int32Array, index, count) - notify all waiters
-	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex, js.ValueOf(nil)) // nil = notify all
+	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex, js.ValueOf(nil))
 	return result.Int()
 }
 
-// Helper: Write to Ring Buffer (Inbox)
+// writeToSAB writes raw data to SAB Inbox
 func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
-	// Ring Buffer Header: [Head(4) | Tail(4)]
-	// Data follows header.
 	const HeaderSize = 8
-	// Total size for Inbox/Outbox is 512KB - use constant from layout
 	const RegionSize = sab_layout.SIZE_INBOX_TOTAL
 	const DataCapacity = RegionSize - HeaderSize
 
@@ -328,7 +282,6 @@ func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
 	head := atomic.LoadUint32(headPtr)
 	tail := atomic.LoadUint32(tailPtr)
 
-	// Calculate available space
 	var available uint32
 	if tail >= head {
 		available = DataCapacity - (tail - head) - 1
@@ -337,36 +290,26 @@ func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
 	}
 
 	msgLen := uint32(len(data))
-	totalLen := 4 + msgLen // [Len(4)][Data...]
+	totalLen := 4 + msgLen
 
 	if available < totalLen {
-		return fmt.Errorf("ring buffer full: needed %d, available %d", totalLen, available)
+		return fmt.Errorf("ring buffer full")
 	}
 
-	// Write Length (4 bytes)
 	lenBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(lenBytes, msgLen)
-	if err := sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, lenBytes); err != nil {
-		return err
-	}
+	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, lenBytes)
 	tail = (tail + 4) % DataCapacity
 
-	// Write Data
-	if err := sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, data); err != nil {
-		return err
-	}
+	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, data)
 	tail = (tail + msgLen) % DataCapacity
 
-	// Update Tail atomically
 	atomic.StoreUint32(tailPtr, tail)
-
 	return nil
 }
 
-// Helper: Circular write of raw bytes
-func (sb *SABBridge) writeRawRing(baseOffset, headerSize, capacity, writeIdx uint32, data []byte) error {
+func (sb *SABBridge) writeRawRing(baseOffset, headerSize, capacity, writeIdx uint32, data []byte) {
 	dataPtr := unsafe.Add(sb.sab, baseOffset+headerSize)
-
 	toWrite := uint32(len(data))
 	firstChunk := capacity - writeIdx
 	if toWrite < firstChunk {
@@ -374,19 +317,12 @@ func (sb *SABBridge) writeRawRing(baseOffset, headerSize, capacity, writeIdx uin
 	}
 	secondChunk := toWrite - firstChunk
 
-	// First chunk
-	dest1 := unsafe.Add(dataPtr, writeIdx)
-	copy(unsafe.Slice((*byte)(dest1), firstChunk), data[:firstChunk])
-
-	// Second chunk (wrap)
+	copy(unsafe.Slice((*byte)(unsafe.Add(dataPtr, uintptr(writeIdx))), firstChunk), data[:firstChunk])
 	if secondChunk > 0 {
-		dest2 := dataPtr // Start of data region
-		copy(unsafe.Slice((*byte)(dest2), secondChunk), data[firstChunk:])
+		copy(unsafe.Slice((*byte)(dataPtr), secondChunk), data[firstChunk:])
 	}
-	return nil
 }
 
-// Helper: Read from Ring Buffer (Outbox)
 func (sb *SABBridge) readFromSAB(baseOffset uint32, maxSize int) ([]byte, error) {
 	const HeaderSize = 8
 	const RegionSize = sab_layout.SIZE_INBOX_TOTAL
@@ -399,10 +335,9 @@ func (sb *SABBridge) readFromSAB(baseOffset uint32, maxSize int) ([]byte, error)
 	tail := atomic.LoadUint32(tailPtr)
 
 	if head == tail {
-		return nil, nil // Empty
+		return nil, nil
 	}
 
-	// Available bytes to read
 	var available uint32
 	if tail >= head {
 		available = tail - head
@@ -411,41 +346,31 @@ func (sb *SABBridge) readFromSAB(baseOffset uint32, maxSize int) ([]byte, error)
 	}
 
 	if available < 4 {
-		return nil, nil // Partial write? Wait.
+		return nil, nil
 	}
 
-	// Peek Length
 	lenBytes := make([]byte, 4)
 	sb.readRawRing(baseOffset, HeaderSize, DataCapacity, head, lenBytes)
 	msgLen := binary.LittleEndian.Uint32(lenBytes)
 
 	if int(msgLen) > maxSize {
-		return nil, fmt.Errorf("message size %d exceeds limit %d", msgLen, maxSize)
+		return nil, fmt.Errorf("message too large")
 	}
 
 	if available < 4+msgLen {
-		return nil, nil // Wait for full message
+		return nil, nil
 	}
 
-	// Advance Head past Length
-	// We don't update atomic Head yet, safe to just compute local next index
 	dataHead := (head + 4) % DataCapacity
-
-	// Read Data
 	data := make([]byte, msgLen)
 	sb.readRawRing(baseOffset, HeaderSize, DataCapacity, dataHead, data)
 
-	// Update Head atomically
-	newHead := (dataHead + msgLen) % DataCapacity
-	atomic.StoreUint32(headPtr, newHead)
-
+	atomic.StoreUint32(headPtr, (dataHead+msgLen)%DataCapacity)
 	return data, nil
 }
 
-// Helper: Circular read
 func (sb *SABBridge) readRawRing(baseOffset, headerSize, capacity, readIdx uint32, out []byte) {
 	dataPtr := unsafe.Add(sb.sab, baseOffset+headerSize)
-
 	toRead := uint32(len(out))
 	firstChunk := capacity - readIdx
 	if toRead < firstChunk {
@@ -453,143 +378,135 @@ func (sb *SABBridge) readRawRing(baseOffset, headerSize, capacity, readIdx uint3
 	}
 	secondChunk := toRead - firstChunk
 
-	// First chunk
-	src1 := unsafe.Add(dataPtr, readIdx)
-	copy(out[:firstChunk], unsafe.Slice((*byte)(src1), firstChunk))
-
-	// Second chunk
+	copy(out[:firstChunk], unsafe.Slice((*byte)(unsafe.Add(dataPtr, uintptr(readIdx))), firstChunk))
 	if secondChunk > 0 {
-		src2 := dataPtr
-		copy(out[firstChunk:], unsafe.Slice((*byte)(src2), secondChunk))
+		copy(out[firstChunk:], unsafe.Slice((*byte)(dataPtr), secondChunk))
 	}
 }
 
-// WriteRaw writes raw bytes to SAB at the specified offset (no length prefix)
-// Use this for Zero-Copy data transfer to Arena regions
+// WriteRaw writes raw bytes to SAB at the specified offset
 func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
 	if offset+uint32(len(data)) > sb.sabSize {
-		return fmt.Errorf("out of bounds write: 0x%x + %d > 0x%x", offset, len(data), sb.sabSize)
+		return fmt.Errorf("out of bounds write")
 	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Address 0 safety
+	if offset == 0 {
+		view := sb.getJsUint8View()
+		if !view.IsUndefined() {
+			view.SetIndex(0, data[0])
+			if len(data) > 1 {
+				ptr := unsafe.Add(sb.sab, 1)
+				copy(unsafe.Slice((*byte)(ptr), len(data)-1), data[1:])
+			}
+			return nil
+		}
+	}
+
 	ptr := unsafe.Add(sb.sab, offset)
 	copy(unsafe.Slice((*byte)(ptr), len(data)), data)
 	return nil
 }
 
-// ReadRaw reads raw bytes from SAB at the specified offset (no length prefix)
-// Checks boundaries implicitly by construction of slice, but caller should validate offset
+// ReadRaw reads raw bytes from SAB at the specified offset
 func (sb *SABBridge) ReadRaw(offset uint32, size uint32) ([]byte, error) {
 	if offset+size > sb.sabSize {
-		return nil, fmt.Errorf("out of bounds read: 0x%x + %d > 0x%x", offset, size, sb.sabSize)
+		return nil, fmt.Errorf("out of bounds read")
 	}
-	ptr := unsafe.Add(sb.sab, offset)
-	data := make([]byte, size)
-	copy(data, unsafe.Slice((*byte)(ptr), size))
-	return data, nil
+	if size == 0 {
+		return []byte{}, nil
+	}
+
+	// FORCE JS INTEROP for correct SAB access
+	dest := make([]byte, size)
+	if err := sb.ReadAt(offset, dest); err != nil {
+		return nil, err
+	}
+	return dest, nil
 }
 
-// ValidateArenaOffset checks if the given offset and size fall within the Arena region
+// ReadAt reads raw bytes from SAB into the provided buffer (Zero Allocation if buffer reused)
+func (sb *SABBridge) ReadAt(offset uint32, dest []byte) error {
+	size := uint32(len(dest))
+	if offset+size > sb.sabSize {
+		return fmt.Errorf("out of bounds read: off=%d len=%d cap=%d", offset, size, sb.sabSize)
+	}
+	if size == 0 {
+		return nil
+	}
+
+	// Go's linear memory is likely distinct from the SAB in this environment.
+	// We use CopyBytesToGo to copy from the shared SAB into Go memory.
+	view := sb.getJsUint8View()
+	if !view.IsUndefined() {
+		// Create a view on the SAB for the requested range
+		// subarray assumes byte offsets and is cheap (JS view creation)
+		subView := view.Call("subarray", offset, offset+size)
+
+		copied := js.CopyBytesToGo(dest, subView)
+		if uint32(copied) != size {
+			return fmt.Errorf("failed to copy all bytes: expected %d, got %d", size, copied)
+		}
+		return nil
+	}
+
+	// Fallback to unsafe (read from local linear memory)
+	ptr := unsafe.Add(sb.sab, offset)
+	copy(dest, unsafe.Slice((*byte)(ptr), size))
+	return nil
+}
+
+func (sb *SABBridge) getJsUint8View() js.Value {
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+	return sb.jsUint8View
+}
+
 func (sb *SABBridge) ValidateArenaOffset(offset, size uint32) error {
 	if offset < sab_layout.OFFSET_ARENA {
-		return fmt.Errorf("offset 0x%x is below Arena start 0x%x", offset, sab_layout.OFFSET_ARENA)
-	}
-	// Note: We use the actual SAB size here if available, or the default
-	if offset+size > sab_layout.SAB_SIZE_MAX {
-		return fmt.Errorf("offset+size 0x%x exceeds maximum SAB size 0x%x", offset+size, sab_layout.SAB_SIZE_MAX)
+		return fmt.Errorf("offset below arena")
 	}
 	return nil
 }
 
-// Helper: Serialize job to Cap'n Proto message
 func (sb *SABBridge) serializeJob(job *foundation.Job) ([]byte, error) {
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		return nil, err
 	}
-
-	// Create root struct: Compute.JobRequest
 	req, err := compute.NewRootCompute_JobRequest(seg)
 	if err != nil {
 		return nil, err
 	}
-
-	// Set fields
-	if err := req.SetJobId(job.ID); err != nil {
-		return nil, err
-	}
-	if err := req.SetLibrary(job.Type); err != nil {
-		return nil, err
-	}
-	if err := req.SetMethod(job.Operation); err != nil {
-		return nil, err
-	}
-
-	// Convert params map to JSON string to match schema (params @4 :Text)
-	// This maintains compatibility with the engine's expectation of JSON params
-	// even though the envelope is Cap'n Proto
-	paramsJSON := []byte("{}")
-	if job.Parameters != nil {
-		// Best effort JSON marshalling
-		if b, err := json.Marshal(job.Parameters); err == nil {
-			paramsJSON = b
-		}
-	}
-	if err := req.SetParams(paramsJSON); err != nil {
-		return nil, err
-	}
-
-	if err := req.SetInput(job.Data); err != nil {
-		return nil, err
-	}
-
-	// Simple defaults for now
-	req.SetBudget(1000)
-	req.SetPriority(128)
-	req.SetTimeout(5000)
-
+	req.SetJobId(job.ID)
+	req.SetLibrary(job.Type)
+	req.SetMethod(job.Operation)
+	params, _ := json.Marshal(job.Parameters)
+	req.SetParams(params)
+	req.SetInput(job.Data)
 	return msg.Marshal()
 }
 
-// DeserializeResult deserializes result from Cap'n Proto message
 func (sb *SABBridge) DeserializeResult(data []byte) *foundation.Result {
 	if len(data) == 0 {
-		return &foundation.Result{Success: false, Error: "empty result data"}
+		return &foundation.Result{Success: false, Error: "no data"}
 	}
-
-	// Read message
 	msg, err := capnp.Unmarshal(data)
 	if err != nil {
-		// Fallback for legacy simple results if needed, or just error
-		// This handles the transition period if an old module writes a simple result
-		return &foundation.Result{Success: false, Error: fmt.Sprintf("capnp unmarshal failed: %v", err)}
+		return &foundation.Result{Success: false, Error: err.Error()}
 	}
-
-	// Read root: Compute.JobResult
-	res, err := compute.ReadRootCompute_JobResult(msg)
-	if err != nil {
-		return &foundation.Result{Success: false, Error: fmt.Sprintf("invalid root struct: %v", err)}
-	}
-
+	res, _ := compute.ReadRootCompute_JobResult(msg)
 	jobId, _ := res.JobId()
-	status := res.Status()
-	success := status == compute.Compute_Status_success
-
 	output, _ := res.Output()
 	errStr, _ := res.ErrorMessage()
-
-	// If failed, prefer the error message
-	finalError := ""
-	if !success {
-		if errStr != "" {
-			finalError = errStr
-		} else {
-			finalError = fmt.Sprintf("job failed with status: %v", status)
-		}
-	}
-
 	return &foundation.Result{
 		JobID:   jobId,
-		Success: success,
+		Success: res.Status() == compute.Compute_Status_success,
 		Data:    output,
-		Error:   finalError,
+		Error:   errStr,
 	}
 }

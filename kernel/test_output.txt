@@ -1,0 +1,45 @@
+# github.com/nmxmxh/inos_v1/kernel/threads
+package github.com/nmxmxh/inos_v1/kernel/threads
+	imports github.com/nmxmxh/inos_v1/kernel/threads/supervisor
+	imports syscall/js: build constraints exclude all Go files in /opt/homebrew/Cellar/go/1.25.1/libexec/src/syscall/js
+FAIL	github.com/nmxmxh/inos_v1/kernel/threads [setup failed]
+# github.com/nmxmxh/inos_v1/kernel/threads/supervisor
+package github.com/nmxmxh/inos_v1/kernel/threads
+	imports github.com/nmxmxh/inos_v1/kernel/threads/supervisor
+	imports syscall/js: build constraints exclude all Go files in /opt/homebrew/Cellar/go/1.25.1/libexec/src/syscall/js
+FAIL	github.com/nmxmxh/inos_v1/kernel/threads/supervisor [setup failed]
+# github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units
+package github.com/nmxmxh/inos_v1/kernel/threads
+	imports github.com/nmxmxh/inos_v1/kernel/threads/supervisor
+	imports syscall/js: build constraints exclude all Go files in /opt/homebrew/Cellar/go/1.25.1/libexec/src/syscall/js
+FAIL	github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units [setup failed]
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh	0.858s
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh/common	2.260s
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh/internal	2.060s
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization	5.462s
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh/routing	3.874s
+ok  	github.com/nmxmxh/inos_v1/kernel/core/mesh/transport	15.299s
+?   	github.com/nmxmxh/inos_v1/kernel/gen/base/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/compute/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/economy/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/identity/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/io/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/ml/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/p2p/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/science/v1	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/gen/system/v1	[no test files]
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/arena	(cached)
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/foundation	3.537s
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/intelligence	3.497s
+?   	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/acceleration	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/health	[no test files]
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/learning	4.296s
+?   	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/optimization	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/scheduling	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/threads/intelligence/security	[no test files]
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/pattern	2.947s
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/registry	3.336s
+ok  	github.com/nmxmxh/inos_v1/kernel/threads/sab	2.152s
+?   	github.com/nmxmxh/inos_v1/kernel/threads/testutil	[no test files]
+?   	github.com/nmxmxh/inos_v1/kernel/utils	[no test files]
+FAIL

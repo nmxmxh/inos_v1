@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"hash/crc32"
 	"sync"
+	"unsafe"
+
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
-// Constants from sab/layout.go
-const (
-	OFFSET_MODULE_REGISTRY = 0x000100
-	MODULE_ENTRY_SIZE      = 96
-	MAX_MODULES_INLINE     = 64
-)
+// Module metadata constants are now sourced from sab_layout
 
 // EnhancedModuleEntry matches Rust definition (96 bytes)
 type EnhancedModuleEntry struct {
@@ -92,16 +90,18 @@ type CostModel struct {
 
 // ModuleRegistry manages module discovery with version awareness
 type ModuleRegistry struct {
-	sab     []byte
+	sabPtr  unsafe.Pointer // Changed from sab []byte
+	sabSize uint32         // Added to track the size of the SAB
 	modules map[string]*RegisteredModule
 	byHash  map[uint32]*RegisteredModule
 	mu      sync.RWMutex
 }
 
 // NewModuleRegistry creates a new module registry
-func NewModuleRegistry(sab []byte) *ModuleRegistry {
+func NewModuleRegistry(sabPtr unsafe.Pointer, sabSize uint32) *ModuleRegistry { // Signature changed
 	return &ModuleRegistry{
-		sab:     sab,
+		sabPtr:  sabPtr,  // Updated field name
+		sabSize: sabSize, // Initialized new field
 		modules: make(map[string]*RegisteredModule),
 		byHash:  make(map[uint32]*RegisteredModule),
 	}
@@ -113,11 +113,12 @@ func (mr *ModuleRegistry) LoadFromSAB() error {
 	defer mr.mu.Unlock()
 
 	loadedCount := 0
-	entries := make([]*EnhancedModuleEntry, 0, MAX_MODULES_INLINE)
-	slots := make([]int, 0, MAX_MODULES_INLINE)
+	// fmt.Printf("[Registry] Loading from SAB. ptr=%v, size=%d\n", mr.sabPtr, mr.sabSize)
+	entries := make([]*EnhancedModuleEntry, 0, sab_layout.MAX_MODULES_INLINE)
+	slots := make([]int, 0, sab_layout.MAX_MODULES_INLINE)
 
 	// First pass: Load all module entries and register them
-	for slot := 0; slot < MAX_MODULES_INLINE; slot++ {
+	for slot := 0; slot < int(sab_layout.MAX_MODULES_INLINE); slot++ {
 		entry, err := mr.readEnhancedEntry(slot)
 		if err != nil {
 			continue
@@ -349,16 +350,23 @@ func isVersionCompatible(actual, min, max VersionTriple) bool {
 	return true
 }
 
-// Helper: Read enhanced entry from SAB
+// Helper: Read enhanced entry from SAB using absolute addressing
 func (mr *ModuleRegistry) readEnhancedEntry(slot int) (*EnhancedModuleEntry, error) {
-	offset := OFFSET_MODULE_REGISTRY + (slot * MODULE_ENTRY_SIZE)
+	offset := uint32(sab_layout.OFFSET_MODULE_REGISTRY) + (uint32(slot) * uint32(sab_layout.MODULE_ENTRY_SIZE))
 
-	if offset+MODULE_ENTRY_SIZE > len(mr.sab) {
+	if offset+uint32(sab_layout.MODULE_ENTRY_SIZE) > mr.sabSize {
 		return nil, fmt.Errorf("offset out of bounds")
 	}
 
 	entry := &EnhancedModuleEntry{}
-	data := mr.sab[offset : offset+MODULE_ENTRY_SIZE]
+	ptr := unsafe.Add(mr.sabPtr, offset)
+	// fmt.Printf("[Registry] Reading slot %d at offset %d (ptr_addr=%v)\n", slot, offset, ptr)
+
+	// Fast check for OOB on first read
+	// sig := *(*uint64)(ptr)
+	// fmt.Printf("[Registry] Slot %d signature: %x\n", slot, sig)
+
+	data := unsafe.Slice((*byte)(ptr), sab_layout.MODULE_ENTRY_SIZE)
 
 	entry.Signature = binary.LittleEndian.Uint64(data[0:8])
 	entry.IDHash = binary.LittleEndian.Uint32(data[8:12])
@@ -395,7 +403,8 @@ func (mr *ModuleRegistry) readDependencyTable(offset uint32, count uint16) []Dep
 	// Read dependency entries (16 bytes each)
 	entryOffset := offset + 12 // Skip header
 	for i := uint16(0); i < count; i++ {
-		data := mr.sab[entryOffset : entryOffset+16]
+		ptr := unsafe.Add(mr.sabPtr, entryOffset)
+		data := unsafe.Slice((*byte)(ptr), 16)
 
 		moduleIDHash := binary.LittleEndian.Uint32(data[0:4])
 		minMajor := data[4]
@@ -446,11 +455,12 @@ func (mr *ModuleRegistry) readCapabilityTable(offset uint32, count uint16) []Cap
 	entryOffset := offset
 
 	for i := uint16(0); i < count; i++ {
-		if entryOffset+entrySize > uint32(len(mr.sab)) {
+		if entryOffset+entrySize > mr.sabSize {
 			break
 		}
 
-		data := mr.sab[entryOffset : entryOffset+entrySize]
+		ptr := unsafe.Add(mr.sabPtr, entryOffset)
+		data := unsafe.Slice((*byte)(ptr), entrySize)
 
 		// Extract ID (first 32 bytes, null terminated)
 		nullPos := 32
@@ -535,7 +545,7 @@ func (mr *ModuleRegistry) GetStats() RegistryStats {
 	_, err := mr.GetDependencyOrder()
 
 	return RegistryStats{
-		TotalModules:    MAX_MODULES_INLINE,
+		TotalModules:    int(sab_layout.MAX_MODULES_INLINE),
 		LoadedModules:   len(mr.modules),
 		HasCircularDeps: err != nil,
 	}

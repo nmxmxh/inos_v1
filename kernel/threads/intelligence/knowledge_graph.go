@@ -8,13 +8,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 )
 
 // KnowledgeGraph stores knowledge in SAB for zero-copy sharing
 type KnowledgeGraph struct {
-	sab        []byte
+	sabPtr     unsafe.Pointer
+	sabSize    uint32
 	baseOffset uint32
 	capacity   uint32
 
@@ -68,9 +70,10 @@ const (
 )
 
 // NewKnowledgeGraph creates a new knowledge graph in SAB
-func NewKnowledgeGraph(sab []byte, baseOffset, capacity uint32) *KnowledgeGraph {
+func NewKnowledgeGraph(sabPtr unsafe.Pointer, sabSize, baseOffset, capacity uint32) *KnowledgeGraph {
 	return &KnowledgeGraph{
-		sab:        sab,
+		sabPtr:     sabPtr,
+		sabSize:    sabSize,
 		baseOffset: baseOffset,
 		capacity:   capacity,
 		nodeIndex:  make(map[string]uint32),
@@ -189,7 +192,7 @@ func (kg *KnowledgeGraph) FindByType(nodeType foundation.NodeType) ([]*Knowledge
 
 // Helper: Write node to SAB with binary encoding
 func (kg *KnowledgeGraph) writeNode(offset uint32, node *KnowledgeNode) error {
-	if offset+KNOWLEDGE_NODE_SIZE > uint32(len(kg.sab)) {
+	if offset+KNOWLEDGE_NODE_SIZE > kg.sabSize {
 		return fmt.Errorf("offset out of bounds")
 	}
 
@@ -216,18 +219,21 @@ func (kg *KnowledgeGraph) writeNode(offset uint32, node *KnowledgeNode) error {
 	copy(data[42:64], node.Reserved[:])
 
 	// Atomic write to SAB
-	copy(kg.sab[offset:offset+KNOWLEDGE_NODE_SIZE], data)
+	ptr := unsafe.Add(kg.sabPtr, offset)
+	sabData := unsafe.Slice((*byte)(ptr), KNOWLEDGE_NODE_SIZE)
+	copy(sabData, data)
 
 	return nil
 }
 
 // Helper: Read node from SAB with binary decoding
 func (kg *KnowledgeGraph) readNode(offset uint32) (*KnowledgeNode, error) {
-	if offset+KNOWLEDGE_NODE_SIZE > uint32(len(kg.sab)) {
+	if offset+KNOWLEDGE_NODE_SIZE > kg.sabSize {
 		return nil, fmt.Errorf("offset out of bounds")
 	}
 
-	data := kg.sab[offset : offset+KNOWLEDGE_NODE_SIZE]
+	ptr := unsafe.Add(kg.sabPtr, offset)
+	data := unsafe.Slice((*byte)(ptr), KNOWLEDGE_NODE_SIZE)
 
 	node := &KnowledgeNode{
 		Magic:      binary.LittleEndian.Uint64(data[0:8]),

@@ -1,14 +1,17 @@
 package pattern
 
 import (
-"fmt"
-"testing"
-"github.com/nmxmxh/inos_v1/kernel/threads/testutil"
+	"fmt"
+	"testing"
+	"unsafe"
+
+	"github.com/nmxmxh/inos_v1/kernel/threads/testutil"
 )
 
 func TestDebugCounting(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabSize := uint32(4 * 1024 * 1024)
+	sabData := testutil.NewMockSABBuilder(int(sabSize)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), sabSize, 0x10000, 1024)
 
 	for i := 0; i < 10; i++ {
 		pattern := &EnhancedPattern{

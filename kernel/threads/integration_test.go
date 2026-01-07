@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
@@ -15,10 +17,12 @@ import (
 
 func TestIntegration_LoopOfIntelligence(t *testing.T) {
 	// 1. Setup Environment
-	sab := make([]byte, 2*1024*1024)
+	sabSize := uint32(2 * 1024 * 1024)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
 	// knowledge base offset (e.g. at 1MB)
-	storage := pattern.NewTieredPatternStorage(sab, 0, 1024*1024)
-	knowledge := intelligence.NewKnowledgeGraph(sab, 1024*1024, 1024)
+	storage := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024*1024)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 1024*1024, 1024)
 
 	// Initialize Supervisor with storage and knowledge
 	us := supervisor.NewUnifiedSupervisor(

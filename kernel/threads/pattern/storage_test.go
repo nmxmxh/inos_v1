@@ -3,6 +3,9 @@ package pattern
 import (
 	"testing"
 
+	"unsafe"
+
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/threads/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,8 +14,8 @@ import (
 // TestPatternStorage_WriteAndRead tests basic write/read operations
 func TestPatternStorage_WriteAndRead(t *testing.T) {
 	// Create SAB
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Create test pattern
 	pattern := &EnhancedPattern{
@@ -44,8 +47,8 @@ func TestPatternStorage_WriteAndRead(t *testing.T) {
 
 // TestPatternStorage_TierPromotion tests LRU eviction when tier 1 full
 func TestPatternStorage_TierPromotion(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Create pattern
 	pattern := &EnhancedPattern{
@@ -95,8 +98,8 @@ func TestPatternStorage_TierPromotion(t *testing.T) {
 
 // TestPatternStorage_LRUEviction tests LRU eviction when tier 1 full
 func TestPatternStorage_LRUEviction(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Fill tier 1 to capacity
 	patterns := make([]*EnhancedPattern, 1025) // One more than capacity
@@ -119,8 +122,8 @@ func TestPatternStorage_LRUEviction(t *testing.T) {
 
 // TestPatternStorage_BloomFilter tests bloom filter prevents unnecessary lookups
 func TestPatternStorage_BloomFilter(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Try to read non-existent pattern
 	_, err := storage.ReadPattern(99999)
@@ -134,11 +137,11 @@ func TestPatternStorage_BloomFilter(t *testing.T) {
 // TestPatternStorage_SABSynchronization tests SyncFromSAB for Rust-written patterns
 func TestPatternStorage_SABSynchronization(t *testing.T) {
 	// Create SAB with pre-written pattern (simulating Rust write)
-	builder := testutil.NewMockSABBuilder(4 * 1024 * 1024)
+	builder := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT))
 	builder.AddPattern(12345, 0, 90, nil) // ID=12345, Type=Sequence, Confidence=90
 	sabData := builder.Build()
 
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Sync from SAB
 	err := storage.SyncFromSAB()
@@ -154,8 +157,8 @@ func TestPatternStorage_SABSynchronization(t *testing.T) {
 
 // TestPatternStorage_MultiplePatterns tests writing multiple patterns
 func TestPatternStorage_MultiplePatterns(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Write 100 patterns
 	for i := 0; i < 100; i++ {
@@ -177,8 +180,8 @@ func TestPatternStorage_MultiplePatterns(t *testing.T) {
 
 // TestPatternStorage_Query tests pattern querying
 func TestPatternStorage_Query(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Write patterns with different types
 	for i := 0; i < 10; i++ {
@@ -204,8 +207,8 @@ func TestPatternStorage_Query(t *testing.T) {
 
 // TestPatternStorage_ConcurrentAccess tests thread-safe operations
 func TestPatternStorage_ConcurrentAccess(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Write some patterns
 	for i := 0; i < 10; i++ {
@@ -237,8 +240,8 @@ func TestPatternStorage_ConcurrentAccess(t *testing.T) {
 
 // TestPatternStorage_Stats tests statistics tracking
 func TestPatternStorage_Stats(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Initial stats
 	stats := storage.GetStats()
@@ -268,8 +271,8 @@ func TestPatternStorage_Stats(t *testing.T) {
 
 // TestPatternStorage_InvalidPattern tests handling of invalid patterns
 func TestPatternStorage_InvalidPattern(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(4 * 1024 * 1024).Build()
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Try to read non-existent pattern
 	_, err := storage.ReadPattern(0)
@@ -282,8 +285,8 @@ func TestPatternStorage_InvalidPattern(t *testing.T) {
 
 // TestPatternStorage_LargePayload tests patterns with large payloads
 func TestPatternStorage_LargePayload(t *testing.T) {
-	sabData := testutil.NewMockSABBuilder(8 * 1024 * 1024).Build() // Larger SAB
-	storage := NewTieredPatternStorage(sabData, 0x10000, 1024)
+	sabData := testutil.NewMockSABBuilder(int(sab_layout.SAB_SIZE_DEFAULT)).Build()
+	storage := NewTieredPatternStorage(unsafe.Pointer(&sabData[0]), uint32(len(sabData)), sab_layout.OFFSET_PATTERN_EXCHANGE, 1024)
 
 	// Create pattern with large payload (10KB)
 	largePayload := make([]byte, 10*1024)

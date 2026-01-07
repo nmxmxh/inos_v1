@@ -5,6 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -100,8 +103,10 @@ func TestPattern_UpdateSuccessRate(t *testing.T) {
 }
 
 func TestPatternSubscriber_Basic(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	storage := NewTieredPatternStorage(sab, 0, 1024*1024)
+	sabSize := uint32(sab_layout.SAB_SIZE_DEFAULT)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	storage := NewTieredPatternStorage(sabPtr, sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
 	sub := NewPatternSubscriber(storage)
 	require.NotNil(t, sub)
 
@@ -121,8 +126,10 @@ func TestPatternSubscriber_Basic(t *testing.T) {
 }
 
 func TestPatternSubscriber_Updates(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	storage := NewTieredPatternStorage(sab, 0, 1024*1024)
+	sabSize := uint32(sab_layout.SAB_SIZE_DEFAULT)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	storage := NewTieredPatternStorage(sabPtr, sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
 	sub := NewPatternSubscriber(storage)
 
 	received := make(chan *EnhancedPattern, 1)
@@ -150,8 +157,10 @@ func TestPatternSubscriber_Updates(t *testing.T) {
 }
 
 func TestPatternSubscriber_ApplyPattern(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	storage := NewTieredPatternStorage(sab, 0, 1024*1024)
+	sabSize := uint32(sab_layout.SAB_SIZE_DEFAULT)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	storage := NewTieredPatternStorage(sabPtr, sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
 	sub := NewPatternSubscriber(storage)
 
 	p := NewPattern(PatternTypeAtomic, 1)
@@ -231,7 +240,10 @@ func TestPatternValidator_Significance(t *testing.T) {
 }
 
 func TestPatternDetector_Basic(t *testing.T) {
-	storage := NewTieredPatternStorage(make([]byte, 1024), 0, 1024)
+	sabSize := uint32(sab_layout.SAB_SIZE_DEFAULT)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	storage := NewTieredPatternStorage(sabPtr, sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
 	publisher := NewPatternPublisher(storage)
 	validator := NewPatternValidator()
 	pd := NewPatternDetector(validator, publisher)
@@ -337,8 +349,10 @@ func TestPatternSecurity_Extended(t *testing.T) {
 }
 
 func TestTieredPatternStorage_Extended(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	storage := NewTieredPatternStorage(sab, 0, 1024*1024)
+	sabSize := uint32(sab_layout.SAB_SIZE_DEFAULT)
+	sab := make([]byte, sabSize)
+	sabPtr := unsafe.Pointer(&sab[0])
+	storage := NewTieredPatternStorage(sabPtr, sabSize, sab_layout.OFFSET_PATTERN_EXCHANGE, sab_layout.SIZE_PATTERN_EXCHANGE)
 
 	p := NewPattern(PatternTypeAtomic, 1)
 	p.Header.ID = 500

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,10 +47,11 @@ func TestFlowController_Stats(t *testing.T) {
 }
 
 func TestProtocol_SendReceive(t *testing.T) {
-	sab := make([]byte, 1024*1024)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
 	// Base offsets matching SAB layout
-	inbox := foundation.NewMessageQueue(sab, 1024, 256)
-	outbox := foundation.NewMessageQueue(sab, 2048, 256)
+	inbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 1024, 256)
+	outbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 2048, 256)
 
 	p := NewProtocol(sab, 1, outbox, inbox)
 	require.NotNil(t, p)
@@ -73,8 +76,9 @@ func TestProtocol_SendReceive(t *testing.T) {
 }
 
 func TestProtocol_AckTimeout(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	outbox := foundation.NewMessageQueue(sab, 1024, 256)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	outbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 1024, 256)
 	p := NewProtocol(sab, 1, outbox, nil)
 
 	// Test blocking send with timeout
@@ -85,8 +89,9 @@ func TestProtocol_AckTimeout(t *testing.T) {
 }
 
 func TestProtocol_NotifyAck(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	outbox := foundation.NewMessageQueue(sab, 1024, 256)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	outbox := foundation.NewMessageQueue(unsafe.Pointer(&sab[0]), sabSize, 1024, 256)
 	p := NewProtocol(sab, 1, outbox, nil)
 
 	// Run send in goroutine

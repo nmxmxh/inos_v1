@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,8 +15,9 @@ import (
 
 func TestKnowledgeGraph_BasicOps(t *testing.T) {
 	// Setup SAB (1MB)
-	sab := make([]byte, 1024*1024)
-	kg := NewKnowledgeGraph(sab, 0, 100)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 100)
 
 	// Add Node
 	data := []byte("test-data")
@@ -41,8 +44,9 @@ func TestKnowledgeGraph_BasicOps(t *testing.T) {
 }
 
 func TestKnowledgeGraph_Edges(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	kg := NewKnowledgeGraph(sab, 0, 100)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 100)
 
 	// Add Nodes
 	_ = kg.AddNode("nodeA", foundation.NodeTypePattern, 0.8, nil)
@@ -58,8 +62,9 @@ func TestKnowledgeGraph_Edges(t *testing.T) {
 }
 
 func TestKnowledgeGraph_Query(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	kg := NewKnowledgeGraph(sab, 0, 100)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 100)
 
 	// Add mixed nodes
 	_ = kg.AddNode("p1", foundation.NodeTypePattern, 0.9, nil)
@@ -90,8 +95,9 @@ func TestKnowledgeGraph_Query(t *testing.T) {
 }
 
 func TestKnowledgeGraph_Concurrency(t *testing.T) {
-	sab := make([]byte, 1024*1024)
-	kg := NewKnowledgeGraph(sab, 0, 1000)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 1000)
 
 	var wg sync.WaitGroup
 	workers := 10
@@ -122,11 +128,12 @@ func TestKnowledgeGraph_Concurrency(t *testing.T) {
 }
 
 func TestKnowledgeGraph_Persistence(t *testing.T) {
-	sab := make([]byte, 1024*1024)
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
 
 	// Phase 1: Create and Populate
 	{
-		kg1 := NewKnowledgeGraph(sab, 0, 100)
+		kg1 := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 100)
 		err := kg1.AddNode("persist_node", foundation.NodeTypeRule, 0.99, []byte("rules"))
 		require.NoError(t, err)
 	}
@@ -156,8 +163,9 @@ func TestKnowledgeGraph_Persistence(t *testing.T) {
 func TestKnowledgeGraph_Errors(t *testing.T) {
 	// 1. Capacity Error
 	{
-		sab := make([]byte, 1024*1024)
-		kg := NewKnowledgeGraph(sab, 0, 2) // Cap 2
+		sabSize := uint32(1024 * 1024)
+		sab := make([]byte, sabSize)
+		kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 2) // Cap 2
 
 		err := kg.AddNode("n1", 0, 0.5, nil)
 		require.NoError(t, err)
@@ -171,8 +179,9 @@ func TestKnowledgeGraph_Errors(t *testing.T) {
 
 	// 2. Query Errors
 	{
-		sab := make([]byte, 1024*1024)
-		kg := NewKnowledgeGraph(sab, 0, 10)
+		sabSize := uint32(1024 * 1024)
+		sab := make([]byte, sabSize)
+		kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 10)
 
 		// Invalid format
 		_, err := kg.Query("invalidformat")
@@ -189,8 +198,9 @@ func TestKnowledgeGraph_Errors(t *testing.T) {
 
 	// 3. Corrupted Data (Magic Mismatch)
 	{
-		sab := make([]byte, 1024*1024)
-		kg := NewKnowledgeGraph(sab, 0, 10)
+		sabSize := uint32(1024 * 1024)
+		sab := make([]byte, sabSize)
+		kg := NewKnowledgeGraph(unsafe.Pointer(&sab[0]), sabSize, 0, 10)
 
 		err := kg.AddNode("nodeX", 0, 0.5, nil)
 		require.NoError(t, err)

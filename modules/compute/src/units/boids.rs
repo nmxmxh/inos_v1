@@ -156,7 +156,7 @@ impl BoidUnit {
     /// Step boids physics in SAB with full flocking behavior using Ping-Pong Buffers
     /// Memory flow: Read from active buffer → compute in linear memory → write to inactive buffer → flip
     pub fn step_physics_sab(&self, sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
-        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_EPOCH};
+        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, IDX_BIRD_EPOCH, OFFSET_ATOMIC_FLAGS};
 
         // Ensure logging is initialized (idempotent)
         sdk::init_logging();
@@ -394,11 +394,19 @@ impl BoidUnit {
         // --- STEP 5: Write Scratch → SAB ---
         sab.write_raw(write_info.offset, &population_data[..total_bytes])?;
 
+        // Write bird count to Atomic Flags (Index 20 - IDX_BIRD_COUNT)
+        // Use absolute offset (OFFSET_ATOMIC_FLAGS + Index * 4)
+        sab.write(
+            OFFSET_ATOMIC_FLAGS + IDX_BIRD_COUNT as usize * 4,
+            &bird_count.to_le_bytes(),
+        )
+        .map_err(|e| format!("Failed to write bird count to SAB: {}", e))?;
+
         // --- STEP 6: Flip buffers ---
         let new_epoch = ping_pong.flip();
 
         sab.write(
-            IDX_BIRD_EPOCH as usize * 4,
+            OFFSET_ATOMIC_FLAGS + IDX_BIRD_EPOCH as usize * 4,
             &(new_epoch as u32).to_le_bytes(),
         )
         .map_err(|e| format!("Epoch write failed: {}", e))?;
@@ -409,7 +417,7 @@ impl BoidUnit {
     /// Initialize population in SAB using Ping-Pong Buffer architecture
     /// Writes initial state to BOTH buffers A and B so first physics step works correctly
     pub fn init_population_sab(sab: &SafeSAB, bird_count: u32) -> Result<(), String> {
-        use sdk::layout::BIRD_STRIDE;
+        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, OFFSET_ATOMIC_FLAGS};
 
         sdk::init_logging();
 
@@ -424,6 +432,14 @@ impl BoidUnit {
             read_info.offset,
             write_info.offset
         );
+
+        // Write bird count to Atomic Flags (Index 20 - IDX_BIRD_COUNT)
+        // Use absolute offset (OFFSET_ATOMIC_FLAGS + Index * 4)
+        sab.write(
+            OFFSET_ATOMIC_FLAGS + IDX_BIRD_COUNT as usize * 4,
+            &bird_count.to_le_bytes(),
+        )
+        .map_err(|e| format!("Failed to write bird count to SAB: {}", e))?;
 
         let total_bytes = bird_count as usize * BIRD_STRIDE;
         let mut population_data = vec![0u8; total_bytes];

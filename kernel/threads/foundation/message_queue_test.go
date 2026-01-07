@@ -15,7 +15,7 @@ func TestMessageQueue_EnqueueDequeue(t *testing.T) {
 	baseOffset := uint32(256) // Ensure enough space for head/tail pointers
 	capacity := uint32(4)     // Small capacity to test wrapping
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	// Enqueue simple message
 	payloadOffset, err := mq.EnqueueZeroCopy(1, 10, 5)
@@ -42,7 +42,7 @@ func TestMessageQueue_QueueFull(t *testing.T) {
 	baseOffset := uint32(256)
 	capacity := uint32(2) // Capacity 2 means we can store 1 item? Or 2? usually capacity-1
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	// Fill queue
 	// Tail increments. If nextTail == head, full.
@@ -70,7 +70,7 @@ func TestMessageQueue_QueueEmpty(t *testing.T) {
 	baseOffset := uint32(256)
 	capacity := uint32(4)
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	_, _, _, err := mq.DequeueZeroCopy()
 	assert.Error(t, err)
@@ -83,7 +83,7 @@ func TestMessageQueue_FinalizeMessage(t *testing.T) {
 	baseOffset := uint32(256)
 	capacity := uint32(4)
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	data := []byte{1, 2, 3, 4}
 	offset, err := mq.EnqueueZeroCopy(1, 1, uint16(len(data)))
@@ -108,7 +108,7 @@ func TestMessageQueue_PointersLocation(t *testing.T) {
 	baseOffset := uint32(256)
 	capacity := uint32(16)
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	// Manually inspect pointers
 	headPtr := (*uint32)(unsafe.Pointer(&sab[baseOffset-8]))
@@ -130,7 +130,7 @@ func TestMessageQueue_WrapAround(t *testing.T) {
 	baseOffset := uint32(256)
 	capacity := uint32(4) // Max items = 3
 
-	mq := NewMessageQueue(sab, baseOffset, capacity)
+	mq := NewMessageQueue(unsafe.Pointer(&sab[0]), uint32(sabSize), baseOffset, capacity)
 
 	// 1. Fill to capacity (3 items)
 	// Tail: 0 -> 1 -> 2 -> 3

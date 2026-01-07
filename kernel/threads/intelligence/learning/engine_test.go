@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/learning"
@@ -15,8 +17,9 @@ import (
 // Helper function to create test environment
 func createTestEnvironment() (*pattern.TieredPatternStorage, *intelligence.KnowledgeGraph) {
 	testSAB := make([]byte, sab.SAB_SIZE_DEFAULT)
-	patterns := pattern.NewTieredPatternStorage(testSAB, sab.OFFSET_PATTERN_EXCHANGE, sab.MAX_PATTERNS_INLINE)
-	knowledge := intelligence.NewKnowledgeGraph(testSAB, sab.OFFSET_COORDINATION, 1024)
+	sabPtr := unsafe.Pointer(&testSAB[0])
+	patterns := pattern.NewTieredPatternStorage(sabPtr, uint32(len(testSAB)), sab.OFFSET_PATTERN_EXCHANGE, sab.MAX_PATTERNS_INLINE)
+	knowledge := intelligence.NewKnowledgeGraph(sabPtr, uint32(len(testSAB)), sab.OFFSET_COORDINATION, 1024)
 	return patterns, knowledge
 }
 
