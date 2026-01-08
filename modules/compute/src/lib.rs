@@ -167,6 +167,10 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
             sdk::set_module_id(module_id);
 
             sdk::init_logging();
+
+            // Set global barrier view for zero-copy context verification
+            sdk::sab::set_global_barrier_view(global_sab.barrier_view().clone());
+
             // Capture the initial context ID to prevent zombie execution
             sdk::init_context();
 

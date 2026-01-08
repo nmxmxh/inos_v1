@@ -1,6 +1,25 @@
 use crate::js_interop::Int32Array;
 use crate::js_interop::JsValue;
+use once_cell::sync::Lazy;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
+
+// Global barrier view for zero-copy context verification
+static GLOBAL_BARRIER_VIEW: Lazy<Mutex<Option<JsValue>>> = Lazy::new(|| Mutex::new(None));
+
+/// Set the global barrier view for SDK-wide atomic access.
+/// Called once during module initialization.
+pub fn set_global_barrier_view(view: JsValue) {
+    if let Ok(mut guard) = GLOBAL_BARRIER_VIEW.lock() {
+        *guard = Some(view);
+    }
+}
+
+/// Get the global barrier view for atomic SAB access.
+/// Returns None if not yet initialized.
+pub fn get_global_barrier_view() -> Option<JsValue> {
+    GLOBAL_BARRIER_VIEW.lock().ok().and_then(|g| g.clone())
+}
 
 /// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety
 ///

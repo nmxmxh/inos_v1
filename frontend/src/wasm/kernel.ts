@@ -5,6 +5,21 @@
 
 import { MEMORY_PAGES, type ResourceTier } from './layout';
 
+// Re-export IDX_CONTEXT_ID_HASH for other modules
+export { IDX_CONTEXT_ID_HASH } from './layout';
+
+/**
+ * Hash a string to a 32-bit integer for zero-copy comparison in SAB.
+ */
+function stringHash(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash << 5) - hash + s.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash;
+}
+
 declare global {
   interface Window {
     Go: any;
@@ -139,6 +154,13 @@ export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise
     window.__INOS_SAB_OFFSET__ = sabOffset;
     window.__INOS_SAB_SIZE__ = sabSize;
     (window as any).__INOS_SAB_INT32__ = new Int32Array(sabBase);
+    (window as any).__INOS_TIER__ = tier;
+
+    // 5b. Write Context ID Hash to SAB for zero-copy validation
+    const contextHash = stringHash(contextId);
+    const contextHashIndex = 31; // IDX_CONTEXT_ID_HASH from layout
+    (window as any).__INOS_SAB_INT32__[contextHashIndex] = contextHash;
+    console.log(`[Kernel] Context hash written to SAB[${contextHashIndex}]: ${contextHash}`);
 
     // 6. Wait for Kernel to be ready for SAB injection
     // Wait for initializeSharedMemory function to be registered by Go kernel

@@ -2,8 +2,9 @@ import { WasmHeap } from './heap';
 
 type GetBufferFn = () => ArrayBuffer;
 
-// Cached decoder to avoid allocation on every call
+// Cached encoder/decoder to avoid allocation on every call
 const textDecoder = new TextDecoder();
+const textEncoder = new TextEncoder();
 
 export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
   const addHeapObject = (obj: any) => heap.add(obj);
@@ -163,7 +164,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const buffer = getBuffer();
       // Use encodeInto for zero-copy write directly to WASM memory
       const dest = new Uint8Array(buffer, ptr, maxLen);
-      const { written } = new TextEncoder().encodeInto(obj, dest);
+      const { written } = textEncoder.encodeInto(obj, dest);
       return written;
     },
   };

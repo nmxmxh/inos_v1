@@ -21,6 +21,8 @@ export class Dispatcher {
   private exports: any;
   private memory: WebAssembly.Memory;
   private capabilities: Map<string, string[]> = new Map();
+  private static encoder = new TextEncoder();
+  private static decoder = new TextDecoder();
 
   constructor(exports: any, memory: WebAssembly.Memory) {
     this.exports = exports;
@@ -66,7 +68,7 @@ export class Dispatcher {
       throw new Error('compute_execute export missing');
     }
 
-    const encoder = new TextEncoder();
+    const encoder = Dispatcher.encoder;
 
     // 1. Prepare strings and JSON
     const libBytes = encoder.encode(library);
@@ -161,7 +163,7 @@ export class Dispatcher {
     const res = this.executeSync(library, method, params);
     if (!res) return null;
     try {
-      const str = new TextDecoder().decode(res);
+      const str = Dispatcher.decoder.decode(res);
       return JSON.parse(str) as T;
     } catch (e) {
       console.error('[Dispatch] JSON Parse error:', e);

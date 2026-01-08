@@ -112,38 +112,21 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 
 // autoDetectBirdCount reads the bird count from SAB atomic flags (Zero-Latency)
 func (s *BoidsSupervisor) autoDetectBirdCount() {
-	// 1. Check if already set
+	// Read bird count from SAB - if not yet set by Rust, use default
 	targetAddr := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BIRD_COUNT*4
 	data, err := s.bridge.ReadRaw(targetAddr, 4)
 	if err == nil {
 		count := binary.LittleEndian.Uint32(data)
 		if count > 0 && count <= MaxBirds {
 			s.birdCount = int(count)
-			utils.Info("Boids bird count detected instantly", utils.Int("count", s.birdCount))
+			utils.Info("Boids bird count detected", utils.Int("count", s.birdCount))
 			return
 		}
 	}
 
-	// 2. Wait for signal (0 Latency)
-	utils.Info("Waiting for bird count signal...")
-
-	// Wait for IDX_BIRD_COUNT to change from 0 (or current invalid value)
-	// We wait for ANY change.
-	done := s.bridge.WaitForEpochAsync(sab_layout.IDX_BIRD_COUNT, 0)
-
-	select {
-	case <-done:
-		// Signal received! Read immediately.
-		data, err := s.bridge.ReadRaw(targetAddr, 4)
-		if err == nil {
-			count := binary.LittleEndian.Uint32(data)
-			s.birdCount = int(count)
-			utils.Info("Boids bird count detected via signal", utils.Int("count", s.birdCount))
-		}
-	case <-time.After(5 * time.Second):
-		utils.Warn("Timeout waiting for bird count signal, using default", utils.Int("default", 1000))
-		s.birdCount = 1000
-	}
+	// Default to 1000 - Rust will update SAB when population is initialized
+	s.birdCount = 1000
+	utils.Debug("Using default bird count", utils.Int("count", s.birdCount))
 }
 
 // learningLoop monitors SAB and executes genetic algorithm

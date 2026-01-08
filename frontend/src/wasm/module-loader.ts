@@ -236,7 +236,15 @@ function handleWbgImport(
 export async function loadAllModules(
   sharedMemory: WebAssembly.Memory
 ): Promise<Record<string, ModuleLoadResult>> {
-  // Singleton check
+  // Singleton check (Context-aware)
+  const currentContextId = window.__INOS_CONTEXT_ID__;
+  const cachedContextId = (window.inosModules as any)?.contextId;
+
+  if (window.inosModules && cachedContextId && cachedContextId !== currentContextId) {
+    console.log('[ModuleLoader] Context mismatch - clearing stale modules singleton');
+    delete window.inosModules;
+  }
+
   if (window.inosModules) {
     console.log('[ModuleLoader] Reusing existing modules singleton');
     return window.inosModules;
@@ -256,5 +264,6 @@ export async function loadAllModules(
   }
 
   window.inosModules = loadedModules;
+  (window.inosModules as any).contextId = currentContextId;
   return loadedModules;
 }

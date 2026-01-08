@@ -739,6 +739,7 @@
       "path": "protocols/schemas/system/v1",
       "schemas": [
         "orchestration.capnp",
+        "sab_layout.capnp",
         "syscall.capnp"
       ]
     }
@@ -804,7 +805,7 @@
       "@echo \"🧪 Testing package": "Build target",
       "all": "✅ All components built successfully",
       "build": "Build target",
-      "capnp compile -I$(CAPNP_PATH) -o ts": "✅ TypeScript protocol code generated in frontend/bridge/generated",
+      "capnp compile -I$(CAPNP_PATH) -o ts": "Build target",
       "check-module": "Usage: make check-module MODULE=ml",
       "clean": "🧹 Cleaning build artifacts...",
       "deploy": "🚀 Deploying INOS...",

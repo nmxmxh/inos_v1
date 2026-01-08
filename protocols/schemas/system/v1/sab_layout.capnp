@@ -162,7 +162,8 @@ const idxLearningEpoch       :UInt32 = 18; # Pattern learning complete
 const idxEconomyEpoch        :UInt32 = 19; # Credit settlement needed
 const idxBirdCount           :UInt32 = 20; # Active bird count (mutable)
 
-# Reserved for future signal extensions (21-31)
+# Context Verification (Zero-Copy)
+const idxContextIdHash       :UInt32 = 31; # Hash of initialization context ID
 
 # Dynamic supervisor pool (32-127)
 const supervisorPoolBase     :UInt32 = 32;
