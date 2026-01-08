@@ -57,10 +57,14 @@ INOS:         Node A writes to SAB → Node B reads from same memory
 
 ## 🚀 Key Features
 
-### Zero-Copy Pipelining
-Data flows through shared memory (SharedArrayBuffer) without ever being copied:
+### Zero-Copy Pipelining & Synchronized Twins
+We employ a hybrid memory strategy:
+1.  **Rust/JS (Hot Path):** Zero-copy access to SharedArrayBuffer (SAB) for physics/rendering.
+2.  **Kernel (Control Path):** Uses a **Synchronized Memory Twin** (Zero-Allocation Sync) to operate on a stable snapshot of the state.
+
 ```
 Network → SAB (Inbox) → Rust (Process) → SAB (Arena) → JS (Render)
+SAB (Arena) ⟳ [Active Sync] ➔ Kernel (Twin) ➔ Orchestration
 ```
 
 ### Layered Compression Integrity

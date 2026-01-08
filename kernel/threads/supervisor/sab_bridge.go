@@ -36,6 +36,12 @@ type SABBridge struct {
 	jsUint8View   js.Value // Cached Uint8Array view of SAB
 	isWorker      bool     // Cached worker status
 	jsInitialized bool
+
+	// Optimization: Cache subarrays to avoid JS object allocation on every read
+	viewCache map[uint64]js.Value
+
+	// Optimization: Scratch buffer for headers to avoid small allocations
+	scratchBuf [8]byte
 }
 
 // NewSABBridge creates a new SAB bridge
@@ -48,6 +54,7 @@ func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffs
 		epochOffset:  epochOffset,
 		pollTimeout:  100 * time.Millisecond,
 		pendingJobs:  make(map[string]chan *foundation.Result),
+		viewCache:    make(map[uint64]js.Value),
 	}
 
 	// Cache JS values once to prevent memory leak
@@ -204,6 +211,72 @@ func (sb *SABBridge) SignalInbox() {
 	sb.NotifyEpochWaiters(sab_layout.IDX_INBOX_DIRTY)
 }
 
+// WaitForEpochAsync returns a channel that closes when the epoch changes (Zero-Latency, Non-Blocking)
+func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} {
+	ch := make(chan struct{})
+
+	if !sb.jsInitialized {
+		sb.initJSCache()
+	}
+
+	// Fast path: Check if value already changed
+	current := sb.ReadAtomicI32(epochIndex)
+	if current != expectedValue {
+		close(ch)
+		return ch
+	}
+
+	// Async Wait (requires Atomics.waitAsync or fallback to polling)
+	go func() {
+		defer close(ch)
+
+		// 1. Try waitAsync if available
+		if !sb.jsAtomics.IsUndefined() {
+			waitAsync := sb.jsAtomics.Get("waitAsync")
+			if !waitAsync.IsUndefined() {
+				// Promise-based wait
+				// Atomics.waitAsync(typedArray, index, value) -> { async: boolean, value: "ok" | "not-equal" | "timed-out" | Promise }
+				result := waitAsync.Invoke(sb.jsInt32View, epochIndex, expectedValue)
+
+				isAsync := result.Get("async").Bool()
+				if isAsync {
+					promise := result.Get("value")
+
+					// Create blocking channel for the promise callback
+					done := make(chan struct{})
+
+					var cb js.Func
+					cb = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+						close(done)
+						cb.Release()
+						return nil
+					})
+
+					// promise.then(() => done)
+					promise.Call("then", cb)
+
+					// Wait for promise resolution (blocks this goroutine, but yields to runtime)
+					<-done
+					return
+				}
+				// If not async, it means value changed rapidly or error, returns immediately
+				return
+			}
+		}
+
+		// 2. Fallback: Efficient Polling (1ms) if waitAsync missing
+		ticker := time.NewTicker(1 * time.Millisecond)
+		defer ticker.Stop()
+		for range ticker.C {
+			if sb.ReadAtomicI32(epochIndex) != expectedValue {
+				return
+			}
+		}
+	}()
+
+	return ch
+}
+
 // WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
 	if !sb.jsInitialized {
@@ -296,7 +369,7 @@ func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
 		return fmt.Errorf("ring buffer full")
 	}
 
-	lenBytes := make([]byte, 4)
+	lenBytes := sb.scratchBuf[:4]
 	binary.LittleEndian.PutUint32(lenBytes, msgLen)
 	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, lenBytes)
 	tail = (tail + 4) % DataCapacity
@@ -406,6 +479,18 @@ func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
 		}
 	}
 
+	// FORCE JS INTEROP for correct SAB access
+	// Go linear memory != SAB memory in this environment
+	subView := sb.getCachedView(offset, uint32(len(data)))
+	if !subView.IsUndefined() {
+		copied := js.CopyBytesToJS(subView, data)
+		if copied != len(data) {
+			return fmt.Errorf("failed to copy all bytes to JS: expected %d, got %d", len(data), copied)
+		}
+		return nil
+	}
+
+	// Fallback (only works if memory is unified)
 	ptr := unsafe.Add(sb.sab, offset)
 	copy(unsafe.Slice((*byte)(ptr), len(data)), data)
 	return nil
@@ -440,12 +525,9 @@ func (sb *SABBridge) ReadAt(offset uint32, dest []byte) error {
 
 	// Go's linear memory is likely distinct from the SAB in this environment.
 	// We use CopyBytesToGo to copy from the shared SAB into Go memory.
-	view := sb.getJsUint8View()
-	if !view.IsUndefined() {
-		// Create a view on the SAB for the requested range
-		// subarray assumes byte offsets and is cheap (JS view creation)
-		subView := view.Call("subarray", offset, offset+size)
-
+	// Optimization: Use Cached View
+	subView := sb.getCachedView(offset, size)
+	if !subView.IsUndefined() {
 		copied := js.CopyBytesToGo(dest, subView)
 		if uint32(copied) != size {
 			return fmt.Errorf("failed to copy all bytes: expected %d, got %d", size, copied)
@@ -464,6 +546,37 @@ func (sb *SABBridge) getJsUint8View() js.Value {
 		sb.initJSCache()
 	}
 	return sb.jsUint8View
+}
+
+// getCachedView returns a cached subarray view for the given range
+// NOTE: Used for both Read (CopyBytesToGo) and Write (CopyBytesToJS)
+func (sb *SABBridge) getCachedView(offset, size uint32) js.Value {
+	key := uint64(offset)<<32 | uint64(size)
+
+	sb.mu.RLock()
+	v, ok := sb.viewCache[key]
+	sb.mu.RUnlock()
+	if ok {
+		return v
+	}
+
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	// Double check
+	if v, ok = sb.viewCache[key]; ok {
+		return v
+	}
+
+	root := sb.getJsUint8View()
+	if root.IsUndefined() {
+		return root
+	}
+
+	// Create new view
+	v = root.Call("subarray", offset, offset+size)
+	sb.viewCache[key] = v
+	return v
 }
 
 func (sb *SABBridge) ValidateArenaOffset(offset, size uint32) error {

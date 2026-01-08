@@ -73,15 +73,25 @@ In this architecture, components do not "talk" to each other; they update the sh
 > - **Consistency**: All watchers see the same sequence of state transitions.
 > - **Atomic Wait**: Using `Atomics.wait()` for zero-CPU idling.
 
-### **3.5.2 Zero-Copy Pipelining**
-No data is ever copied between languages. We pass **Pointers**, not Payloads.
+### 3.5.2 Memory Model: Hot vs. Synchronized
+We employ a hybrid memory strategy optimized for each layer's responsibility:
 
-`Network (WebRTC) ➔ SAB (Inbox) ➔ Rust (Decompress) ➔ SAB (Arena) ➔ JS (Render)`
+1.  **Rust & JS (Hot Memory / Zero-Copy):**
+    *   **Mechanism:** Direct access to SharedArrayBuffer (SAB).
+    *   **Role:** High-frequency mutation (60Hz+), rendering, and physics. No copies, zero latency.
+2.  **Go Kernel (Synchronized Memory Twin):**
+    *   **Mechanism:** Maintains a Local Replica synchronized via explicit bridge.
+    *   **Role:** Stability & decision making. Operates on a **Consistent Snapshot** of the state (Isolation), immune to tearing reads from hot threads.
+    *   **Performance:** Uses **Zero-Allocation Synchronization** (`ReadAt` with reused buffers) to minimize GC pressure.
+
+`Network ➔ SAB (Inbox) ➔ Rust (Decompress) ➔ SAB (Arena) ➔ JS (Render)`
+`SAB (Arena) ⟳ [Sync] ➔ Go Kernel (Twin) ➔ Logic`
 
 1.  **Network ➔ SAB:** Browser writes packet to `Inbox`.
 2.  **SAB ➔ Rust:** Rust reads `Inbox`, decompresses to `Arena`.
 3.  **Rust ➔ SAB:** Rust updates Manifest in `Metadata`. Signals Kernel.
 4.  **SAB ➔ JS:** JS reads `Arena` via pointer for rendering.
+5.  **SAB ➔ Go:** Kernel synchronizes its Twin for decision logic (Epoch check).
 
 ---
 

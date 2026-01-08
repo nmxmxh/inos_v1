@@ -25,7 +25,7 @@ const (
 	MaxBirds      = 10000
 
 	// Evolution parameters - TUNED FOR VISIBLE VARIANCE
-	DefaultMutationRate   = 0.3 // Increased from 0.1 for more visible changes
+	DefaultMutationRate   = 0.4 // Reduced to 0.4 for stability while keeping diversity
 	DefaultCrossoverRate  = 0.7
 	DefaultTournamentSize = 3
 	EvolutionInterval     = 2 * time.Second // Faster evolution for demo (was 5s)
@@ -41,7 +41,8 @@ type BirdGenes struct {
 // SABInterface defines the methods needed from the bridge
 type SABInterface interface {
 	ReadRaw(offset uint32, size uint32) ([]byte, error)
-	ReadAt(offset uint32, dest []byte) error // Zero-allocation optimized read
+	ReadAt(offset uint32, dest []byte) error                                  // Zero-allocation optimized read
+	WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} // Zero-latency wait
 	WriteRaw(offset uint32, data []byte) error
 	SignalInbox()
 	IsReady() bool // Check if SAB is initialized
@@ -109,34 +110,40 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	return nil
 }
 
-// autoDetectBirdCount reads the bird count from SAB atomic flags
+// autoDetectBirdCount reads the bird count from SAB atomic flags (Zero-Latency)
 func (s *BoidsSupervisor) autoDetectBirdCount() {
-	// Retry loop to wait for Rust module to write the count
-	for i := 0; i < 20; i++ {
-		// Read from IDX_BIRD_COUNT (index 20) where Rust writes the bird count
-		// This is a dedicated mutable field for bird count
-		targetAddr := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BIRD_COUNT*4
+	// 1. Check if already set
+	targetAddr := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BIRD_COUNT*4
+	data, err := s.bridge.ReadRaw(targetAddr, 4)
+	if err == nil {
+		count := binary.LittleEndian.Uint32(data)
+		if count > 0 && count <= MaxBirds {
+			s.birdCount = int(count)
+			utils.Info("Boids bird count detected instantly", utils.Int("count", s.birdCount))
+			return
+		}
+	}
+
+	// 2. Wait for signal (0 Latency)
+	utils.Info("Waiting for bird count signal...")
+
+	// Wait for IDX_BIRD_COUNT to change from 0 (or current invalid value)
+	// We wait for ANY change.
+	done := s.bridge.WaitForEpochAsync(sab_layout.IDX_BIRD_COUNT, 0)
+
+	select {
+	case <-done:
+		// Signal received! Read immediately.
 		data, err := s.bridge.ReadRaw(targetAddr, 4)
 		if err == nil {
 			count := binary.LittleEndian.Uint32(data)
-			utils.Info("DEBUG: BirdCount Read",
-				utils.String("addr", fmt.Sprintf("0x%X", targetAddr)),
-				utils.Int("val", int(count)),
-				utils.Int("attempt", i))
-
-			if count > 0 && count <= MaxBirds {
-				s.birdCount = int(count)
-				utils.Info("Boids bird count detected from SAB", utils.Int("count", s.birdCount))
-				return
-			}
-		} else {
-			utils.Warn("DEBUG: BirdCount Read Failed", utils.String("error", err.Error()))
+			s.birdCount = int(count)
+			utils.Info("Boids bird count detected via signal", utils.Int("count", s.birdCount))
 		}
-		time.Sleep(100 * time.Millisecond)
+	case <-time.After(5 * time.Second):
+		utils.Warn("Timeout waiting for bird count signal, using default", utils.Int("default", 1000))
+		s.birdCount = 1000
 	}
-
-	utils.Warn("Timeout waiting for bird count in SAB, using default", utils.Int("default", 1000))
-	s.birdCount = 1000 // Fallback
 }
 
 // learningLoop monitors SAB and executes genetic algorithm
@@ -332,8 +339,8 @@ func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 	effectiveMutationRate := s.mutationRate / (1.0 + math.Log2(float64(s.meshNodesActive+1)))
 
 	// --- NEURAL GLITCH: Chaos Mutation ---
-	// 1% chance to become a "Chaos Boid" with totally random weights (was 0.1%)
-	if rand.Float64() < 0.01 {
+	// 5% chance to become a "Chaos Boid" with totally random weights (was 1%)
+	if rand.Float64() < 0.05 {
 		utils.Debug("Neural Glitch! Chaos boid created")
 		for i := 0; i < 44; i++ {
 			genes.Weights[i] = rand.Float32()*10.0 - 5.0
@@ -370,7 +377,9 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	active := binary.LittleEndian.Uint32(activeEpochBytes)
 
 	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
-	if active == 1 {
+	// If Writer is Active on A (0), we read B (Stable)
+	// If Writer is Active on B (1), we read A (Stable)
+	if active == 0 {
 		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
 	}
 
@@ -423,14 +432,17 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	totalSize := s.birdCount * BytesPerBird
 	bulkData := make([]byte, totalSize)
 
-	// Target the INACTIVE buffer for writing the next generation
-	// If active is 0 (Buffer A), we write to Buffer B
+	// Determine Active Buffer
 	activeEpochBytes, _ := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
 	active := binary.LittleEndian.Uint32(activeEpochBytes)
 
-	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
+	// Target the STABLE buffer (Reader Buffer, Source of next frame)
+	// If active is 0 (Buffer A is Active/Readable), then Rust is writing B.
+	// We update A so that when Rust flips next frame, it reads our new weights from A.
+	// This avoids race conditions as we only touch the buffer Rust has finished with.
+	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
 	if active == 1 {
-		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
+		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
 	}
 
 	currentData, err := s.bridge.ReadRaw(offset, uint32(totalSize))
@@ -439,8 +451,25 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	}
 	copy(bulkData, currentData)
 
-	// Apply "Species Drift" - subtle global shift in weights for all birds
-	drift := float32(rand.NormFloat64() * 0.01)
+	// Apply "Magical Pulse" - Time-based oscillation for "Breathing" effect
+	// Time since epoch logic or just wall clock
+	t := float64(time.Now().UnixNano()) / 1e9
+
+	// Separation Pulse: Oscillates from -2.0 to +2.0 over 10 seconds
+	sepPulse := float32(math.Sin(t*0.6) * 2.0)
+
+	// Cohesion Pulse: Inverse oscillation (when Sep is high, Coh is low)
+	cohPulse := float32(math.Cos(t*0.6) * 2.0)
+
+	// Alignment Pulse: Faster shimmer
+	aliPulse := float32(math.Sin(t*2.0) * 0.5)
+
+	// Spotlight: Randomly pick trick performers (5% of flock = 50 birds)
+	trickTargets := make(map[int]bool)
+	targetCount := max(1, s.birdCount/20) // 5%
+	for i := 0; i < targetCount; i++ {
+		trickTargets[rand.Intn(s.birdCount)] = true
+	}
 
 	for i, bird := range population {
 		birdBase := i * BytesPerBird
@@ -449,10 +478,29 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 		fitnessOffset := 14 * 4
 		binary.LittleEndian.PutUint32(bulkData[birdBase+fitnessOffset:], math.Float32bits(float32(bird.Fitness)))
 
-		// Patch weights with drift
+		// Patch weights with Pulse
 		weightsOffset := 15 * 4
+
+		// Apply Pulses to Genes 0, 1, 2
+		bird.Weights[0] += sepPulse
+		bird.Weights[1] += aliPulse
+		bird.Weights[2] += cohPulse
+
+		// TRICK SYSTEM: Spotlight Logic
+		// Reset Trick Weight (w3) to 0 first (unless mutated natural talent)
+		bird.Weights[3] = 0.0
+
+		// If this is a chosen performer, activate Trick
+		if trickTargets[i] {
+			if rand.Float64() > 0.5 {
+				bird.Weights[3] = 5.0 // Hover
+			} else {
+				bird.Weights[3] = -5.0 // Barrel Roll
+			}
+		}
+
 		for w := 0; w < 44; w++ {
-			val := bird.Weights[w] + drift
+			val := bird.Weights[w]
 			binary.LittleEndian.PutUint32(bulkData[birdBase+weightsOffset+w*4:], math.Float32bits(val))
 		}
 	}
@@ -460,6 +508,15 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	// --- BULK WRITE: 1 interop call ---
 	if err := s.bridge.WriteRaw(offset, bulkData); err != nil {
 		return fmt.Errorf("bulk write failed at offset %x: %w", offset, err)
+	}
+
+	// Debug log first bird's new weights
+	if len(population) > 0 {
+		utils.Info("Gen Evolved & Written",
+			utils.String("target_offset", fmt.Sprintf("0x%X", offset)),
+			utils.Float64("pulse_sep", float64(sepPulse)),
+			utils.Float64("b0_w0", float64(population[0].Weights[0])),
+			utils.Float64("b0_w3_trick", float64(population[0].Weights[3])))
 	}
 
 	return nil

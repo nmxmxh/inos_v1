@@ -250,6 +250,45 @@ impl BoidUnit {
             let pos = positions[i];
             let mut vel = velocities[i];
 
+            // Extract evolutionary weights (offsets 0, 1, 2) to modulate behavior
+            // Weights start at base + 60 (byte offset) -> 15th float
+            // We use the first 3 weights for force multipliers
+            let w_sep = f32::from_le_bytes([
+                population_data[base + 60],
+                population_data[base + 61],
+                population_data[base + 62],
+                population_data[base + 63],
+            ]);
+            let w_ali = f32::from_le_bytes([
+                population_data[base + 64],
+                population_data[base + 65],
+                population_data[base + 66],
+                population_data[base + 67],
+            ]);
+            let w_coh = f32::from_le_bytes([
+                population_data[base + 68],
+                population_data[base + 69],
+                population_data[base + 70],
+                population_data[base + 71],
+            ]);
+            let w_trick = f32::from_le_bytes([
+                population_data[base + 72],
+                population_data[base + 73],
+                population_data[base + 74],
+                population_data[base + 75],
+            ]);
+
+            // Debug log for Bird 0 to verify writes (throttled)
+            if i == 0 && epoch % 200 == 0 {
+                log::info!(
+                    "[Boids] Bird 0 Weights | Sep: {:.4} | Ali: {:.4} | Coh: {:.4} | Trick: {:.4}",
+                    w_sep,
+                    w_ali,
+                    w_coh,
+                    w_trick
+                );
+            }
+
             // Get neighbors via spatial hash (Inlined to avoid borrow issues)
             neighbor_cache.clear();
             let cell = spatial_hash(pos[0], pos[1], pos[2]);
@@ -321,22 +360,62 @@ impl BoidUnit {
             let bnd = boundary_force(&pos);
 
             // ========== APPLY FORCES ==========
+            // ========== APPLY FORCES with Evolutionary Multipliers ==========
+            // Base weights * (1.0 + evolved_weight). Evolved weight range typically -5.0 to 5.0
+            // We clamp multiplier to be non-negative to avoid reversed forces (unless desired?)
+            let mod_sep = SEPARATION_WEIGHT * (1.0 + w_sep).max(0.0);
+            let mod_ali = ALIGNMENT_WEIGHT * (1.0 + w_ali).max(0.0);
+            let mod_coh = COHESION_WEIGHT * (1.0 + w_coh).max(0.0);
+            let mod_bnd = BOUNDARY_WEIGHT; // Keep boundary constant for stability
+
             let accel_scale = dt * 60.0;
-            vel[0] += (sep[0] * SEPARATION_WEIGHT
-                + ali[0] * ALIGNMENT_WEIGHT
-                + coh[0] * COHESION_WEIGHT
-                + bnd[0] * BOUNDARY_WEIGHT)
+            vel[0] += (sep[0] * mod_sep + ali[0] * mod_ali + coh[0] * mod_coh + bnd[0] * mod_bnd)
                 * accel_scale;
-            vel[1] += (sep[1] * SEPARATION_WEIGHT
-                + ali[1] * ALIGNMENT_WEIGHT
-                + coh[1] * COHESION_WEIGHT
-                + bnd[1] * BOUNDARY_WEIGHT)
+            vel[1] += (sep[1] * mod_sep + ali[1] * mod_ali + coh[1] * mod_coh + bnd[1] * mod_bnd)
                 * accel_scale;
-            vel[2] += (sep[2] * SEPARATION_WEIGHT
-                + ali[2] * ALIGNMENT_WEIGHT
-                + coh[2] * COHESION_WEIGHT
-                + bnd[2] * BOUNDARY_WEIGHT)
+            vel[2] += (sep[2] * mod_sep + ali[2] * mod_ali + coh[2] * mod_coh + bnd[2] * mod_bnd)
                 * accel_scale;
+
+            // ========== TRICK SYSTEM: STATE SMOOTHING & SCREW MOTION ==========
+            // Read previous Trick Intensity from Offset 52 (Padding)
+            let mut trick_intensity = f32::from_le_bytes([
+                population_data[base + 52],
+                population_data[base + 53],
+                population_data[base + 54],
+                population_data[base + 55],
+            ]);
+
+            let is_barrel_roll = w_trick < -2.0;
+            let target_intensity = if is_barrel_roll { 1.0 } else { 0.0 };
+
+            // Lerp intensity for smooth transitions (dt * speed)
+            let lerp_speed = 3.0;
+            trick_intensity += (target_intensity - trick_intensity) * dt * lerp_speed;
+
+            // Hover Mode (> 2.0) - kept simple
+            if w_trick > 2.0 {
+                vel[0] *= 0.90;
+                vel[1] *= 0.90;
+                vel[2] *= 0.90;
+                let t = (epoch as f32) * 0.1;
+                vel[1] += t.sin() * 0.05;
+            }
+
+            // Screw Motion Physics (Barrel Roll)
+            // Apply tangential force if intensity is significant
+            if trick_intensity > 0.01 {
+                // Boost speed linearly with intensity
+                vel[0] *= 1.0 + (0.05 * trick_intensity);
+                vel[2] *= 1.0 + (0.05 * trick_intensity);
+                vel[1] += 0.05 * trick_intensity; // Surge Up
+
+                // Tangential "Screw" Force: Cross(Vel, Up)
+                // Creates a natural helical path
+                let screw_strength = 0.2 * trick_intensity;
+                let old_x = vel[0];
+                vel[0] += vel[2] * screw_strength;
+                vel[2] -= old_x * screw_strength;
+            }
 
             // Artistic Sweeps
             let swirl_strength = 3.0;
@@ -373,9 +452,24 @@ impl BoidUnit {
                     .copy_from_slice(&vel[j].to_le_bytes());
             }
 
+            // Save Trick Intensity state (Offset 52)
+            population_data[base + 52..base + 56].copy_from_slice(&trick_intensity.to_le_bytes());
+
             if clamped_speed > 0.005 {
                 let rot_y = vel[0].atan2(vel[2]);
-                let bank_z = (-vel[0] * 0.15).clamp(-0.25, 0.25);
+
+                // Base Physics Bank
+                let physics_bank = (-vel[0] * 0.15).clamp(-0.25, 0.25);
+
+                // Target Spiral Bank (Deep turn + Organic wobble)
+                // 1.2 rad ~= 70 degrees
+                let wobble = (time * 3.0).sin() * 0.1;
+                let spiral_bank = 1.2 + wobble;
+
+                // VISUAL BLEND: Mix Physics Bank with Spiral Bank based on intensity
+                // Smoothly transitions into the deep bank
+                let bank_z = physics_bank * (1.0 - trick_intensity) + spiral_bank * trick_intensity;
+
                 population_data[base + 24..base + 28].copy_from_slice(&rot_y.to_le_bytes());
                 population_data[base + 28..base + 32].copy_from_slice(&bank_z.to_le_bytes());
             }

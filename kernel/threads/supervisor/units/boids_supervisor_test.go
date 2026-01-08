@@ -42,6 +42,14 @@ func (m *MockSABBridge) ReadAt(offset uint32, dest []byte) error {
 	return nil
 }
 
+func (m *MockSABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} {
+	ch := make(chan struct{})
+	// For tests, return immediately to simulate signal
+	// Or we could check m.data but simple is better for unit tests
+	close(ch)
+	return ch
+}
+
 func (m *MockSABBridge) WriteRaw(offset uint32, data []byte) error {
 	m.data[offset] = make([]byte, len(data))
 	copy(m.data[offset], data)

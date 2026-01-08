@@ -19,51 +19,53 @@ This creates a **Split Memory Architecture**:
 
 This was the root cause of the "Timeout waiting for bird count" issue: Go was reading from the wrong memory space.
 
-## 2. The Solution: Explicit Bridge (SAB Access via JS)
+## 2. The Solution: Synchronized Memory Twin Architecture
 
-To adhere to data integrity while operating within Go's constraints, we implemented an **Explicit Bridge** in `sab_bridge.go`.
+To adhere to data integrity while operating within Go's constraints, we implemented a **Synchronized Memory Twin** pattern via an **Explicit Bridge**.
 
 ### Mechanism
-Instead of relying on direct pointer arithmetic (which reads private memory), we use Go's `syscall/js` to access the global SAB object via the host JS environment.
+The Kernel maintains a **Local Replica** (Twin) of the shared state. This replica is explicitly synchronized with the Global SAB via the bridge.
 
 ```go
-// Direct Copy from Shared SAB -> Go Private Memory
-js.CopyBytesToGo(dest, view.Call("subarray", offset, offset+size))
+// Synchronization: Global SAB -> Local Twin
+js.CopyBytesToGo(localTwin, view.Call("subarray", offset, offset+size))
 ```
 
-### Architectural Trade-off
--   **Cons**: Reads are NOT Zero-Copy. Data is copied from the SAB to Go's heap.
--   **Pros**:
-    -   **Correctness**: Guarantees Go sees the data Rust writes.
-    -   **Stability**: Uses standard Go runtime features without fragile patches.
-    -   **Simplicity**: Easy to reason about; explicit boundary crossing.
+### Architectural Trade-off & Benefits
+While this deviates from strict "Zero-Copy" for the Supervisor, it introduces a critical stability feature: **Snapshot Isolation**.
 
-## 3. Optimizing the Bridge (`ReadAt`)
+-   **Snapshot Consistency**: The Supervisor operates on a stable snapshot of the state. It is immune to "tearing reads" or mid-calculation updates from high-frequency Rust compute threads (running at 60Hz+).
+-   **Isolation**: The Kernel's decision logic is protected from memory corruption in the hot shared path.
+-   **Explicit Synchronization**: The "Cost" of copying is the "Price" of consistency. By batching reads (via `ReadAt`), we pay this price efficiently.
 
-To align with INOS performance principles (even with the copy overhead), we implemented **Zero-Allocation Reads**.
+## 3. Optimizing the Twin (`ReadAt`)
 
-### The `ReadAt` Pattern
-We refactored the bridge to implement `ReadAt(offset, dest []byte)`. This allows the caller loop (e.g., `BoidsSupervisor`) to:
-1.  Allocate a single buffer (`populationBuf`) once.
-2.  Reuse this buffer every frame (100ms).
-3.  Pass the buffer to the bridge.
+To align with INOS performance principles, we implemented **Zero-Allocation Synchronization**.
 
-This eliminates garbage collection pressure typically associated with "copying" data, making the bridge highly performant for high-frequency supervisor loops (60Hz+ equivalent).
+### The `ReadAt` Pattern: Ephemeral Fixed Buffer
+We refactored the bridge to implement `ReadAt(offset, dest []byte)`. This allows the caller loop to recycle the "Twin Buffer":
+1.  **Allocate**: Create the **Fixed Buffer** (`populationBuf`) once.
+2.  **Sync**: Copy the global SAB state into this buffer (Bulk Copy).
+3.  **Process**: Analyze the **Ephemeral Snapshot**.
+4.  **Repeat**: Overwrite the buffer in the next Epoch.
+
+This creates an **Ephemeral Fixed Buffer Twin**. The data in Go is valid *only* for the duration of the current processing cycle, ensuring the Kernel always acts on the latest "Scene" without allocating new memory.
 
 ```go
-// Zero-Allocation Loop
+// Zero-Allocation Ephemeral Sync
 for {
-    // Reuses s.populationBuf
+    // 1. Wait for Signal (Zero Latency)
+    <-s.bridge.WaitForEpochAsync(idx, current)
+
+    // 2. Sync Ephemeral Twin (Bulk Copy)
     s.bridge.ReadAt(offset, s.populationBuf)
-    // Process data...
+    
+    // 3. Process Stable Snapshot
+    // ...
 }
 ```
 
-## 4. Future Alignment (Unified Memory)
+This effectively creates a **Double-Buffered State System**:
+-   **Front Buffer (SAB)**: Hot, mutated by Rust/JS.
+-   **Back Buffer (Go Twin)**: Ephemeral, stable snapshot for Kernel logic.
 
-Achieving "True Zero Copy" for Go (where Go's linear memory IS the SAB) remains a long-term goal. It requires:
-1.  **Custom WASM Loader**: Replacing `wasm_exec.js`.
-2.  **Go Runtime Patching**: Forcing Go to accept a fixed-size (or externally managed) memory buffer.
-3.  **Layout Synchronization**: Ensuring Go's stack/heap doesn't overwrite system reserved areas.
-
-Until then, the **Explicit Bridge with Zero-Allocation** provides the necessary robustness and performance for the Supervisor layer.

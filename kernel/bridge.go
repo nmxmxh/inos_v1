@@ -40,7 +40,7 @@ func jsInitializeSharedMemory(this js.Value, args []js.Value) interface{} {
 	// Address from JS is absolute offset in linear memory.
 	// Using raw pointer arithmetic to avoid unsafe.Slice(nil,...) panic.
 	ptrVal := uintptr(args[0].Int())
-	ptr := unsafe.Pointer(ptrVal) //nolint:govet // intentional: JS provides memory address as integer for WASM interop
+	ptr := unsafe.Pointer(ptrVal) //nolint:govet,unsafeptr // intentional: FFI boundary from JS (Foreign Pointer)
 
 	// Store base pointer for Dynamic Grounding (exposed via getSystemSABAddress)
 	sabBasePtr = ptrVal
