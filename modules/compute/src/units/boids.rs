@@ -376,20 +376,50 @@ impl BoidUnit {
             vel[2] += (sep[2] * mod_sep + ali[2] * mod_ali + coh[2] * mod_coh + bnd[2] * mod_bnd)
                 * accel_scale;
 
+            // ========== ENERGY SYSTEM: Flap-Glide Cycles ==========
+            // Energy stored at Offset 40 (idx 10)
+            let mut energy = f32::from_le_bytes([
+                population_data[base + 40],
+                population_data[base + 41],
+                population_data[base + 42],
+                population_data[base + 43],
+            ]);
+
+            // Initialize energy if zero (first frame)
+            if energy <= 0.0 || energy > 1.0 {
+                energy = 0.85 + (i as f32 % 10.0) * 0.01; // Higher starting energy
+            }
+
+            // Energy dynamics: climbing ALWAYS costs energy (can't glide upward)
+            let is_climbing = vel[1] > 0.3;
+            let current_speed = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
+
+            if is_climbing {
+                // Climbing always costs energy - birds can't glide upward
+                energy -= dt * 0.12;
+            } else if current_speed > 5.0 {
+                // Very fast = some energy cost
+                energy -= dt * 0.05;
+            } else {
+                // Cruising/gliding recovers energy fast
+                energy += dt * 0.25;
+            }
+            energy = energy.clamp(0.4, 1.0); // Higher minimum = always active
+
             // ========== TRICK SYSTEM: STATE SMOOTHING & SCREW MOTION ==========
-            // Read previous Trick Intensity from Offset 52 (Padding)
+            // Read previous Trick Intensity from Offset 36 (idx 9)
             let mut trick_intensity = f32::from_le_bytes([
-                population_data[base + 52],
-                population_data[base + 53],
-                population_data[base + 54],
-                population_data[base + 55],
+                population_data[base + 36],
+                population_data[base + 37],
+                population_data[base + 38],
+                population_data[base + 39],
             ]);
 
             let is_barrel_roll = w_trick < -2.0;
             let target_intensity = if is_barrel_roll { 1.0 } else { 0.0 };
 
-            // Lerp intensity for smooth transitions (dt * speed)
-            let lerp_speed = 3.0;
+            // Lerp intensity for SMOOTH transitions (slower = more comfortable)
+            let lerp_speed = 1.0; // Reduced from 3.0 for gradual easing
             trick_intensity += (target_intensity - trick_intensity) * dt * lerp_speed;
 
             // Hover Mode (> 2.0) - kept simple
@@ -404,14 +434,13 @@ impl BoidUnit {
             // Screw Motion Physics (Barrel Roll)
             // Apply tangential force if intensity is significant
             if trick_intensity > 0.01 {
-                // Boost speed linearly with intensity
-                vel[0] *= 1.0 + (0.05 * trick_intensity);
-                vel[2] *= 1.0 + (0.05 * trick_intensity);
-                vel[1] += 0.05 * trick_intensity; // Surge Up
+                // Gentle speed boost (reduced from 0.05 to 0.02)
+                vel[0] *= 1.0 + (0.02 * trick_intensity);
+                vel[2] *= 1.0 + (0.02 * trick_intensity);
+                vel[1] += 0.02 * trick_intensity; // Gentle surge up
 
-                // Tangential "Screw" Force: Cross(Vel, Up)
-                // Creates a natural helical path
-                let screw_strength = 0.2 * trick_intensity;
+                // Tangential "Screw" Force: gentler spiral (0.08 vs 0.2)
+                let screw_strength = 0.08 * trick_intensity;
                 let old_x = vel[0];
                 vel[0] += vel[2] * screw_strength;
                 vel[2] -= old_x * screw_strength;
@@ -452,37 +481,104 @@ impl BoidUnit {
                     .copy_from_slice(&vel[j].to_le_bytes());
             }
 
-            // Save Trick Intensity state (Offset 52)
-            population_data[base + 52..base + 56].copy_from_slice(&trick_intensity.to_le_bytes());
+            // Save Trick Intensity state (Offset 36 = idx 9)
+            population_data[base + 36..base + 40].copy_from_slice(&trick_intensity.to_le_bytes());
 
             if clamped_speed > 0.005 {
-                let rot_y = vel[0].atan2(vel[2]);
+                let mut rot_y = vel[0].atan2(vel[2]);
+
+                // HEADING TURN: Gentle direction change during trick
+                // Reduced from 0.02 to 0.008 for comfortable turning
+                if trick_intensity > 0.01 {
+                    rot_y += trick_intensity * 0.008 * dt * 60.0;
+                }
 
                 // Base Physics Bank
                 let physics_bank = (-vel[0] * 0.15).clamp(-0.25, 0.25);
 
-                // Target Spiral Bank (Deep turn + Organic wobble)
-                // 1.2 rad ~= 70 degrees
+                // Target Spiral Bank (Softer turn + Organic wobble)
+                // 0.6 rad ~= 35 degrees (more natural than 70°)
                 let wobble = (time * 3.0).sin() * 0.1;
-                let spiral_bank = 1.2 + wobble;
+                let spiral_bank = 0.6 + wobble;
 
                 // VISUAL BLEND: Mix Physics Bank with Spiral Bank based on intensity
-                // Smoothly transitions into the deep bank
+                // Smoothly transitions into the banking turn
                 let bank_z = physics_bank * (1.0 - trick_intensity) + spiral_bank * trick_intensity;
 
                 population_data[base + 24..base + 28].copy_from_slice(&rot_y.to_le_bytes());
                 population_data[base + 28..base + 32].copy_from_slice(&bank_z.to_le_bytes());
             }
 
-            let base_flap = 6.0 + (i % 8) as f32;
-            let flap = (time * base_flap + i as f32 * 2.1).sin() * 0.7;
-            population_data[base + 44..base + 48].copy_from_slice(&(-flap).to_le_bytes());
-            population_data[base + 48..base + 52].copy_from_slice(&flap.to_le_bytes());
+            // ========== ENERGY-BASED FLIGHT MODES ==========
+            // Flight intensity depends on energy level
+            // Low energy = Gliding (minimal flapping)
+            // High energy = Active flapping
 
-            let fitness = 0.4
-                + (neighbor_cache.len() as f32 / 10.0).min(0.3)
-                + (clamped_speed * 0.08).min(0.3);
+            let flight_intensity = if energy < 0.5 {
+                // CRUISING MODE: Active flapping at lower energy
+                0.6 + (energy - 0.4) * 0.4
+            } else if energy < 0.75 {
+                // NORMAL MODE: Good flapping
+                0.7 + (energy - 0.5) * 0.6
+            } else {
+                // POWER MODE: Vigorous flapping
+                0.85 + (energy - 0.75) * 0.6
+            };
+
+            // Base flap with per-bird phase variation
+            let base_flap = 5.0 + (i % 8) as f32;
+            let flap_amplitude = 0.6 * flight_intensity * (1.0 + trick_intensity * 0.3);
+            let flap = (time * base_flap + i as f32 * 2.1).sin() * flap_amplitude;
+
+            // Asymmetric wings during tricks (differential lift)
+            let left_wing = -flap + trick_intensity * 0.4;
+            let right_wing = flap - trick_intensity * 0.4;
+
+            population_data[base + 44..base + 48].copy_from_slice(&left_wing.to_le_bytes());
+            population_data[base + 48..base + 52].copy_from_slice(&right_wing.to_le_bytes());
+
+            // Write tail_yaw at offset 52 (idx 13) - math.rs expects this here
+            let tail_yaw = (-vel[0] * 0.1).clamp(-0.15, 0.15);
+            population_data[base + 52..base + 56].copy_from_slice(&tail_yaw.to_le_bytes());
+
+            // ========== COMPETITIVE FITNESS FUNCTION ==========
+            // Creates REAL selection pressure with penalties
+
+            let fitness_base = 0.1; // Lower base for more variance
+
+            // NEIGHBOR SCORE: Optimal 3-7, penalize isolation AND overcrowding
+            let neighbor_count = neighbor_cache.len();
+            let neighbor_score = if neighbor_count == 0 {
+                0.0 // Complete isolation = bad
+            } else if neighbor_count <= 2 {
+                0.1 // Very isolated
+            } else if neighbor_count <= 7 {
+                0.35 // Sweet spot
+            } else if neighbor_count <= 15 {
+                0.15 // Somewhat crowded
+            } else {
+                0.0 // Overcrowded = bad
+            };
+
+            // SPEED SCORE: Penalize extremes
+            let speed_score = if clamped_speed < 1.5 {
+                0.0 // Too slow
+            } else if clamped_speed <= 4.0 {
+                0.3 // Optimal range
+            } else if clamped_speed <= 5.5 {
+                0.15 // Somewhat fast
+            } else {
+                0.0 // Too fast
+            };
+
+            // ENERGY EFFICIENCY: Reward birds that conserve energy
+            let energy_score = if energy > 0.5 { 0.25 } else { energy * 0.4 };
+
+            let fitness = fitness_base + neighbor_score + speed_score + energy_score;
             population_data[base + 56..base + 60].copy_from_slice(&fitness.to_le_bytes());
+
+            // Save energy state at offset 40
+            population_data[base + 40..base + 44].copy_from_slice(&energy.to_le_bytes());
         }
 
         // --- STEP 5: Write Scratch → SAB ---

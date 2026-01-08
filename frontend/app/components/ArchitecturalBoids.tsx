@@ -76,12 +76,34 @@ function InstancedBoidsRenderer() {
     []
   );
 
-  // Disposal
+  // Disposal - CRITICAL: InstancedMesh instanceMatrix/instanceColor buffers are NOT
+  // part of geometry and require separate disposal to prevent WebGL memory leaks
   useEffect(() => {
     return () => {
       console.log('[BoidsFlock] Disposing resources...');
+
+      // Dispose geometries and materials
       Object.values(geometries).forEach(g => g.dispose());
       Object.values(materials).forEach(m => m.dispose());
+
+      // Dispose InstancedMesh instances (important for WebGL buffer cleanup)
+      const meshRefs = [
+        bodiesRef,
+        headsRef,
+        beaksRef,
+        leftWingRef,
+        leftWingTipRef,
+        rightWingRef,
+        rightWingTipRef,
+        tailsRef,
+      ];
+
+      meshRefs.forEach(ref => {
+        if (ref.current) {
+          // Dispose the mesh (releases WebGL resources)
+          ref.current.dispose();
+        }
+      });
     };
   }, [geometries, materials]);
 

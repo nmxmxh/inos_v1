@@ -24,11 +24,11 @@ const (
 	BytesPerBird  = 236 // 59 floats * 4 bytes = 236 (matches Rust BIRD_STRIDE)
 	MaxBirds      = 10000
 
-	// Evolution parameters - TUNED FOR VISIBLE VARIANCE
-	DefaultMutationRate   = 0.4 // Reduced to 0.4 for stability while keeping diversity
-	DefaultCrossoverRate  = 0.7
-	DefaultTournamentSize = 3
-	EvolutionInterval     = 2 * time.Second // Faster evolution for demo (was 5s)
+	// Evolution parameters - TUNED FOR REAL SELECTION PRESSURE
+	DefaultMutationRate   = 0.6             // Increased for more exploration
+	DefaultCrossoverRate  = 0.5             // Reduced for less blending
+	DefaultTournamentSize = 5               // Increased for stronger selection
+	EvolutionInterval     = 3 * time.Second // Slightly slower for stability
 )
 
 // BirdGenes represents the neural network weights for a bird
@@ -302,8 +302,18 @@ func avgFitness(pop []BirdGenes) float64 {
 	return sum / float64(len(pop))
 }
 
-// TournamentSelect selects a parent using tournament selection
+// TournamentSelect selects a parent using tournament selection with ELITISM
 func (s *BoidsSupervisor) TournamentSelect(population []BirdGenes) BirdGenes {
+	// ELITISM: 30% chance to select from top 10% performers
+	// This ensures best traits propagate while maintaining diversity
+	if rand.Float64() < 0.30 && len(population) > 20 {
+		eliteCut := len(population) / 10 // Top 10%
+		if eliteCut > 0 {
+			return population[rand.Intn(eliteCut)]
+		}
+	}
+
+	// Standard tournament for the rest
 	best := population[rand.Intn(len(population))]
 
 	for i := 1; i < s.tournamentSize; i++ {
@@ -332,32 +342,39 @@ func (s *BoidsSupervisor) Crossover(parent1, parent2 BirdGenes) BirdGenes {
 }
 
 // Mutate applies Gaussian mutation to genes
-// Added "Neural Glitches": Rare extreme mutation events
-// TUNED FOR VISIBLE VARIANCE
+// ENHANCED: Stronger mutations for real diversity
 func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 	// Adjust mutation rate based on mesh nodes (more nodes = less mutation)
 	effectiveMutationRate := s.mutationRate / (1.0 + math.Log2(float64(s.meshNodesActive+1)))
 
-	// --- NEURAL GLITCH: Chaos Mutation ---
-	// 5% chance to become a "Chaos Boid" with totally random weights (was 1%)
-	if rand.Float64() < 0.05 {
+	// --- CHAOS BOID: 10% chance for complete randomization ---
+	if rand.Float64() < 0.10 {
 		utils.Debug("Neural Glitch! Chaos boid created")
 		for i := 0; i < 44; i++ {
-			genes.Weights[i] = rand.Float32()*10.0 - 5.0
+			genes.Weights[i] = rand.Float32()*20.0 - 10.0 // Wider range: -10 to +10
 		}
 		return genes
 	}
 
+	// --- FOCUS MUTATION: 15% chance to dramatically change ONE weight ---
+	// This creates specialists rather than generalists
+	if rand.Float64() < 0.15 {
+		idx := rand.Intn(44)
+		genes.Weights[idx] = rand.Float32()*16.0 - 8.0 // Dramatic single change
+		return genes
+	}
+
+	// --- STANDARD GAUSSIAN MUTATION ---
 	for i := 0; i < 44; i++ {
 		if rand.Float64() < effectiveMutationRate {
-			// Larger Gaussian noise for visible effect (0.5 instead of 0.2)
-			genes.Weights[i] += float32(rand.NormFloat64() * 0.5)
+			// Larger Gaussian noise (0.8 instead of 0.5)
+			genes.Weights[i] += float32(rand.NormFloat64() * 0.8)
 
-			// Clamp to reasonable range
-			if genes.Weights[i] > 5.0 {
-				genes.Weights[i] = 5.0
-			} else if genes.Weights[i] < -5.0 {
-				genes.Weights[i] = -5.0
+			// Clamp to wider range: ±10
+			if genes.Weights[i] > 10.0 {
+				genes.Weights[i] = 10.0
+			} else if genes.Weights[i] < -10.0 {
+				genes.Weights[i] = -10.0
 			}
 		}
 	}
