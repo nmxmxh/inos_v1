@@ -68,8 +68,7 @@ type Kernel struct {
 	wg        sync.WaitGroup
 
 	// Reactive Synchronization
-	sabReady     chan struct{}
-	sabKeepAlive []byte
+	sabReady chan struct{}
 }
 
 // NewKernel creates a new kernel instance
@@ -151,11 +150,8 @@ func (k *Kernel) Boot() {
 		utils.Uint64("ptr_addr", uint64(uintptr(ptr))),
 		utils.Uint64("size", uint64(size)))
 
-	// Force memory growth to cover SAB region if needed
-	// This ensures valid address space for absolute pointer access
-	if size > 0 {
-		k.sabKeepAlive = make([]byte, size)
-	}
+	// Force memory growth is no longer needed - Go uses Split Memory Twin pattern
+	// and accesses SAB via explicit js.CopyBytesToGo bridging
 
 	if err := k.supervisor.InitializeCompute(ptr, size); err != nil {
 		k.logger.Error("Failed to initialize compute layer", utils.Err(err))

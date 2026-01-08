@@ -17,8 +17,22 @@ pub fn set_global_barrier_view(view: JsValue) {
 
 /// Get the global barrier view for atomic SAB access.
 /// Returns None if not yet initialized.
+/// NOTE: This clones the JsValue. For hot paths, use with_global_barrier_view instead.
 pub fn get_global_barrier_view() -> Option<JsValue> {
     GLOBAL_BARRIER_VIEW.lock().ok().and_then(|g| g.clone())
+}
+
+/// Execute a callback with the global barrier view without cloning.
+/// More efficient for hot paths like is_valid().
+/// Returns None if the barrier view is not initialized.
+pub fn with_global_barrier_view<F, R>(f: F) -> Option<R>
+where
+    F: FnOnce(&JsValue) -> R,
+{
+    GLOBAL_BARRIER_VIEW
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|v| f(v)))
 }
 
 /// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety

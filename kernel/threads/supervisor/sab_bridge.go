@@ -37,24 +37,30 @@ type SABBridge struct {
 	isWorker      bool     // Cached worker status
 	jsInitialized bool
 
-	// Optimization: Cache subarrays to avoid JS object allocation on every read
-	viewCache map[uint64]js.Value
+	// Optimization: Fixed-size LRU cache for subarrays (prevents memory leak)
+	viewCache     map[uint64]js.Value
+	viewCacheKeys []uint64 // LRU order: oldest at front
+	viewCacheMax  int      // Max cache size (default 64)
 
 	// Optimization: Scratch buffer for headers to avoid small allocations
 	scratchBuf [8]byte
 }
 
+const defaultViewCacheMax = 64
+
 // NewSABBridge creates a new SAB bridge
 func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
 	bridge := &SABBridge{
-		sab:          sab,
-		sabSize:      size,
-		inboxOffset:  inboxOffset,
-		outboxOffset: outboxOffset,
-		epochOffset:  epochOffset,
-		pollTimeout:  100 * time.Millisecond,
-		pendingJobs:  make(map[string]chan *foundation.Result),
-		viewCache:    make(map[uint64]js.Value),
+		sab:           sab,
+		sabSize:       size,
+		inboxOffset:   inboxOffset,
+		outboxOffset:  outboxOffset,
+		epochOffset:   epochOffset,
+		pollTimeout:   100 * time.Millisecond,
+		pendingJobs:   make(map[string]chan *foundation.Result),
+		viewCache:     make(map[uint64]js.Value),
+		viewCacheKeys: make([]uint64, 0, defaultViewCacheMax),
+		viewCacheMax:  defaultViewCacheMax,
 	}
 
 	// Cache JS values once to prevent memory leak
@@ -541,6 +547,38 @@ func (sb *SABBridge) ReadAt(offset uint32, dest []byte) error {
 	return nil
 }
 
+// ReadBatch reads multiple non-contiguous SAB regions into corresponding buffers.
+// More efficient than multiple ReadAt calls when reading from several regions.
+type ReadRegion struct {
+	Offset uint32
+	Dest   []byte
+}
+
+func (sb *SABBridge) ReadBatch(regions []ReadRegion) error {
+	root := sb.getJsUint8View()
+	if root.IsUndefined() {
+		// Fallback: individual reads
+		for _, r := range regions {
+			if err := sb.ReadAt(r.Offset, r.Dest); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Batch read using single root view (avoid multiple subarray allocations)
+	for _, r := range regions {
+		size := uint32(len(r.Dest))
+		if r.Offset+size > sb.sabSize {
+			return fmt.Errorf("out of bounds batch read: off=%d len=%d", r.Offset, size)
+		}
+		// Use cached subview
+		subView := sb.getCachedView(r.Offset, size)
+		js.CopyBytesToGo(r.Dest, subView)
+	}
+	return nil
+}
+
 func (sb *SABBridge) getJsUint8View() js.Value {
 	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
 		sb.initJSCache()
@@ -548,8 +586,8 @@ func (sb *SABBridge) getJsUint8View() js.Value {
 	return sb.jsUint8View
 }
 
-// getCachedView returns a cached subarray view for the given range
-// NOTE: Used for both Read (CopyBytesToGo) and Write (CopyBytesToJS)
+// getCachedView returns a cached subarray view for the given range.
+// Uses LRU eviction when cache exceeds viewCacheMax entries.
 func (sb *SABBridge) getCachedView(offset, size uint32) js.Value {
 	key := uint64(offset)<<32 | uint64(size)
 
@@ -563,7 +601,7 @@ func (sb *SABBridge) getCachedView(offset, size uint32) js.Value {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	// Double check
+	// Double check after acquiring write lock
 	if v, ok = sb.viewCache[key]; ok {
 		return v
 	}
@@ -573,10 +611,28 @@ func (sb *SABBridge) getCachedView(offset, size uint32) js.Value {
 		return root
 	}
 
-	// Create new view
+	// LRU Eviction: Remove oldest entry if at capacity
+	if len(sb.viewCacheKeys) >= sb.viewCacheMax {
+		oldestKey := sb.viewCacheKeys[0]
+		sb.viewCacheKeys = sb.viewCacheKeys[1:]
+		delete(sb.viewCache, oldestKey)
+	}
+
+	// Create new view and add to cache
 	v = root.Call("subarray", offset, offset+size)
 	sb.viewCache[key] = v
+	sb.viewCacheKeys = append(sb.viewCacheKeys, key)
 	return v
+}
+
+// FlushViewCache clears the entire view cache.
+// Call during epoch transitions or when memory pressure is high.
+func (sb *SABBridge) FlushViewCache() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	sb.viewCache = make(map[uint64]js.Value)
+	sb.viewCacheKeys = sb.viewCacheKeys[:0]
 }
 
 func (sb *SABBridge) ValidateArenaOffset(offset, size uint32) error {

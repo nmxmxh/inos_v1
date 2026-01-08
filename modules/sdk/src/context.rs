@@ -9,11 +9,10 @@ static INITIAL_CONTEXT_HASH: AtomicI32 = AtomicI32::new(0);
 /// Read the current context hash from SAB using atomic load.
 /// This is a single CPU instruction with zero JS allocations.
 fn get_current_context_hash() -> i32 {
-    let view = match crate::sab::get_global_barrier_view() {
-        Some(v) => v,
-        None => return 0,
-    };
-    crate::js_interop::atomic_load(&view, crate::layout::IDX_CONTEXT_ID_HASH)
+    crate::sab::with_global_barrier_view(|view| {
+        crate::js_interop::atomic_load(view, crate::layout::IDX_CONTEXT_ID_HASH)
+    })
+    .unwrap_or(0)
 }
 
 /// Captures the current context hash from SAB.
