@@ -1,8 +1,8 @@
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useRef, useMemo, Suspense, useEffect } from 'react';
 import * as THREE from 'three';
-import { useSystemStore } from '../../src/store/system';
-import { dispatch } from '../../src/wasm/dispatch';
+import { useSystemStore } from '../../../src/store/system';
+import { dispatch } from '../../../src/wasm/dispatch';
 import {
   OFFSET_BIRD_BUFFER_A,
   OFFSET_MATRIX_BUFFER_A,
@@ -10,7 +10,8 @@ import {
   IDX_MATRIX_EPOCH,
   getLayoutConfig,
   type ResourceTier,
-} from '../../src/wasm/layout';
+} from '../../../src/wasm/layout';
+import { useLocation } from 'react-router-dom';
 
 // Get tier from window or default to 'light'
 const tier: ResourceTier =
@@ -238,6 +239,9 @@ function InstancedBoidsRenderer() {
 }
 
 export default function ArchitecturalBoids() {
+  const location = useLocation();
+  const isGraphicsPage = location.pathname.includes('/graphics');
+
   return (
     <div
       style={{
@@ -246,11 +250,27 @@ export default function ArchitecturalBoids() {
         position: 'fixed',
         top: 0,
         left: 0,
-        zIndex: 0,
+        zIndex: isGraphicsPage ? 1 : -1,
         pointerEvents: 'none',
+        background: isGraphicsPage ? 'transparent' : '#f4f1ea', // --paper-cream
+        transition: 'background 0.5s ease, z-index 0.5s ease',
       }}
     >
-      {/* <DebugHUD title="INOS ZERO-COPY ENGINE" color="#6d28d9" stats={stats} /> */}
+      {/* Noise Overlay - Integrated directly into boids layer */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0.15,
+          pointerEvents: 'none',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E")`,
+          zIndex: 1,
+        }}
+      />
+
       <Suspense fallback={null}>
         <Canvas
           camera={{ position: [0, 8, 30], fov: 45 }}

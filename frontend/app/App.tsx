@@ -1,10 +1,37 @@
+/**
+ * INOS Technical Codex — Main Application
+ *
+ * Integrates React Router with system initialization.
+ */
+
 import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useSystemStore } from '../src/store/system';
-import ArchitecturalBoids from './components/ArchitecturalBoids';
-import ArchitecturalBlog from './components/ArchitecturalBlog';
 import './styles/minimal.css';
 
-export default function App() {
+// Scroll to top on route change
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
+// Layout
+import Layout from './ui/Layout';
+
+// Pages
+import Landing from './pages/Landing';
+import Problem from './pages/Problem';
+import Insight from './pages/Insight';
+import Architecture from './pages/Architecture';
+import Cosmos from './pages/Cosmos';
+
+// Deep Dives
+import { ZeroCopy, Signaling, Mesh, Economy, Threads, Graphics, Database } from './pages/DeepDives';
+
+function SystemLoader({ children }: { children: React.ReactNode }) {
   const { status, error, initialize } = useSystemStore();
   const loading = status === 'booting' || status === 'initializing';
   const ready = status === 'ready';
@@ -123,11 +150,37 @@ export default function App() {
     );
   }
 
-  // When ready, show the manifesto with the boids background
+  // System ready - render children
+  return <>{children}</>;
+}
+
+export default function App() {
   return (
-    <div className="minimal-app">
-      <ArchitecturalBoids />
-      <ArchitecturalBlog />
-    </div>
+    <BrowserRouter>
+      <ScrollToTop />
+      <SystemLoader>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Landing />} />
+            <Route path="problem" element={<Problem />} />
+            <Route path="insight" element={<Insight />} />
+            <Route path="architecture" element={<Architecture />} />
+            <Route path="cosmos" element={<Cosmos />} />
+            {/* Deep Dives */}
+            <Route path="deep-dives">
+              <Route path="zero-copy" element={<ZeroCopy />} />
+              <Route path="signaling" element={<Signaling />} />
+              <Route path="mesh" element={<Mesh />} />
+              <Route path="economy" element={<Economy />} />
+              <Route path="threads" element={<Threads />} />
+              <Route path="graphics" element={<Graphics />} />
+              <Route path="database" element={<Database />} />
+            </Route>
+            <Route path="implementation" element={<div>Implementation - Coming Soon</div>} />
+            <Route path="roadmap" element={<div>Roadmap - Coming Soon</div>} />
+          </Route>
+        </Routes>
+      </SystemLoader>
+    </BrowserRouter>
   );
 }
