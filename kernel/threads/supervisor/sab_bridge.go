@@ -217,6 +217,13 @@ func (sb *SABBridge) SignalInbox() {
 	sb.NotifyEpochWaiters(sab_layout.IDX_INBOX_DIRTY)
 }
 
+// SignalEpoch increments the epoch at the given index and notifies waiters
+func (sb *SABBridge) SignalEpoch(index uint32) {
+	ptr := unsafe.Add(sb.sab, index*4)
+	atomic.AddUint32((*uint32)(ptr), 1)
+	sb.NotifyEpochWaiters(index)
+}
+
 // WaitForEpochAsync returns a channel that closes when the epoch changes (Zero-Latency, Non-Blocking)
 func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} {
 	ch := make(chan struct{})

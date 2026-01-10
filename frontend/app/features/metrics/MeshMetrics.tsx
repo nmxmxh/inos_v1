@@ -7,8 +7,6 @@
 
 import styled, { css } from 'styled-components';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
-import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from '../../../src/wasm/layout';
 
 const Style = {
   MetricsBar: styled(motion.div)`
@@ -98,86 +96,81 @@ const Style = {
 };
 
 import RollingCounter from '../../ui/RollingCounter';
+import { useMeshMetrics } from './useMeshMetrics';
 
 export function MeshMetricsBar() {
-  const [metrics, setMetrics] = useState({
+  const metrics = useMeshMetrics();
+
+  const displayMetrics = metrics || {
     opsPerSecond: 0,
     nodeCount: 1,
     computeCapacity: 0,
     meshActive: false,
-    epochRate: 0,
-  });
+    p50Latency: 0,
+    connectedPeers: 0,
+    avgReputation: 0.95,
+    gossipRate: 0,
+    sectorId: 0,
+  };
 
-  useEffect(() => {
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
-    let lastEpoch = 0;
-
-    const interval = setInterval(() => {
-      try {
-        const flags = new Int32Array(sab, 0, 32);
-        const birdEpoch = Atomics.load(flags, IDX_BIRD_EPOCH);
-        const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
-
-        const epochDelta = birdEpoch - lastEpoch;
-        lastEpoch = birdEpoch;
-
-        const opsPerSecond = epochDelta * 10 * 10;
-
-        setMetrics({
-          opsPerSecond,
-          nodeCount: 1,
-          computeCapacity: Math.floor((opsPerSecond + matrixEpoch * 0.001) / 1000),
-          meshActive: epochDelta > 0,
-          epochRate: epochDelta * 10,
-        });
-      } catch {
-        // SAB not ready
-      }
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, []);
+  // Derived metrics
+  const opsPerSecond = metrics ? Math.floor(metrics.gossipRate * 100) : 0;
+  const computeCapacity = metrics
+    ? Math.floor(opsPerSecond + (metrics.connectedPeers || 0) * 1.5)
+    : 0;
 
   return (
     <Style.MetricsBar initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
       <Style.Metric>
-        <Style.PulseIndicator $active={metrics.meshActive} />
+        <Style.PulseIndicator $active={displayMetrics.meshActive} />
         <Style.Label>Mesh</Style.Label>
-        <Style.Value>{metrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
+        <Style.Value>{displayMetrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
       </Style.Metric>
 
       <Style.Divider />
 
-      <Style.Metric>
+      <Style.Metric title="Network Throughput">
         <Style.Label>Ops/s</Style.Label>
         <Style.Value>
-          <RollingCounter value={metrics.opsPerSecond} />
+          <RollingCounter value={opsPerSecond} />
         </Style.Value>
       </Style.Metric>
 
-      <Style.Metric>
-        <Style.Label>Capacity</Style.Label>
+      <Style.Metric title="Distributed Compute Capacity">
+        <Style.Label>Cap</Style.Label>
         <Style.Value>
-          <RollingCounter value={metrics.computeCapacity} suffix=" GFLOPS" />
+          <RollingCounter value={computeCapacity} suffix=" GFLOPS" />
         </Style.Value>
       </Style.Metric>
 
       <Style.Divider />
 
-      <Style.Metric>
+      <Style.Metric title="Connected Nodes">
         <Style.Label>Nodes</Style.Label>
         <Style.Value>
-          <RollingCounter value={metrics.nodeCount} />
+          <RollingCounter value={displayMetrics.connectedPeers || 1} />
         </Style.Value>
       </Style.Metric>
 
-      <Style.Metric>
-        <Style.Label>Temporal Sync</Style.Label>
+      <Style.Metric title="Network Latency (P50)">
+        <Style.Label>Lat</Style.Label>
         <Style.Value>
-          <RollingCounter value={metrics.epochRate} suffix=" Hz" />
+          <RollingCounter value={Math.floor(displayMetrics.p50Latency || 0)} suffix="ms" />
         </Style.Value>
+      </Style.Metric>
+
+      <Style.Metric title="Sector ID (Regional Mesh Identifier)">
+        <Style.Label>Sector</Style.Label>
+        <Style.Value>
+          {displayMetrics.sectorId
+            ? `0x${displayMetrics.sectorId.toString(16).toUpperCase().padStart(4, '0')}`
+            : '0x0000'}
+        </Style.Value>
+      </Style.Metric>
+
+      <Style.Metric title="Global Reputation Score">
+        <Style.Label>Rep</Style.Label>
+        <Style.Value>{((metrics?.avgReputation || 0.95) * 100).toFixed(1)}%</Style.Value>
       </Style.Metric>
     </Style.MetricsBar>
   );

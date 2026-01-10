@@ -61,9 +61,13 @@ const maxSupervisorsTotal     :UInt32 = 256;        # Total with arena overflow
 const offsetSyscallTable     :UInt32 = 0x00003000; # Pending system call metadata
 const sizeSyscallTable       :UInt32 = 0x001000;   # 4KB
 
-# Economics Region (0x004000 - 0x008000)
-const offsetEconomics        :UInt32 = 0x00004000; # Credit accounts and resource metrics
-const sizeEconomics          :UInt32 = 0x004000;   # 16KB
+# Mesh Metrics Region (0x004000 - 0x004100)
+const offsetMeshMetrics      :UInt32 = 0x00004000; # Mesh network telemetry
+const sizeMeshMetrics        :UInt32 = 0x000100;   # 256 bytes
+
+# Economics Region (0x004100 - 0x008000)
+const offsetEconomics        :UInt32 = 0x00004100; # Credit accounts and resource metrics
+const sizeEconomics          :UInt32 = 0x003F00;   # ~16KB
 
 # Identity Registry (0x008000 - 0x00C000)
 const offsetIdentityRegistry :UInt32 = 0x00008000; # DIDs, device binding, TSS metadata

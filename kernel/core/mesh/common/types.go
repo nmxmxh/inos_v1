@@ -439,6 +439,7 @@ type MeshMetrics struct {
 	AvgReputation    float32 `json:"avg_reputation"`
 	BytesSent        uint64  `json:"bytes_sent"`
 	BytesReceived    uint64  `json:"bytes_received"`
+	RegionID         uint32  `json:"region_id"`
 	// Latency
 	P50LatencyMs float32 `json:"p50_latency_ms"`
 	P95LatencyMs float32 `json:"p95_latency_ms"`

@@ -33,18 +33,28 @@ const Style = {
     align-items: center;
     justify-content: space-between;
     padding: ${p => p.theme.spacing[3]} ${p => p.theme.spacing[6]};
-    background: rgba(244, 241, 234, 0.25);
-    backdrop-filter: blur(12px);
+    background: rgba(244, 241, 234, 0.4);
+    backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid ${p => p.theme.colors.borderSubtle};
-    height: 48px;
+    height: 64px;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      height: 56px;
+      padding: ${p => p.theme.spacing[2]} ${p => p.theme.spacing[4]};
+    }
   `,
 
   Main: styled.main`
     flex: 1;
     position: relative;
-    margin-top: 48px;
-    margin-bottom: 40px;
+    margin-top: 64px;
+    margin-bottom: 48px;
     z-index: ${p => p.theme.zIndex.content};
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      margin-top: 56px;
+      margin-bottom: 40px;
+    }
   `,
 
   Footer: styled.footer`
@@ -53,13 +63,17 @@ const Style = {
     left: 0;
     right: 0;
     z-index: ${p => p.theme.zIndex.fixed};
-    background: rgba(244, 241, 234, 0.25);
-    backdrop-filter: blur(12px);
+    background: rgba(244, 241, 234, 0.4);
+    backdrop-filter: blur(20px) saturate(180%);
     border-top: 1px solid ${p => p.theme.colors.borderSubtle};
-    height: 40px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      height: 40px;
+    }
   `,
 };
 

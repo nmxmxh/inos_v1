@@ -93,11 +93,17 @@ export const OFFSET_SYSCALL_TABLE = 0x003000 as const;
 /** 4KB */
 export const SIZE_SYSCALL_TABLE = 0x001000 as const;
 
-/** Credit accounts and resource metrics */
-export const OFFSET_ECONOMICS = 0x004000 as const;
+/** Mesh network telemetry */
+export const OFFSET_MESH_METRICS = 0x004000 as const;
 
-/** 16KB */
-export const SIZE_ECONOMICS = 0x004000 as const;
+/** 256 bytes */
+export const SIZE_MESH_METRICS = 256 as const;
+
+/** Credit accounts and resource metrics */
+export const OFFSET_ECONOMICS = 0x004100 as const;
+
+/** ~16KB */
+export const SIZE_ECONOMICS = 0x003F00 as const;
 
 /** DIDs, device binding, TSS metadata */
 export const OFFSET_IDENTITY_REGISTRY = 0x008000 as const;
@@ -337,6 +343,8 @@ export const CONSTS = {
   MAX_SUPERVISORS_TOTAL,
   OFFSET_SYSCALL_TABLE,
   SIZE_SYSCALL_TABLE,
+  OFFSET_MESH_METRICS,
+  SIZE_MESH_METRICS,
   OFFSET_ECONOMICS,
   SIZE_ECONOMICS,
   OFFSET_IDENTITY_REGISTRY,

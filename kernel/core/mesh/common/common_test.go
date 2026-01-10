@@ -108,12 +108,12 @@ func TestGossipMessageStruct(t *testing.T) {
 		Type:     "t1",
 		Sender:   "p1",
 		Payload:  "data",
-		HopCount: 0,
+		HopCount: 1,
 		MaxHops:  10,
 	}
 
-	if msg.ID != "m1" {
-		t.Error("Failed to initialize GossipMessage")
+	if msg.ID != "m1" || msg.Type != "t1" || msg.Sender != "p1" || msg.Payload != "data" || msg.HopCount != 1 || msg.MaxHops != 10 {
+		t.Errorf("Failed to initialize GossipMessage correctly: %+v", msg)
 	}
 }
 

@@ -163,6 +163,8 @@ func (k *Kernel) Boot() {
 	// Finalize Mesh Integration
 	if k.meshCoordinator != nil {
 		k.meshCoordinator.SetStorage(k.supervisor)
+		// Inject SAB bridge for metrics reporting
+		k.meshCoordinator.SetSABBridge(k.supervisor.GetBridge())
 		if err := k.meshCoordinator.Start(k.ctx); err != nil {
 			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
 		}

@@ -57,7 +57,11 @@ const (
 	OFFSET_SYSCALL_TABLE = system.OffsetSyscallTable
 	SIZE_SYSCALL_TABLE   = system.SizeSyscallTable
 
-	// ========== ECONOMICS (0x004000 - 0x008000) ==========
+	// ========== MESH METRICS (0x004000 - 0x004100) ==========
+	OFFSET_MESH_METRICS = system.OffsetMeshMetrics
+	SIZE_MESH_METRICS   = system.SizeMeshMetrics
+
+	// ========== ECONOMICS (0x004100 - 0x008000) ==========
 	OFFSET_ECONOMICS = system.OffsetEconomics
 	SIZE_ECONOMICS   = system.SizeEconomics
 
@@ -269,6 +273,15 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			CanExpand: true,
 			MaxInline: 0,
 			MaxTotal:  0,
+		},
+		{
+			Name:      "MeshMetrics",
+			Offset:    OFFSET_MESH_METRICS,
+			Size:      SIZE_MESH_METRICS,
+			Purpose:   "Mesh network telemetry",
+			CanExpand: false,
+			MaxInline: 1,
+			MaxTotal:  1,
 		},
 		{
 			Name:      "Economics",

@@ -2,20 +2,29 @@ package mesh
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log/slog"
 	"sort"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
 )
+
+// SABWriter defines the interface for writing to the SharedArrayBuffer.
+type SABWriter interface {
+	WriteRaw(offset uint32, data []byte) error
+	SignalEpoch(index uint32)
+}
 
 // MeshCoordinator orchestrates shared compute and storage across the global mesh.
 // It bridges local compute (SAB) with remote resources (WebRTC P2P).
@@ -26,6 +35,7 @@ type MeshCoordinator struct {
 	// Core mesh components
 	transport  Transport
 	storage    StorageProvider
+	bridge     SABWriter
 	dht        *routing.DHT
 	gossip     *routing.GossipManager
 	reputation *routing.ReputationManager
@@ -191,6 +201,17 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 func (m *MeshCoordinator) SetStorage(storage StorageProvider) {
 	m.storage = storage
 }
+
+// SetSABBridge sets the SharedArrayBuffer bridge for metrics reporting
+func (m *MeshCoordinator) SetSABBridge(bridge SABWriter) {
+	m.bridge = bridge
+}
+
+const (
+	// Locally defined to avoid import cycles with sab package
+	idxMetricsEpoch   = 11
+	offsetMeshMetrics = 0x00004000
+)
 
 // Start begins mesh coordination
 func (m *MeshCoordinator) Start(ctx context.Context) error {
@@ -908,6 +929,7 @@ func (m *MeshCoordinator) updateMetrics() {
 	m.metrics.DHTEntries = m.dht.GetEntryCount()
 	m.metrics.AvgReputation = float32(m.reputation.GetAverageScore())
 	m.metrics.GossipRatePerSec = m.gossip.GetMessageRate()
+	m.metrics.RegionID = crc32.ChecksumIEEE([]byte(m.region))
 
 	connMetrics := m.transport.GetConnectionMetrics()
 	m.metrics.ConnectedPeers = connMetrics.ActiveConnections
@@ -921,6 +943,31 @@ func (m *MeshCoordinator) updateMetrics() {
 	m.localChunksMu.RUnlock()
 
 	m.metrics.TotalChunksAvailable = m.dht.GetTotalChunksCount()
+
+	// Zero-Copy Bridge: Write to SAB
+	if m.bridge != nil {
+		buf := make([]byte, 256) // Matches SIZE_MESH_METRICS
+
+		// Pack metrics into binary format (compatible with JS views)
+		binary.LittleEndian.PutUint32(buf[0:], m.metrics.TotalPeers)
+		binary.LittleEndian.PutUint32(buf[4:], m.metrics.ConnectedPeers)
+		binary.LittleEndian.PutUint32(buf[8:], m.metrics.DHTEntries)
+		binary.LittleEndian.PutUint32(buf[12:], *(*uint32)(unsafe.Pointer(&m.metrics.GossipRatePerSec)))
+		binary.LittleEndian.PutUint32(buf[16:], *(*uint32)(unsafe.Pointer(&m.metrics.AvgReputation)))
+		binary.LittleEndian.PutUint32(buf[20:], m.metrics.RegionID)
+		binary.LittleEndian.PutUint64(buf[24:], m.metrics.BytesSent)
+		binary.LittleEndian.PutUint64(buf[32:], m.metrics.BytesReceived)
+		binary.LittleEndian.PutUint32(buf[40:], *(*uint32)(unsafe.Pointer(&m.metrics.P50LatencyMs)))
+		binary.LittleEndian.PutUint32(buf[44:], *(*uint32)(unsafe.Pointer(&m.metrics.P95LatencyMs)))
+		binary.LittleEndian.PutUint32(buf[48:], *(*uint32)(unsafe.Pointer(&m.metrics.ConnectionSuccessRate)))
+		binary.LittleEndian.PutUint32(buf[52:], *(*uint32)(unsafe.Pointer(&m.metrics.ChunkFetchSuccessRate)))
+		binary.LittleEndian.PutUint32(buf[56:], m.metrics.LocalChunks)
+		binary.LittleEndian.PutUint32(buf[60:], m.metrics.TotalChunksAvailable)
+
+		if err := m.bridge.WriteRaw(offsetMeshMetrics, buf); err == nil {
+			m.bridge.SignalEpoch(idxMetricsEpoch)
+		}
+	}
 }
 
 func (m *MeshCoordinator) healthLoop() {

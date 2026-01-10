@@ -158,6 +158,13 @@ func (s *Supervisor) GetSABPointer() unsafe.Pointer {
 	return s.sab
 }
 
+// GetBridge returns the shared SAB bridge
+func (s *Supervisor) GetBridge() *supervisor.SABBridge {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.bridge
+}
+
 // InitializeCompute initializes the compute units with the provided SAB
 func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.mu.Lock()
