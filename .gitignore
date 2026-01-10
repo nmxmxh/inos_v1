@@ -112,6 +112,7 @@ go.work.sum
 /kernel/pkg/
 /kernel/*.wasm
 !/frontend/public/kernel.wasm
+!/frontend/public/kernel.threads.wasm
 
 # Vendor
 /kernel/vendor/
@@ -136,6 +137,7 @@ Cargo.lock
 !modules/Cargo.lock
 
 # WASM artifacts
+# Unignored for Vercel deployment
 /modules/**/*.wasm
 !/frontend/public/modules/*.wasm
 
@@ -221,10 +223,11 @@ lib-cov/
 !/frontend/bridge/generated/**/*
 
 # Public build artifacts
-/frontend/public/*.wasm
-/frontend/public/*.wasm.br
-/frontend/public/*.wasm.gz
-/frontend/public/wasm_exec.js
+# Unignored for Vercel deployment
+!/frontend/public/*.wasm
+!/frontend/public/*.wasm.br
+!/frontend/public/*.wasm.gz
+!/frontend/public/wasm_exec.js
 
 # ============================================================================
 # Cap'n Proto
