@@ -51,8 +51,9 @@ frontend/
 │       ├── Landing.tsx            # Home + ToC
 │       ├── Problem.tsx            # Ch 1: The Villain
 │       ├── Insight.tsx            # Ch 2: The Vision
-│       ├── Architecture.tsx       # Ch 3: The System
-│       ├── DeepDives/             # Ch 4: Technical pillars (7 pages)
+│       ├── Architecture.tsx       # Ch 3: The System (incl. Implementation)
+│       ├── Genesis.tsx            # [NEW] Ch 4: The 30-Year Correction
+│       ├── DeepDives/             # Technical pillars (7 pages)
 │       │   ├── index.tsx          # Export all deep dives
 │       │   ├── ZeroCopy.tsx       # [DONE] SharedArrayBuffer + zero-copy patterns
 │       │   ├── Signaling.tsx      # Epoch-based reactive mutation
@@ -61,9 +62,7 @@ frontend/
 │       │   ├── Threads.tsx        # Supervisor architecture (from docs/threads.md)
 │       │   ├── Graphics.tsx       # WebGPU pipeline (from docs/graphics.md)
 │       │   └── Database.tsx       # SQLite WASM + P2P sync (from docs/database.md)
-│       ├── Implementation.tsx     # Ch 5: How it's built
-│       ├── Roadmap.tsx            # Ch 6: Where we're going
-│       └── Cosmos.tsx             # Ch 7: The Moonshot
+│       └── Cosmos.tsx             # Ch 5: The Moonshot (incl. Roadmap)
 └── src/
     └── ... (existing WASM bridge, stores, hooks)
 ```
@@ -128,27 +127,27 @@ npm install -D @types/d3 @types/styled-components
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Install deps | `package.json` | Add all dependencies |
-| [ ] Create motion system | `styles/motion.ts` | TIMING, EASING, TRANSITIONS, VARIANTS |
-| [ ] Create theme | `styles/theme.ts` | Colors, fonts, spacing, shadows |
-| [ ] Create styled.d.ts | `styles/styled.d.ts` | TypeScript theme declaration |
-| [ ] Create manuscript styles | `styles/manuscript.ts` | ManuscriptSection, BlueprintSection, AnnotationSticker |
-| [ ] Create useReducedMotion | `hooks/useReducedMotion.ts` | Accessibility hook with localStorage override |
-| [ ] Create Layout | `components/Layout.tsx` | ThemeProvider + MotionConfig + header/footer |
-| [ ] Create PageTransition | `components/PageTransition.tsx` | AnimatePresence + location key |
-| [ ] Create ScrollReveal | `components/ScrollReveal.tsx` | useInView trigger |
-| [ ] Create Navigation | `components/Navigation.tsx` | layoutId indicator animation |
-| [ ] Create ChapterNav | `components/ChapterNav.tsx` | Prev/Next + keyboard arrows |
-| [ ] Update App.tsx | `app/App.tsx` | BrowserRouter + routes |
-| [ ] Add blog styles | `styles/minimal.css` | .performance-hud, .illustration-container |
+| [x] Install deps | `package.json` | Add all dependencies |
+| [x] Create motion system | `styles/motion.ts` | TIMING, EASING, TRANSITIONS, VARIANTS |
+| [x] Create theme | `styles/theme.ts` | Colors, fonts, spacing, shadows |
+| [x] Create styled.d.ts | `styles/styled.d.ts` | TypeScript theme declaration |
+| [x] Create manuscript styles | `styles/manuscript.ts` | ManuscriptSection, BlueprintSection, AnnotationSticker |
+| [x] Create useReducedMotion | `hooks/useReducedMotion.ts` | Accessibility hook with localStorage override |
+| [x] Create Layout | `components/Layout.tsx` | ThemeProvider + MotionConfig + header/footer |
+| [x] Create PageTransition | `components/PageTransition.tsx` | AnimatePresence + location key |
+| [x] Create ScrollReveal | `ui/ScrollReveal.tsx` | useInView trigger |
+| [x] Create Navigation | `components/Navigation.tsx` | layoutId indicator animation |
+| [x] Create ChapterNav | `ui/ChapterNav.tsx` | Prev/Next + keyboard arrows |
+| [x] Update App.tsx | `app/App.tsx` | BrowserRouter + routes |
+| [x] Add blog styles | `styles/minimal.css` | .performance-hud, .illustration-container |
 
 **Verification:**
-- [ ] `npm run dev` starts without errors
-- [ ] Routes render placeholder content
-- [ ] Navigation works between pages
-- [ ] Page transitions animate (and skip with reduced motion)
-- [ ] Boids background continues to work on landing
-- [ ] Keyboard navigation (Tab, Enter, Arrow keys) works
+- [x] `npm run dev` starts without errors
+- [x] Routes render placeholder content
+- [x] Navigation works between pages
+- [x] Page transitions animate (and skip with reduced motion)
+- [x] Boids background continues to work on landing
+- [x] Keyboard navigation (Tab, Enter, Arrow keys) works
 
 ---
 
@@ -158,10 +157,10 @@ npm install -D @types/d3 @types/styled-components
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Landing | `pages/Landing.tsx` | Hero + animated title |
-| [ ] Add ToC | `pages/Landing.tsx` | Chapter links with d3 icons |
-| [ ] Mini boids | `illustrations/MiniBoids.tsx` | Small Three.js embed in hero |
-| [ ] Performance HUD | `components/PerformanceHUD.tsx` | Live metrics from SAB |
+| [x] Create Landing | `pages/Landing.tsx` | Hero + animated title |
+| [x] Add ToC | `pages/Landing.tsx` | Chapter links with d3 icons |
+| [x] Mini boids | `Landing.tsx` | Integrated into background |
+| [x] Performance HUD | `Landing.tsx` | LiveStatsGrid as live metrics from SAB |
 
 **Illustrations:**
 - Animated title with subtle glow
@@ -179,10 +178,10 @@ npm install -D @types/d3 @types/styled-components
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Problem page | `pages/Problem.tsx` | Carnegie hook + villain narrative |
-| [ ] Copy Tax diagram | `illustrations/CopyTaxDiagram.tsx` | D3 cluttered pipeline |
-| [ ] Latency sparkline | `illustrations/SparklineLatency.tsx` | D3 inline sparkline |
-| [ ] Statistics grid | `pages/Problem.tsx` | MANIFESTO's energy/performance stats |
+| [x] Create Problem page | `pages/Problem.tsx` | Carnegie hook + villain narrative |
+| [x] Centralization Tax | `illustrations/CentralizationDiagram.tsx` | D3 hub-spoke model |
+| [x] Copy Tax diagram | `illustrations/CopyTaxDiagram.tsx` | D3 interactive scenarios |
+| [x] Statistics grid | `pages/Problem.tsx` | Energy/performance metrics |
 
 **Illustrations:**
 
@@ -214,9 +213,10 @@ npm install -D @types/d3 @types/styled-components
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Insight page | `pages/Insight.tsx` | Guiding questions + technology convergence |
-| [ ] Blood vs Bottled | `illustrations/BloodFlowDiagram.tsx` | Traditional vs INOS metaphor |
-| [ ] Technology stack | `pages/Insight.tsx` | WebAssembly, WebGPU, WebRTC, SAB |
+| [x] Create Insight page | `pages/Insight.tsx` | Guiding questions + technology convergence |
+| [x] Wasm Comparison | `illustrations/WasmComparisonDiagram.tsx` | Traditional vs INOS layer view |
+| [x] Boids Data Flow | `illustrations/BoidsDataFlowDiagram.tsx` | Pipeline: Compute -> Learn -> Render |
+| [x] Technology stack | `pages/Insight.tsx` | WebAssembly, WebGPU, WebRTC, SAB |
 
 **Illustrations:**
 
@@ -235,15 +235,18 @@ npm install -D @types/d3 @types/styled-components
 
 ---
 
-### Phase 4: Chapter 3 — The Architecture
+### Phase 4: Chapter 3 — The Architecture & Implementation
 
-**Goal:** Show the 3-layer structure with biological metaphors.
+**Goal:** Show the 3-layer structure and technical build process.
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Architecture page | `pages/Architecture.tsx` | Rule of Three + exploded diagram |
-| [ ] Layer diagram | `illustrations/LayerArchitecture.tsx` | D3 exploded view |
-| [ ] Boids integration | `pages/Architecture.tsx` | Reuse ArchitecturalBoids (proof) |
+| [x] Update Architecture page | `pages/Architecture.tsx` | Rule of Three + Implementation Details |
+| [x] Three-Layer Diagram | `illustrations/ThreeLayerDiagram.tsx` | D3 exploded conceptual view |
+| [x] SAB Memory Map | `illustrations/SABMemoryMapDiagram.tsx` | Memory layout and offsets |
+| [x] Library Proxy | `illustrations/LibraryProxyDiagram.tsx` | Go/Rust binding pattern |
+| [x] Build Pipeline | `illustrations/BuildPipelineDiagram.tsx` | Schema-first compilation flow |
+| [x] Boids integration | `pages/Architecture.tsx` | Reuse ArchitecturalBoids (proof) |
 
 **Illustrations:**
 
@@ -254,21 +257,50 @@ npm install -D @types/d3 @types/styled-components
    - Direct annotations on each layer
    - Biological labels: Body, Brain, Muscle
 
+2. **BuildGraph.tsx** — D3 SVG
+   - DAG: Cap'n Proto Schemas -> Code Generation -> WASM Compilation -> Browser Linking
+   - Showing the zero-copy lineage
+
 **Live Demo:**
 - Embed `ArchitecturalBoids` as proof of zero-copy rendering
 - Show bird count, ops/second from SAB epoch counters
 
-**Content from inos_context.json:**
-```
-Rule of Three:
-- Layer 1: The Body (Nginx + JS Bridge) — Speed & Sensors
-- Layer 2: The Brain (Go Kernel) — Orchestration & Policy
-- Layer 3: The Muscle (Rust Modules) — Compute & Storage
-```
+**Content:**
+- Rule of Three: Body, Brain, Muscle.
+- Implementation Pipeline: How Rust, Go, and TS are bound by a single schema.
 
 ---
 
-### Phase 5: Chapter 4 — Deep Dives (4 pages)
+### Phase 5: Chapter 4 — Genesis (NEW)
+
+**Goal:** Document the architectural "Wrong Turn" and the technical correction.
+
+| Task | File | Description |
+|:-----|:-----|:------------|
+| [x] Create Genesis page | `pages/Genesis.tsx` | The history of the Decoupling |
+| [x] History Timeline | `illustrations/HistoryTimeline.tsx` | 1996 -> 2026 technical fork |
+| [x] Language Triad | `illustrations/LanguageTriad.tsx` | Go, Rust, and JS rationale |
+
+**Illustrations:**
+
+1. **HistoryTimeline.tsx** — D3 SVG
+   - The fork: Shared Memory (The Path Not Taken) vs Message Passing (The Web)
+   - 1996: Plan 9, Java vision, Inferno
+   - 2026: WASM, SAB, INOS reconciliation
+
+2. **LanguageTriad.tsx** — D3 SVG
+   - Triangle: Brain (Go), Muscle (Rust), Body (JS)
+   - Connection points: Signaling, Credits, Identity
+   - Hover to see why each language was chosen (Go: Scheduling, Rust: Memory Safety, JS: Ingress)
+
+**Content:**
+- The 30-year correction: Why we abandoned the global computer ideal.
+- The Serialization Tax: How JSON broke the speed of thought.
+- Rule of Choice: Why Go for the Brain, Rust for the Muscle, JS for the Body.
+
+---
+
+### Phase 6: Chapter 5 — Deep Dives (8 pages)
 
 **Goal:** Technical pillars with interactive visualizations.
 
@@ -276,9 +308,9 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create ZeroCopy page | `pages/DeepDives/ZeroCopy.tsx` | SAB explanation |
-| [ ] Memory map | `illustrations/SABMemoryMap.tsx` | D3 memory layout |
-| [ ] Pointer animation | `illustrations/PointerVsCopy.tsx` | D3 animated comparison |
+| [x] Create ZeroCopy page | `pages/DeepDives/ZeroCopy.tsx` | SAB explanation |
+| [x] Copy Tax Diagram | `illustrations/CopyTaxDiagram.tsx` | D3 comparison between trad vs zero-copy |
+| [x] Memory map | `illustrations/SABMemoryMapDiagram.tsx` | D3 memory layout (in Architecture) |
 
 **Illustration: SABMemoryMap.tsx**
 - Visual representation of sab_layout.capnp offsets
@@ -293,8 +325,8 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Signaling page | `pages/DeepDives/Signaling.tsx` | Reactive patterns |
-| [ ] Epoch timeline | `illustrations/EpochSignaling.tsx` | D3 small multiples |
+| [x] Create Signaling page | `pages/DeepDives/Signaling.tsx` | Reactive patterns |
+| [x] Epoch comparison | `illustrations/ParadigmCard.tsx` | D3 Polling vs Atomics vs Epochs |
 
 **Illustration: EpochSignaling.tsx**
 - Three frames: Before → During → After
@@ -309,9 +341,9 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Mesh page | `pages/DeepDives/Mesh.tsx` | Gossip + reputation |
-| [ ] Network graph | `illustrations/MeshTopology.tsx` | D3 force-directed |
-| [ ] Gossip animation | `illustrations/GossipSpread.tsx` | D3 propagation waves |
+| [x] Create Mesh page | `pages/DeepDives/Mesh.tsx` | Gossip + reputation |
+| [x] Network graph | `illustrations/HierarchicalMeshDiagram.tsx` | D3 hierarchical mesh |
+| [x] Gossip animation | `illustrations/GossipDiagram.tsx` | D3 propagation waves |
 
 **Illustration: MeshTopology.tsx**
 - Force-directed graph with nodes sized by reputation
@@ -326,8 +358,8 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Economy page | `pages/DeepDives/Economy.tsx` | Credits + hot/cold tiers |
-| [ ] Credit flow | `illustrations/CreditFlow.tsx` | D3 sankey diagram |
+| [x] Create Economy page | `pages/DeepDives/Economy.tsx` | Credits + participation economy |
+| [x] Contribution flow | `illustrations/EconomyLogic.tsx` | UBI + yield distribution |
 
 **Illustration: CreditFlow.tsx**
 - Sankey diagram: Work → Credits → Storage
@@ -342,9 +374,9 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Threads page | `pages/DeepDives/Threads.tsx` | Supervisor architecture |
-| [ ] Supervisor hierarchy | `illustrations/SupervisorTree.tsx` | D3 tree diagram |
-| [ ] Genetic algorithm flow | `illustrations/GeneticFlow.tsx` | D3 animated evolution |
+| [x] Create Threads page | `pages/DeepDives/Threads.tsx` | Supervisor architecture |
+| [x] Supervisor hierarchy | `illustrations/SupervisorHierarchyDiagram.tsx` | D3 tree diagram |
+| [x] Execution flow | `illustrations/JobExecutionFlowDiagram.tsx` | D3 animated job lifecycle |
 
 **Source Documentation:** `docs/threads.md`
 
@@ -369,14 +401,13 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Graphics page | `pages/DeepDives/Graphics.tsx` | WebGPU + instanced rendering |
-| [ ] Pipeline diagram | `illustrations/GpuPipeline.tsx` | D3 flow chart |
-| [ ] Instance batching | `illustrations/InstancedMesh.tsx` | D3 animated batching |
+| [x] Create Graphics page | `pages/DeepDives/Graphics.tsx` | WebGPU + instanced rendering |
+| [x] Engine integration | `illustrations/TerrainScene.tsx` | Three.js + boids overlay |
+| [x] Transform flow | `illustrations/PipelineDiagram.tsx` | D3 data flow through pipeline |
 
 **Source Documentation:** `docs/graphics.md`
 
 **Content:**
-- WebGPU fundamentals (GPU programming model, bind groups, pipelines)
 - Instanced rendering pattern (10k+ entities at 60fps)
 - Transform matrix flow (CPU → SAB → GPU)
 - Depth sorting with atomics
@@ -396,9 +427,9 @@ Rule of Three:
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Database page | `pages/DeepDives/Database.tsx` | SQLite WASM + P2P sync |
-| [ ] Sync diagram | `illustrations/DatabaseSync.tsx` | D3 peer synchronization |
-| [ ] CRDT merge | `illustrations/CrdtMerge.tsx` | D3 animated conflict resolution |
+| [x] Create Database page | `pages/DeepDives/Database.tsx` | Persistence paradoxes |
+| [x] Tiered storage | `illustrations/HotColdStorage.tsx` | D3 data migration visualization |
+| [x] Block hashing | `illustrations/BlockHashingMap.tsx` | 1MB chunking visual |
 
 **Source Documentation:** `docs/database.md`
 
@@ -419,32 +450,20 @@ Rule of Three:
 
 ---
 
-### Phase 6: Chapter 5 — Implementation
+### Phase 7: Chapter 5 — The Moonshot & Roadmap (Cosmos)
 
-**Goal:** How it's built, for engineers.
-
-| Task | File | Description |
-|:-----|:-----|:------------|
-| [ ] Create Implementation page | `pages/Implementation.tsx` | Build system, tools |
-| [ ] Build graph | `illustrations/BuildGraph.tsx` | D3 DAG of compilation |
-
-**Content:**
-- Cap'n Proto schemas → Rust/Go/TypeScript
-- WASM compilation pipeline
-- SAB memory layout specification
-
----
-
-### Phase 7: Chapter 6 — Roadmap
-
-**Goal:** Where we're going.
+**Goal:** Crown demonstration (real-time cosmos simulation) + vision for the future.
 
 | Task | File | Description |
 |:-----|:-----|:------------|
-| [ ] Create Roadmap page | `pages/Roadmap.tsx` | Timeline with milestones |
-| [ ] Timeline | `illustrations/RoadmapTimeline.tsx` | D3 horizontal timeline |
+| [x] Update Cosmos page | `pages/Cosmos.tsx` | Galaxy simulation + Roadmap milestones |
+| [x] Scale Map | `illustrations/SupercomputerDensityMap.tsx` | Scale comparison visualization |
+| [x] Bridge Diagram | `illustrations/RoboticProtocolBridge.tsx` | Cross-reality protocol bridge |
+| [x] Roadmap Timeline | `illustrations/RoadmapTimeline.tsx` | D3 horizontal milestone timeline |
+| [ ] Galaxy renderer | `illustrations/CosmosRenderer.tsx` | Three.js + existing nbody.wgsl |
+| [ ] Fidelity scaling | `pages/Cosmos.tsx` | Particles scale with mock nodes |
 
-**Milestones:**
+**Milestones for Roadmap:**
 - ✅ Zero-copy reactive signaling
 - ✅ Content-addressed storage mesh
 - ✅ Economic incentive layer
@@ -452,18 +471,18 @@ Rule of Three:
 - 🚀 Federated learning across mesh
 - 🚀 Global compute marketplace
 
----
+**Technical Integration:**
+- Reuse existing `modules/compute/src/units/gpu_shaders/nbody.wgsl`
+- Use `physics.nbody_step_enhanced` capability
+- Scale particle count based on simulated node availability
+- Three.js InstancedMesh for rendering (same pattern as boids)
 
-### Phase 8: Chapter 7 — The Moonshot (Cosmos)
-
-**Goal:** Crown demonstration — real-time cosmological simulation.
-
-| Task | File | Description |
-|:-----|:-----|:------------|
-| [ ] Create Cosmos page | `pages/Cosmos.tsx` | Galaxy simulation |
-| [ ] Galaxy renderer | `illustrations/CosmosRenderer.tsx` | Three.js + existing nbody.wgsl |
-| [ ] Fidelity scaling | `pages/Cosmos.tsx` | Particles scale with mock nodes |
-| [ ] Live dashboard | `pages/Cosmos.tsx` | Node count, particles, interactions |
+**The "One More Thing" Quote:**
+> *"Today, simulating the birth of a galaxy takes the world's fastest supercomputers months.*
+>
+> *What if a million browsers could do it in real-time?*
+>
+> *That's the INOS moonshot."*
 
 **Technical Integration:**
 - Reuse existing `modules/compute/src/units/gpu_shaders/nbody.wgsl`
@@ -491,6 +510,7 @@ Rule of Three:
       <Route path="problem" element={<Problem />} />
       <Route path="insight" element={<Insight />} />
       <Route path="architecture" element={<Architecture />} />
+      <Route path="genesis" element={<Genesis />} />
       <Route path="deep-dives">
         <Route path="zero-copy" element={<ZeroCopy />} />
         <Route path="signaling" element={<Signaling />} />
@@ -620,68 +640,69 @@ export function PerformanceHUD() {
 ┌─────────────────────────────────────────────────────────┐
 │  Phase 0: Foundation                                    │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Install dependencies                               │
-│  [ ] Create Layout, PageTransition, ChapterNav          │
-│  [ ] Update App.tsx with routing                        │
-│  [ ] Verify navigation works                            │
+│  [x] Install dependencies                               │
+│  [x] Create Layout, PageTransition, ChapterNav          │
+│  [x] Update App.tsx with routing                        │
+│  [x] Verify navigation works                            │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │  Phase 1: Landing                                       │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Landing page with hero                             │
-│  [ ] Table of contents with icons                       │
-│  [ ] PerformanceHUD component                           │
+│  [x] Landing page with hero                             │
+│  [x] Table of contents with icons                       │
+│  [x] PerformanceHUD component                           │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │  Phase 2: Problem (The Villain)                         │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Problem page content                               │
-│  [ ] CopyTaxDiagram (D3 SVG)                            │
-│  [ ] SparklineLatency (D3 SVG)                          │
+│  [x] Problem page content                               │
+│  [x] CentralizationDiagram                              │
+│  [x] CopyTaxDiagram                                     │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │  Phase 3: Insight (The Vision)                          │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Insight page content                               │
-│  [ ] BloodFlowDiagram (D3 SVG)                          │
+│  [x] Insight page content                               │
+│  [x] WasmComparisonDiagram                              │
+│  [x] BoidsDataFlowDiagram                               │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Phase 4: Architecture (The System)                     │
+│  Phase 4: Architecture & Implementation                 │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Architecture page content                          │
-│  [ ] LayerArchitecture diagram (D3 SVG)                 │
-│  [ ] Embed ArchitecturalBoids as proof                  │
+│  [x] Architecture page content                          │
+│  [x] ThreeLayerDiagram / SABMemoryMap                   │
+│  [x] BuildPipelineDiagram                               │
+│  [x] Embed ArchitecturalBoids as proof                  │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Phase 5: Deep Dives (4 pillars)                        │
+│  Phase 5: Genesis (The 30-Year Correction)               │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Zero-Copy + SABMemoryMap                           │
-│  [ ] Signaling + EpochSignaling                         │
-│  [ ] Mesh + MeshTopology                                │
-│  [ ] Economy + CreditFlow                               │
+│  [x] Genesis page content                               │
+│  [x] HistoryTimeline                                    │
+│  [x] LanguageTriad                                      │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Phase 6: Implementation                                │
+│  Phase 6: Deep Dives (7 technical pillars)              │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Implementation page + BuildGraph                   │
+│  [x] Zero-Copy + SABMemoryMap                           │
+│  [x] Signaling + EpochSignaling                         │
+│  [/] Mesh + MeshTopology                                │
+│  [/] Economy + CreditFlow                               │
+│  [/] Threads + SupervisorTree                           │
+│  [/] Graphics + GpuPipeline                             │
+│  [/] Database + DatabaseSync                            │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  Phase 7: Roadmap                                       │
+│  Phase 7: Cosmos (The Moonshot & Roadmap)               │
 │  ─────────────────────────────────────────────────────  │
-│  [ ] Roadmap page + Timeline                            │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│  Phase 8: Cosmos (The Moonshot)                         │
-│  ─────────────────────────────────────────────────────  │
-│  [ ] Cosmos page                                        │
+│  [x] Cosmos page + RoadmapTimeline                      │
 │  [ ] CosmosRenderer using existing nbody.wgsl           │
 │  [ ] Fidelity scaling dashboard                         │
 │  [ ] "One More Thing" narrative                         │

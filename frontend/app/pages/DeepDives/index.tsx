@@ -11,5 +11,4 @@ export { default as Economy } from './Economy';
 export { default as Threads } from './Threads';
 export { default as Graphics } from './Graphics';
 
-// Placeholder exports for pending pages
-export const Database = () => <div>Database - Coming Soon</div>;
+export { default as Database } from './Database';

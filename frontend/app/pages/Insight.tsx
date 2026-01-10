@@ -836,8 +836,8 @@ export function Insight() {
       </Style.CodeNote>
 
       <ChapterNav
-        prev={{ to: '/problem', title: 'The Problem' }}
-        next={{ to: '/architecture', title: 'Architecture' }}
+        prev={{ to: '/problem', title: '01. The Problem' }}
+        next={{ to: '/architecture', title: '03. The Architecture' }}
       />
     </Style.BlogContainer>
   );

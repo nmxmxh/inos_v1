@@ -13,6 +13,7 @@
 import { useRef, useState, useEffect, ReactNode, Suspense, useMemo } from 'react';
 import styled from 'styled-components';
 import { Canvas } from '@react-three/fiber';
+import { EffectComposer, Bloom, Noise, Vignette } from '@react-three/postprocessing';
 
 // ========== SAB ARENA ALLOCATION ==========
 // Free space starts after Matrix Buffer B at 0x01022000
@@ -24,6 +25,10 @@ export const SCENE_OFFSETS = {
   // Terrain: 100x100 heightmap * 4 bytes = 40KB
   TERRAIN_HEIGHTMAP: ARENA_SCENE_BASE,
   TERRAIN_SIZE: 100 * 100 * 4,
+
+  // Clouds: 64x64 density map * 4 bytes = 16KB
+  CLOUD_MAP: ARENA_SCENE_BASE + 100 * 100 * 4,
+  CLOUD_SIZE: 64 * 64 * 4,
 
   // Boids offsets are defined in sab_layout.capnp and exported from layout.ts
 };
@@ -262,16 +267,6 @@ export default function SceneWrapper({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
-  const [opacity, setOpacity] = useState(0);
-  useEffect(() => {
-    if (isBackground) {
-      const timer = setTimeout(() => setOpacity(1), 100);
-      return () => clearTimeout(timer);
-    } else {
-      setOpacity(1);
-    }
-  }, [isBackground]);
-
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       containerRef.current?.requestFullscreen();
@@ -286,7 +281,6 @@ export default function SceneWrapper({
       $isFullscreen={isFullscreen}
       $isBackground={isBackground}
       data-context-id={contextId}
-      style={{ opacity }}
     >
       {!isBackground && (
         <Header>
@@ -311,18 +305,57 @@ export default function SceneWrapper({
           </LoadingFallback>
         }
       >
+        {isBackground && (
+          <>
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '100px',
+                background: 'linear-gradient(to bottom, rgba(244, 241, 234, 0.4), transparent)',
+                zIndex: 1,
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: '80px',
+                background: 'linear-gradient(to top, rgba(244, 241, 234, 0.4), transparent)',
+                zIndex: 1,
+              }}
+            />
+          </>
+        )}
         <Canvas
           dpr={[1, 2]}
           camera={
-            isBackground ? { position: [0, 8, 30], fov: 45 } : { position: [0, 5, 15], fov: 50 }
+            isBackground ? { position: [0, 10, 40], fov: 45 } : { position: [0, 5, 15], fov: 50 }
           }
           gl={{
             alpha: true,
-            antialias: true,
+            antialias: false, // Postprocessing handles AA better
             powerPreference: 'high-performance',
+            stencil: false,
+            depth: true,
           }}
         >
           {children}
+
+          <EffectComposer enableNormalPass={false}>
+            <Bloom
+              luminanceThreshold={0.4}
+              mipmapBlur
+              intensity={isBackground ? 0.5 : 0.8}
+              radius={0.4}
+            />
+            <Noise opacity={isBackground ? 0.02 : 0.05} />
+            <Vignette eskil={false} offset={0.1} darkness={1.1} />
+          </EffectComposer>
         </Canvas>
       </Suspense>
     </Container>

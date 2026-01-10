@@ -26,6 +26,7 @@ import Landing from './pages/Landing';
 import Problem from './pages/Problem';
 import Insight from './pages/Insight';
 import Architecture from './pages/Architecture';
+import Genesis from './pages/Genesis';
 import Cosmos from './pages/Cosmos';
 
 // Deep Dives
@@ -165,6 +166,7 @@ export default function App() {
             <Route path="problem" element={<Problem />} />
             <Route path="insight" element={<Insight />} />
             <Route path="architecture" element={<Architecture />} />
+            <Route path="genesis" element={<Genesis />} />
             <Route path="cosmos" element={<Cosmos />} />
             {/* Deep Dives */}
             <Route path="deep-dives">
@@ -176,8 +178,6 @@ export default function App() {
               <Route path="graphics" element={<Graphics />} />
               <Route path="database" element={<Database />} />
             </Route>
-            <Route path="implementation" element={<div>Implementation - Coming Soon</div>} />
-            <Route path="roadmap" element={<div>Roadmap - Coming Soon</div>} />
           </Route>
         </Routes>
       </SystemLoader>

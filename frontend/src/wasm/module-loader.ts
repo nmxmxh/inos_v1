@@ -76,12 +76,10 @@ export async function loadModule(
     console.log(`[ModuleLoader] Reusing compiled module: ${name}`);
     compiledModule = compiledCache.get(name)!;
   } else {
-    // Fetch and compile only once (no cache-busting timestamp)
-    const response = await fetch(`/modules/${name}.wasm`);
-    if (!response.ok) throw new Error(`Failed to load ${name}.wasm`);
-
-    const bytes = await response.arrayBuffer();
-    compiledModule = await WebAssembly.compile(bytes);
+    // Fetch and compile using streaming (Optimized)
+    console.log(`[ModuleLoader] Streaming compilation: ${name}`);
+    const response = fetch(`/modules/${name}.wasm`);
+    compiledModule = await WebAssembly.compileStreaming(response);
     compiledCache.set(name, compiledModule);
     console.log(`[ModuleLoader] Compiled and cached: ${name}`);
   }

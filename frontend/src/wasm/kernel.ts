@@ -1,9 +1,5 @@
-/**
- * Kernel initialization logic for INOS Go WASM kernel.
- * Handles loading wasm_exec.js, creating SharedArrayBuffer, and instantiating the kernel.
- */
-
 import { MEMORY_PAGES, type ResourceTier } from './layout';
+import { clearViewCache } from '../../app/features/scenes/SceneWrapper';
 
 // Re-export IDX_CONTEXT_ID_HASH for other modules
 export { IDX_CONTEXT_ID_HASH } from './layout';
@@ -47,11 +43,14 @@ export interface KernelInitResult {
   sabSize: number;
 }
 
-export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise<KernelInitResult> {
+export async function initializeKernel(tier: ResourceTier = 'light'): Promise<KernelInitResult> {
   // 0. Update Context ID - Used to kill zombie loops
   const contextId = Math.random().toString(36).substring(2, 9);
   window.__INOS_CONTEXT_ID__ = contextId;
   console.log(`[Kernel] 🌐 New Context Instance: ${contextId} (Tier: ${tier})`);
+
+  // Clear stale SAB views (Fixes memory leak on HMR/Re-init)
+  clearViewCache();
 
   // 1. Atomic Locking - Prevent concurrent initialization spawns
   if (window.__INOS_INIT_PROMISE__) {
@@ -92,16 +91,11 @@ export async function initializeKernel(tier: ResourceTier = 'moderate'): Promise
       shared: true,
     });
 
-    // 3. Load and instantiate Go kernel
+    // 3. Load and instantiate Go kernel using streaming (Optimized)
     const go = new window.Go();
-    const response = await fetch('/kernel.wasm');
+    const response = fetch('/kernel.wasm');
 
-    if (!response.ok) {
-      throw new Error(`Failed to load kernel.wasm: ${response.statusText}`);
-    }
-
-    const wasmBytes = await response.arrayBuffer();
-    const result = await WebAssembly.instantiate(wasmBytes, {
+    const result = await WebAssembly.instantiateStreaming(response, {
       ...go.importObject,
       env: {
         ...go.importObject.env,

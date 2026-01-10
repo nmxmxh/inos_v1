@@ -11,21 +11,25 @@
 import { useRef, useMemo, useEffect, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Sky, Environment, Stars } from '@react-three/drei';
+import { Stars, Float } from '@react-three/drei';
 import SceneWrapper, { useSAB, SCENE_OFFSETS, getArenaView } from './SceneWrapper';
 import { useSystemStore } from '../../../src/store/system';
 import { dispatch } from '../../../src/wasm/dispatch';
+import InstancedBoidsRenderer from '../boids/InstancedBoidsRenderer';
 
 // ========== CONFIGURATION ==========
 
 const CONFIG = {
   GRID_SIZE: 100,
   SCALE: 60,
-  HEIGHT_SCALE: 8,
-  WATER_LEVEL: -3.5,
+  HEIGHT_SCALE: 12,
+  WATER_LEVEL: -5.0,
   OCTAVES: 6,
   PERSISTENCE: 0.45,
   ANIMATION_SPEED: 0.02,
+  CLOUD_GRID: 64,
+  CLOUD_SCALE: 120,
+  CLOUD_HEIGHT: 25,
 };
 
 // Biome color palette - realistic terrain
@@ -140,6 +144,7 @@ function TerrainMesh() {
   const [seed] = useState(() => Math.floor(Math.random() * 10000));
   const noise = useMemo(() => new SimplexNoise(seed), [seed]);
   const lastGpuUpdate = useRef(0);
+  const needsVertexUpdate = useRef(true);
 
   const tempColor = useMemo(() => new THREE.Color(), []);
   const localBuffer = useMemo(() => new Float32Array(CONFIG.GRID_SIZE * CONFIG.GRID_SIZE), []);
@@ -189,81 +194,78 @@ function TerrainMesh() {
     const colors = geometry.attributes.color;
     const time = state.clock.elapsedTime * CONFIG.ANIMATION_SPEED;
 
-    // Try GPU dispatch for perlin_noise
-    const shouldGpu = moduleExports?.compute && time - lastGpuUpdate.current > 0.1;
-    if (shouldGpu) {
+    // Dispatch 1: Terrain Perlin Base (Run periodically)
+    const shouldGpuTerrain = moduleExports?.compute && time - lastGpuUpdate.current > 1.0;
+    if (shouldGpuTerrain) {
       try {
-        const result = dispatch.execute('gpu', 'perlin_noise', {
+        dispatch.execute('gpu', 'perlin_noise', {
           width: CONFIG.GRID_SIZE,
           height: CONFIG.GRID_SIZE,
           scale: 0.03,
           octaves: CONFIG.OCTAVES,
           persistence: CONFIG.PERSISTENCE,
-          time,
+          time: 0,
           sab_offset: SCENE_OFFSETS.TERRAIN_HEIGHTMAP,
         });
-        if (result?.length) {
-          heightmap.set(new Float32Array(result.buffer).subarray(0, heightmap.length));
-          lastGpuUpdate.current = time;
-        }
+        lastGpuUpdate.current = time;
+        needsVertexUpdate.current = true;
       } catch {
-        /* JS fallback */
+        // Fallback handled below
       }
     }
 
-    // JS fallback: Simplex noise FBM
-    if (!shouldGpu || time - lastGpuUpdate.current > 0.15) {
+    // JS fallback: Simplex noise FBM (Run only on mount or once)
+    if (!shouldGpuTerrain && lastGpuUpdate.current === 0) {
       for (let i = 0; i < CONFIG.GRID_SIZE; i++) {
         for (let j = 0; j < CONFIG.GRID_SIZE; j++) {
           heightmap[i * CONFIG.GRID_SIZE + j] = noise.fbm(
-            (i / CONFIG.GRID_SIZE) * 4 + time * 0.3,
+            (i / CONFIG.GRID_SIZE) * 4,
             (j / CONFIG.GRID_SIZE) * 4,
             CONFIG.OCTAVES,
             CONFIG.PERSISTENCE
           );
         }
       }
+      lastGpuUpdate.current = 0.001; // Mark as done
+      needsVertexUpdate.current = true;
     }
 
-    // Update vertices with biome coloring
-    for (let i = 0; i < CONFIG.GRID_SIZE; i++) {
-      for (let j = 0; j < CONFIG.GRID_SIZE; j++) {
-        const idx = i * CONFIG.GRID_SIZE + j;
-        const h = heightmap[idx];
-        const nh = (h + 1) / 2; // Normalize to 0-1
-        const worldHeight = h * CONFIG.HEIGHT_SCALE;
+    // Update vertices with biome coloring only when needed
+    if (needsVertexUpdate.current) {
+      for (let i = 0; i < CONFIG.GRID_SIZE; i++) {
+        for (let j = 0; j < CONFIG.GRID_SIZE; j++) {
+          const idx = i * CONFIG.GRID_SIZE + j;
+          const h = heightmap[idx];
+          const nh = (h + 1) / 2; // Normalize to 0-1
+          const worldHeight = h * CONFIG.HEIGHT_SCALE;
 
-        // Clamp terrain below water level
-        positions.setZ(idx, Math.max(worldHeight, CONFIG.WATER_LEVEL - 0.5));
+          // Clamp terrain below water level
+          positions.setZ(idx, Math.max(worldHeight, CONFIG.WATER_LEVEL - 0.5));
 
-        // Biome coloring based on height
-        if (nh < 0.32) {
-          // Underwater - use sand color (visible through water)
-          tempColor.lerpColors(BIOME.sand, BIOME.sand, 0.5);
-        } else if (nh < 0.38) {
-          // Beach/sand
-          tempColor.lerpColors(BIOME.sand, BIOME.grass, (nh - 0.32) / 0.06);
-        } else if (nh < 0.5) {
-          // Grassland
-          tempColor.lerpColors(BIOME.grass, BIOME.forest, (nh - 0.38) / 0.12);
-        } else if (nh < 0.65) {
-          // Forest
-          tempColor.lerpColors(BIOME.forest, BIOME.mountain, (nh - 0.5) / 0.15);
-        } else if (nh < 0.8) {
-          // Mountain rock
-          tempColor.lerpColors(BIOME.mountain, BIOME.snow, (nh - 0.65) / 0.15);
-        } else {
-          // Snow caps
-          tempColor.copy(BIOME.snow);
+          // Biome coloring with "personality"
+          if (nh < 0.32) {
+            tempColor.lerpColors(BIOME.sand, BIOME.sand, 0.5);
+          } else if (nh < 0.38) {
+            tempColor.lerpColors(BIOME.sand, BIOME.grass, (nh - 0.32) / 0.06);
+          } else if (nh < 0.45) {
+            tempColor.lerpColors(BIOME.grass, BIOME.forest, (nh - 0.38) / 0.07);
+          } else if (nh < 0.6) {
+            tempColor.lerpColors(BIOME.forest, BIOME.mountain, (nh - 0.45) / 0.15);
+          } else if (nh < 0.75) {
+            tempColor.lerpColors(BIOME.mountain, BIOME.snow, (nh - 0.6) / 0.15);
+          } else {
+            tempColor.copy(BIOME.snow);
+          }
+
+          colors.setXYZ(idx, tempColor.r, tempColor.g, tempColor.b);
         }
-
-        colors.setXYZ(idx, tempColor.r, tempColor.g, tempColor.b);
       }
-    }
 
-    positions.needsUpdate = true;
-    colors.needsUpdate = true;
-    geometry.computeVertexNormals();
+      positions.needsUpdate = true;
+      colors.needsUpdate = true;
+      geometry.computeVertexNormals();
+      needsVertexUpdate.current = false;
+    }
   });
 
   return (
@@ -271,6 +273,77 @@ function TerrainMesh() {
       <primitive object={geometry} attach="geometry" />
       <primitive object={material} attach="material" />
     </mesh>
+  );
+}
+
+// ========== CLOUD LAYER ==========
+
+function CloudLayer() {
+  const sab = useSAB();
+  const { moduleExports } = useSystemStore();
+  const meshRef = useRef<THREE.Mesh>(null);
+  const lastUpdate = useRef(0);
+
+  const geometry = useMemo(() => {
+    const geo = new THREE.PlaneGeometry(
+      CONFIG.CLOUD_SCALE,
+      CONFIG.CLOUD_SCALE,
+      CONFIG.CLOUD_GRID - 1,
+      CONFIG.CLOUD_GRID - 1
+    );
+    return geo;
+  }, []);
+
+  const material = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: '#ffffff',
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        roughness: 1,
+      }),
+    []
+  );
+
+  useFrame(state => {
+    if (!meshRef.current || !sab) return;
+    const time = state.clock.elapsedTime;
+    const cloudMap = getArenaView(sab, SCENE_OFFSETS.CLOUD_MAP, SCENE_OFFSETS.CLOUD_SIZE);
+
+    // Dispatch 2: Fractal Noise for animated clouds
+    if (moduleExports?.compute && time - lastUpdate.current > 0.1) {
+      dispatch.execute('gpu', 'fractal_noise', {
+        width: CONFIG.CLOUD_GRID,
+        height: CONFIG.CLOUD_GRID,
+        scale: 0.05,
+        octaves: 4,
+        time: time * 0.1, // Slow movement
+        sab_offset: SCENE_OFFSETS.CLOUD_MAP,
+      });
+      lastUpdate.current = time;
+    }
+
+    // Update geometry based on cloud noise
+    const positions = geometry.attributes.position;
+    for (let i = 0; i < CONFIG.CLOUD_GRID * CONFIG.CLOUD_GRID; i++) {
+      const h = cloudMap[i];
+      // Only raise cloud if noise value is positive
+      positions.setZ(i, Math.max(0, h * 5));
+    }
+    positions.needsUpdate = true;
+    geometry.computeVertexNormals();
+  });
+
+  return (
+    <mesh
+      ref={meshRef}
+      geometry={geometry}
+      material={material}
+      rotation={[Math.PI / 2, 0, 0]}
+      position={[0, CONFIG.CLOUD_HEIGHT, 0]}
+    />
   );
 }
 
@@ -304,7 +377,7 @@ function WaterPlane() {
 
   return (
     <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -8 + CONFIG.WATER_LEVEL, 0]}>
-      <planeGeometry args={[CONFIG.SCALE * 1.5, CONFIG.SCALE * 1.5, 1, 1]} />
+      <planeGeometry args={[CONFIG.SCALE * 4, CONFIG.SCALE * 4, 1, 1]} />
       <primitive object={material} attach="material" />
     </mesh>
   );
@@ -315,16 +388,7 @@ function WaterPlane() {
 function SkyContent() {
   return (
     <>
-      <Sky
-        distance={450000}
-        sunPosition={[100, 20, 100]}
-        inclination={0}
-        azimuth={0.25}
-        turbidity={10}
-        rayleigh={2}
-      />
       <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
-      <Environment preset="sunset" />
     </>
   );
 }
@@ -336,12 +400,22 @@ function SkyContent() {
 function IntegratedWorldContent() {
   return (
     <>
-      <ambientLight intensity={0.4} />
-      <pointLight position={[10, 10, 10]} intensity={1} />
-      <directionalLight position={[0, 10, 0]} intensity={0.5} />
+      <color attach="background" args={['#38bdf8']} />
+      <fog attach="fog" args={['#38bdf8', 10, 80]} />
+      <ambientLight intensity={0.7} />
+      <pointLight position={[10, 15, 10]} intensity={2.5} />
+      <directionalLight position={[0, 20, 0]} intensity={1.2} />
 
       <TerrainMesh />
-      <WaterPlane />
+
+      <CloudLayer />
+
+      <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5}>
+        <WaterPlane />
+      </Float>
+
+      <InstancedBoidsRenderer />
+
       <SkyContent />
     </>
   );

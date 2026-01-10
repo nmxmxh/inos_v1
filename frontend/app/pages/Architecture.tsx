@@ -287,6 +287,14 @@ const Style = {
     }
   `,
 
+  BuildGraphContainer: styled.div`
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px dashed ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[6]} 0;
+  `,
+
   DeepDiveGrid: styled.div`
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -826,6 +834,82 @@ function LibraryProxyDiagram() {
   return <svg ref={svgRef} viewBox="0 0 620 240" style={{ width: '100%', height: 'auto' }} />;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: BUILD PIPELINE (FIXED)
+// ────────────────────────────────────────────────────────────────────────────
+function BuildPipelineDiagram() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const theme = useTheme();
+
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const stages = [
+      { id: 'schema', label: "Cap'n Proto Schema", color: '#8b5cf6', details: 'Binary definition' },
+      { id: 'gen', label: 'Code Generation', color: '#16a34a', details: 'Go / Rust / TS bindings' },
+      { id: 'comp', label: 'WASM Compilation', color: '#00add8', details: 'Go / Rust LLVM' },
+      { id: 'link', label: 'Runtime Link', color: '#f59e0b', details: 'SAB Memory Bind' },
+    ];
+
+    const stageWidth = 140;
+    const startX = 40;
+    const centerY = 100;
+
+    stages.forEach((s, i) => {
+      const x = startX + i * stageWidth;
+      const g = svg.append('g').attr('transform', `translate(${x}, ${centerY})`);
+
+      // Box
+      g.append('rect')
+        .attr('x', 0)
+        .attr('y', -30)
+        .attr('width', 120)
+        .attr('height', 60)
+        .attr('rx', 4)
+        .attr('fill', `${s.color}10`)
+        .attr('stroke', s.color)
+        .attr('stroke-width', 1.5);
+
+      // Label
+      g.append('text')
+        .attr('x', 60)
+        .attr('y', 0)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9)
+        .attr('font-weight', 700)
+        .attr('fill', s.color)
+        .text(s.label);
+
+      // Details
+      g.append('text')
+        .attr('x', 60)
+        .attr('y', 15)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 7)
+        .attr('fill', theme.colors.inkMedium)
+        .text(s.details);
+
+      // Arrow to next
+      if (i < stages.length - 1) {
+        svg
+          .append('line')
+          .attr('x1', x + 120)
+          .attr('y1', 0)
+          .attr('x2', x + stageWidth)
+          .attr('y2', 0)
+          .attr('transform', `translate(0, ${centerY})`)
+          .attr('stroke', theme.colors.borderSubtle)
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '3,2');
+      }
+    });
+  }, [theme]);
+
+  return <svg ref={svgRef} viewBox="0 0 600 200" style={{ width: '100%', height: 'auto' }} />;
+}
+
 export function Architecture() {
   return (
     <Style.BlogContainer>
@@ -1150,6 +1234,51 @@ export function Architecture() {
       <Style.SectionDivider />
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* SECTION 6: THE IMPLEMENTATION DETAIL */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      <Style.ContentCard>
+        <h3>The Implementation Detail</h3>
+        <p>
+          Architecture remains a theory until it is built. In INOS, the implementation is governed
+          by <strong>Schema-First Development</strong>. We use Cap'n Proto to define the geometry of
+          our shared reality (the SAB layout) before a single line of application logic is written.
+        </p>
+
+        <Style.IllustrationContainer>
+          <Style.IllustrationHeader>
+            <Style.IllustrationTitle>Fig_04 // The Build Pipeline</Style.IllustrationTitle>
+          </Style.IllustrationHeader>
+          <BuildPipelineDiagram />
+          <Style.IllustrationCaption>
+            Automated synchronization between schema definitions and multi-language binaries.
+          </Style.IllustrationCaption>
+        </Style.IllustrationContainer>
+
+        <p>
+          This pipeline ensures that when the Rust <code>muscle</code> writes a matrix to the
+          SharedArrayBuffer, the TypeScript <code>sensory</code> layer knows exactly where to read
+          it, down to the byte.
+        </p>
+
+        <Style.CodeNote>
+          <strong>Implementation Checklist:</strong>
+          <ul>
+            <li>
+              <strong>Uniformity</strong>: Every module exposes the <code>UnitProxy</code> trait.
+            </li>
+            <li>
+              <strong>Hot-Reloading</strong>: Modules are compiled to independent WASM files.
+            </li>
+            <li>
+              <strong>Deterministic Linking</strong>: The Go Kernel maps memory regions at boot.
+            </li>
+          </ul>
+        </Style.CodeNote>
+      </Style.ContentCard>
+
+      <Style.SectionDivider />
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* SECTION 7: DEEP DIVES */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <Style.ContentCard>
@@ -1180,16 +1309,16 @@ export function Architecture() {
             <Style.DeepDiveTitle $color="#ec4899">Graphics Pipeline</Style.DeepDiveTitle>
             <Style.DeepDiveDesc>WebGPU + instanced rendering</Style.DeepDiveDesc>
           </Style.DeepDiveLink>
-          <Style.DeepDiveLink to="/deep-dives/database" $color="#0ea5e9">
-            <Style.DeepDiveTitle $color="#0ea5e9">Distributed Database</Style.DeepDiveTitle>
-            <Style.DeepDiveDesc>SQLite WASM + P2P sync</Style.DeepDiveDesc>
+          <Style.DeepDiveLink to="/deep-dives/database" $color="#10b981">
+            <Style.DeepDiveTitle $color="#10b981">Database & Storage</Style.DeepDiveTitle>
+            <Style.DeepDiveDesc>OPFS + BLAKE3 content addressing</Style.DeepDiveDesc>
           </Style.DeepDiveLink>
         </Style.DeepDiveGrid>
       </Style.ContentCard>
 
       <ChapterNav
         prev={{ to: '/insight', title: '02. The Insight' }}
-        next={{ to: '/cosmos', title: '04. The Cosmos' }}
+        next={{ to: '/genesis', title: '04. Genesis' }}
       />
     </Style.BlogContainer>
   );

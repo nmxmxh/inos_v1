@@ -6,11 +6,8 @@ const Style = {
   StoryContainer: styled.div`
     width: 100%;
     height: 600px;
-    background: ${p => p.theme.colors.paperWhite};
-    border: 1px solid ${p => p.theme.colors.borderSubtle};
     position: relative;
     overflow: hidden;
-    margin: ${p => p.theme.spacing[10]} 0;
   `,
   Overlay: styled.div`
     position: absolute;

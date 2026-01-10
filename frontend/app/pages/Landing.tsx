@@ -119,6 +119,48 @@ const Style = {
     margin: ${p => p.theme.spacing[2]} 0 0;
     line-height: 1.5;
   `,
+
+  BlogContainer: styled(ManuscriptStyle.BlogContainer)`
+    padding-top: ${p => p.theme.spacing[8]}; // Reduced from default spacing[16]
+  `,
+
+  IllustrationContainer: styled.div`
+    width: 100%;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    margin: ${p => p.theme.spacing[10]} 0;
+    overflow: hidden;
+  `,
+
+  IllustrationHeader: styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: ${p => p.theme.spacing[3]} ${p => p.theme.spacing[4]};
+    border-bottom: 1px solid ${p => p.theme.colors.borderSubtle};
+    background: rgba(0, 0, 0, 0.02);
+  `,
+
+  IllustrationTitle: styled.span`
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    font-weight: 600;
+    color: ${p => p.theme.colors.inkDark};
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  `,
+
+  IllustrationCaption: styled.p`
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    color: ${p => p.theme.colors.inkMedium};
+    text-align: center;
+    padding: ${p => p.theme.spacing[3]};
+    margin: 0;
+    border-top: 1px solid ${p => p.theme.colors.borderSubtle};
+  `,
 };
 
 const MANUSCRIPT_VARIANTS = {
@@ -158,14 +200,21 @@ const CHAPTERS = [
     title: 'The Architecture',
     path: '/architecture',
     description:
-      'A tri-layer stack where Go orchestrates policy, Rust executes physics, and JavaScript renders perception. All three share the same memory. No serialization. No message passing. Pure shared reality.',
+      'A tri-layer stack where Go orchestrates, Rust executes, and JavaScript renders. Built on a zero-copy build pipeline synchronized by binary schemas. Pure shared reality.',
   },
   {
     number: '04',
+    title: 'Genesis',
+    path: '/genesis',
+    description:
+      'The 30-year legacy of message-passing has cost us 60% of CPU cycles in translation alone. INOS is a technical correction—a return to Distributed Shared Memory.',
+  },
+  {
+    number: '05',
     title: 'The Cosmos',
     path: '/cosmos',
     description:
-      'The moonshot: simulating the birth of a galaxy in real-time. Today it takes supercomputers months. What if a million browsers could do it together? Fidelity scales with the network.',
+      'The moonshot: a planetary-scale supercomputer. Our roadmap leads to a million browsers simulating galaxies in real-time. Fidelity scales with the network.',
   },
 ];
 
@@ -261,7 +310,16 @@ export function Landing() {
             favor of <strong>shared presence</strong>.
           </p>
 
-          <DimostrazioneStory />
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>Live_Ref_01 // The Circulatory Mesh</Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <DimostrazioneStory />
+            <Style.IllustrationCaption>
+              Live visualization of the SharedArrayBuffer memory pool. Pointers are swapped between
+              Go, Rust, and TS governance layers with zero serialization overhead.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
 
           <p style={{ marginTop: '2rem', fontWeight: 500, color: '#2d2d2d' }}>
             The boids are proof of concept. The full stack goes deeper: a{' '}

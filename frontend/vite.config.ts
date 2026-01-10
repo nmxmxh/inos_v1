@@ -34,9 +34,11 @@ export default defineConfig({
         // Add hash to WASM files for cache busting
         assetFileNames: 'assets/[name].[hash][extname]',
         manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-ui': ['framer-motion'],
-          'vendor-utils': ['zustand'],
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-three': ['three', '@react-three/fiber', '@react-three/drei'],
+          'vendor-d3': ['d3'],
+          'vendor-ui': ['framer-motion', 'styled-components'],
+          'vendor-utils': ['zustand', 'react-use'],
         },
       },
     },

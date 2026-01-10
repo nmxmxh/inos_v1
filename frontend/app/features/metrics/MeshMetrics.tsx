@@ -19,7 +19,7 @@ const Style = {
     padding: 0 ${p => p.theme.spacing[4]};
     font-family: ${p => p.theme.fonts.typewriter};
     font-size: 9px;
-    color: ${p => p.theme.colors.inkLight};
+    color: ${p => p.theme.colors.inkMedium};
     letter-spacing: 0.08em;
     width: 100%;
     max-width: ${p => p.theme.layout.maxWidth};
@@ -38,8 +38,8 @@ const Style = {
 
   Label: styled.span`
     text-transform: uppercase;
-    font-weight: ${p => p.theme.fontWeights.medium};
-    opacity: 0.55;
+    font-weight: ${p => p.theme.fontWeights.semibold};
+    opacity: 0.85;
     font-size: 8px;
     margin-top: 1px;
   `,

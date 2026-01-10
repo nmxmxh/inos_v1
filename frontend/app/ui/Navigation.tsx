@@ -54,8 +54,8 @@ const Style = {
   StyledLink: styled(NavLink)`
     font-family: ${p => p.theme.fonts.typewriter};
     font-size: 10px;
-    font-weight: ${p => p.theme.fontWeights.medium};
-    color: ${p => p.theme.colors.inkLight};
+    font-weight: ${p => p.theme.fontWeights.semibold};
+    color: ${p => p.theme.colors.inkMedium};
     text-decoration: none;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -67,6 +67,7 @@ const Style = {
     }
 
     &.active {
+      font-weight: ${p => p.theme.fontWeights.bold};
       color: ${p => p.theme.colors.inkDark};
     }
 
