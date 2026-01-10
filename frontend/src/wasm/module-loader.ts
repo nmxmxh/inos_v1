@@ -78,7 +78,7 @@ export async function loadModule(
   } else {
     // Fetch and compile using streaming (Optimized)
     console.log(`[ModuleLoader] Streaming compilation: ${name}`);
-    const response = fetch(`/modules/${name}.wasm`);
+    const response = fetch(`/modules/${name}.wasm.br`);
     compiledModule = await WebAssembly.compileStreaming(response);
     compiledCache.set(name, compiledModule);
     console.log(`[ModuleLoader] Compiled and cached: ${name}`);

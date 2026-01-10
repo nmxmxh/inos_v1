@@ -12,14 +12,28 @@ export default defineConfig({
       threshold: 10240, // Only compress if > 10kb
       deleteOriginFile: false,
     }),
+    // Custom plugin to serve .br files correctly in dev mode
+    {
+      name: 'serve-brotli-wasm',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const url = (req as any).url || '';
+          if (url.endsWith('.wasm.br')) {
+            res.setHeader('Content-Type', 'application/wasm');
+            res.setHeader('Content-Encoding', 'br');
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          }
+          // Enforce COOP/COEP for all responses in dev
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+          next();
+        });
+      },
+    },
   ],
   server: {
     port: 5173,
-    headers: {
-      // Disable WASM caching in development
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
+    host: true, // Allow external access
   },
   build: {
     target: 'esnext', // Modern browsers

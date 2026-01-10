@@ -145,17 +145,14 @@ kernel-build: proto-go
 	if [ -f "$$WASM_EXEC_PATH_NEW" ]; then cp "$$WASM_EXEC_PATH_NEW" frontend/public/; \
 	elif [ -f "$$WASM_EXEC_PATH_OLD" ]; then cp "$$WASM_EXEC_PATH_OLD" frontend/public/; \
 	else echo "❌ Error: wasm_exec.js not found in GOROOT ($$GOROOT)." >&2; exit 1; fi
-	@# Optimize with wasm-opt if available
-	@# NOTE: Disabled - Go WASM has UTF-8 parsing issues with wasm-opt
-	@echo "⚠️  Skipping wasm-opt for kernel (Go WASM incompatibility)"
-	@# @if command -v $(WASM_OPT) > /dev/null 2>&1; then \
-	@# 	echo "⚡ Optimizing kernel.wasm with wasm-opt..."; \
-	@# 	$(WASM_OPT) -O3 --enable-threads --enable-bulk-memory --strip-debug \
-	@# 		-o frontend/public/kernel.wasm frontend/public/kernel.wasm; \
-	@# 	echo "✅ WASM optimized"; \
-	@# else \
-	@# 	echo "⚠️  wasm-opt not installed. Skipping optimization."; \
-	@# fi
+	@if command -v $(WASM_OPT) > /dev/null 2>&1; then \
+		echo "⚡ Optimizing kernel.wasm with wasm-opt..."; \
+		$(WASM_OPT) -O3 --enable-threads --enable-bulk-memory --strip-debug \
+			-o frontend/public/kernel.wasm frontend/public/kernel.wasm; \
+		echo "✅ WASM optimized"; \
+	else \
+		echo "⚠️  wasm-opt not installed. Skipping optimization."; \
+	fi
 	@# Patch AFTER optimization
 	@# NOTE: Disabled - Go WASM doesn't support SharedArrayBuffer natively
 	@# Binary patching breaks the WASM structure

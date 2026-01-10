@@ -93,7 +93,7 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
 
     // 3. Load and instantiate Go kernel using streaming (Optimized)
     const go = new window.Go();
-    const response = fetch('/kernel.wasm');
+    const response = fetch('/kernel.wasm.br');
 
     const result = await WebAssembly.instantiateStreaming(response, {
       ...go.importObject,
@@ -123,12 +123,19 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
 
     // 5. Setup SharedArrayBuffer globals
     const memoryBuffer = sharedMemory.buffer;
+    // Guard against SharedArrayBuffer being undefined (ReferenceError) or hidden
+    const isSAB =
+      typeof SharedArrayBuffer !== 'undefined' && memoryBuffer instanceof SharedArrayBuffer;
+    const isLikelySAB = (memoryBuffer as any).constructor?.name === 'SharedArrayBuffer';
 
-    if (!(memoryBuffer instanceof SharedArrayBuffer)) {
-      throw new Error('WebAssembly.Memory.buffer is not a SharedArrayBuffer');
+    if (!isSAB && !isLikelySAB) {
+      console.error(
+        '[Kernel] ❌ SharedArrayBuffer is not available. This site must be cross-origin isolated (COOP/COEP) to use shared memory.'
+      );
+      throw new Error('SharedArrayBuffer is missing. Check COOP/COEP headers.');
     }
 
-    const sabBase = memoryBuffer as SharedArrayBuffer;
+    const sabBase = memoryBuffer as unknown as SharedArrayBuffer;
     let sabOffset = 0;
     let sabSize = sabBase.byteLength;
 

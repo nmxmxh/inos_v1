@@ -1,6 +1,19 @@
 {
   "headers": [
     {
+      "source": "/(.*).wasm.br",
+      "headers": [
+        {
+          "key": "Content-Encoding",
+          "value": "br"
+        },
+        {
+          "key": "Content-Type",
+          "value": "application/wasm"
+        }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         {
