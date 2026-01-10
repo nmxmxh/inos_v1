@@ -217,8 +217,8 @@ lib-cov/
 /frontend/.vite/
 
 # Generated files
-/frontend/bridge/generated/**/*
-!/frontend/bridge/generated/README.md
+# Required for Vercel builds since capnp compiler is not available in build environment
+!/frontend/bridge/generated/**/*
 
 # Public build artifacts
 /frontend/public/*.wasm
