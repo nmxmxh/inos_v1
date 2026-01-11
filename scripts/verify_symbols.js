@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const MODULE_DIR = path.join(__dirname, '../frontend/public/modules');
-const REQUIRED_EXPORTS = ['init_with_sab', 'poll', 'alloc'];
+const REQUIRED_EXPORTS = ['init_with_sab', 'alloc'];
 const EXPECTED_IMPORTS = [
     { module: 'env', name: 'atomic_add' },
     { module: 'env', name: 'console_log' },
@@ -22,7 +22,6 @@ async function verifyModule(filename) {
 
         const requiredExports = [
             `${moduleName}_init_with_sab`,
-            `${moduleName}_poll`,
             `${moduleName}_alloc`
         ];
 
@@ -30,7 +29,7 @@ async function verifyModule(filename) {
         
         // Backward compatibility check for generic names if prefixed are missing
         if (missingExports.length > 0) {
-            const fallbackExports = ['init_with_sab', 'poll', 'alloc'];
+            const fallbackExports = ['init_with_sab', 'alloc'];
             const missingFallback = fallbackExports.filter(e => !exports.includes(e));
             if (missingFallback.length > 0) {
                 console.error(`❌ Missing internal exports: ${missingExports.join(', ')} (or fallback ${fallbackExports.join(', ')})`);

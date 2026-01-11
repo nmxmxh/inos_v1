@@ -69,23 +69,23 @@ func (s *AnalyticsSupervisor) updateGlobalMetrics() {
 
 	// 2. Prepare SAB buffer
 	// Structure: [TotalStorage(8), TotalCompute(8), GlobalOps(8), NodeCount(4)]
-	data := make([]byte, 28)
+	var buf [28]byte
 
 	// Total Storage (Bytes)
-	binary.LittleEndian.PutUint64(data[0:8], metrics.TotalStorageBytes)
+	binary.LittleEndian.PutUint64(buf[0:8], metrics.TotalStorageBytes)
 
 	// Total Compute (GFLOPS)
 	// We use Uint64 for SAB slot, but metrics has float32. Convert for SAB storage.
-	binary.LittleEndian.PutUint64(data[8:16], uint64(metrics.TotalComputeGFLOPS))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(metrics.TotalComputeGFLOPS))
 
 	// Global Ops/Sec
-	binary.LittleEndian.PutUint64(data[16:24], uint64(metrics.GlobalOpsPerSec))
+	binary.LittleEndian.PutUint64(buf[16:24], uint64(metrics.GlobalOpsPerSec))
 
 	// Node Count
-	binary.LittleEndian.PutUint32(data[24:28], metrics.ActiveNodeCount)
+	binary.LittleEndian.PutUint32(buf[24:28], metrics.ActiveNodeCount)
 
 	// 3. Write to SAB
-	if err := s.bridge.WriteRaw(sab_layout.OFFSET_GLOBAL_ANALYTICS, data); err != nil {
+	if err := s.bridge.WriteRaw(sab_layout.OFFSET_GLOBAL_ANALYTICS, buf[:]); err != nil {
 		utils.Error("Failed to write global analytics to SAB", utils.Err(err))
 		return
 	}
@@ -97,15 +97,14 @@ func (s *AnalyticsSupervisor) updateGlobalMetrics() {
 func (s *AnalyticsSupervisor) signalGlobalEpoch() {
 	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_GLOBAL_METRICS_EPOCH*4
 
-	epochBytes, err := s.bridge.ReadRaw(offset, 4)
-	if err != nil {
+	var buf [4]byte
+	if err := s.bridge.ReadAt(offset, buf[:]); err != nil {
 		return
 	}
-	currentEpoch := binary.LittleEndian.Uint32(epochBytes)
+	currentEpoch := binary.LittleEndian.Uint32(buf[:])
 
 	newEpoch := currentEpoch + 1
-	newBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(newBytes, newEpoch)
+	binary.LittleEndian.PutUint32(buf[:], newEpoch)
 
-	s.bridge.WriteRaw(offset, newBytes)
+	s.bridge.WriteRaw(offset, buf[:])
 }

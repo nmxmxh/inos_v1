@@ -12,6 +12,7 @@ export class WasmHeap {
   private peakUsage: number = 0;
   private totalAllocations: number = 0;
   private totalDrops: number = 0;
+  private lastGcTime: number = 0;
 
   // Universal Object Cache for reference counting and deduplication
   private objectCache = new Map<any, { idx: number; refs: number }>();
@@ -76,6 +77,28 @@ export class WasmHeap {
     return idx;
   }
 
+  /**
+   * Periodic GC for the interning cache.
+   * Removes objects that have 0 references but haven't been reused.
+   */
+  gc(): void {
+    const now = Date.now();
+    if (now - this.lastGcTime < 2000) return; // Throttled GC
+
+    let collected = 0;
+    for (const [obj, entry] of this.objectCache.entries()) {
+      if (entry.refs <= 0) {
+        this.objectCache.delete(obj);
+        collected++;
+      }
+    }
+
+    if (collected > 0) {
+      console.log(`[WasmHeap] GC collected ${collected} interned objects`);
+    }
+    this.lastGcTime = now;
+  }
+
   private grow(): void {
     const oldLen = this.objects.length;
     const newLen = oldLen * 2;
@@ -119,6 +142,11 @@ export class WasmHeap {
     this.objects[idx] = this.nextFree;
     this.nextFree = idx;
     this.totalDrops++;
+
+    // Trigger throttled GC on large drops
+    if (this.totalDrops % 100 === 0) {
+      this.gc();
+    }
   }
 
   getStats() {

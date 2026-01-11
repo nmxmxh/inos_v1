@@ -14,80 +14,24 @@ use units::{
 };
 
 // --- PERSISTENT SAB CACHE ---
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
-pub struct SpinLock<T> {
-    lock: AtomicBool,
-    data: UnsafeCell<T>,
-}
-
-unsafe impl<T: Sync> Sync for SpinLock<T> {}
-unsafe impl<T: Send> Send for SpinLock<T> {}
-
-impl<T> SpinLock<T> {
-    pub const fn new(data: T) -> Self {
-        Self {
-            lock: AtomicBool::new(false),
-            data: UnsafeCell::new(data),
-        }
-    }
-
-    pub fn lock(&self) -> SpinLockGuard<'_, T> {
-        while self
-            .lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            std::hint::spin_loop();
-        }
-        SpinLockGuard { lock: self }
-    }
-}
-
-pub struct SpinLockGuard<'a, T> {
-    lock: &'a SpinLock<T>,
-}
-
-impl<'a, T> std::ops::Deref for SpinLockGuard<'a, T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.lock.data.get() }
-    }
-}
-
-impl<'a, T> std::ops::DerefMut for SpinLockGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.data.get() }
-    }
-}
-
-impl<'a, T> Drop for SpinLockGuard<'a, T> {
-    fn drop(&mut self) {
-        self.lock.lock.store(false, Ordering::Release);
-    }
-}
-
-// Use SpinLock instead of Mutex to avoid Atomics.wait on main thread
-static GLOBAL_SAB: SpinLock<Option<sdk::sab::SafeSAB>> = SpinLock::new(None);
+// Use OnceLock for thread-safe one-time initialization without spin-waiting
+static GLOBAL_SAB: OnceLock<sdk::sab::SafeSAB> = OnceLock::new();
 
 pub(crate) fn set_cached_sab(sab: sdk::sab::SafeSAB) {
-    *GLOBAL_SAB.lock() = Some(sab);
+    let _ = GLOBAL_SAB.set(sab);
 }
 
 pub(crate) fn get_cached_sab() -> Option<sdk::sab::SafeSAB> {
-    GLOBAL_SAB.lock().clone()
+    GLOBAL_SAB.get().cloned()
 }
 
-// Use SpinLock for engine to avoid Once/Mutex atomic wait on main thread
-static COMPUTE_ENGINE: SpinLock<Option<ComputeEngine>> = SpinLock::new(None);
+// Use OnceLock for engine to avoid lock overhead on every access
+static COMPUTE_ENGINE: OnceLock<ComputeEngine> = OnceLock::new();
 
-fn get_engine<'a>() -> SpinLockGuard<'a, Option<ComputeEngine>> {
-    let mut guard = COMPUTE_ENGINE.lock();
-    if guard.is_none() {
-        *guard = Some(initialize_engine());
-    }
-    guard
+fn get_engine() -> &'static ComputeEngine {
+    COMPUTE_ENGINE.get_or_init(|| initialize_engine())
 }
 
 fn initialize_engine() -> ComputeEngine {
@@ -195,29 +139,6 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
     0 // failure
 }
 
-/// External poll entry point for JavaScript
-#[no_mangle]
-pub extern "C" fn compute_poll() {
-    if !sdk::is_context_valid() {
-        return;
-    }
-    // High-frequency reactor for Compute
-
-    // Poll Robot Unit directly for 60Hz physics (if active)
-    // NOTE: In a real system we'd use a trait/registry for pollable units,
-    // but for this specific Moonshot integration we hardwire it for perf.
-    if let Some(engine) = get_engine().as_ref() {
-        // We know RobotUnit is registered. We could iterate or call specific.
-        // Since units are inside Engine behind Arc<dyn UnitProxy>, we can't easily
-        // call specific methods without downcasting, and UnitProxy doesn't have poll().
-        //
-        // Hack: We'll use execute("robot", "step_physics", ...) which is what we did from Go.
-        // It uses some overhead but stays within architecture.
-        // BETTER: Add poll() to UnitProxy.
-        let _ = poll_sync(engine.execute("robot", "step_physics", &[], &[]));
-    }
-}
-
 // --- GENERIC UNIT DISPATCHER ---
 // This allows JS to call ANY registered unit method via a single entry point
 
@@ -313,9 +234,7 @@ pub extern "C" fn compute_execute(
     // We CANNOT use block_on because it uses Atomics.wait which is forbidden on main thread
 
     // Initialize engine if needed (thread-safe spinlock)
-    let engine_guard = get_engine();
-    let engine = engine_guard.as_ref().unwrap();
-
+    let engine = get_engine();
     let result = match poll_sync(engine.execute(library, method, input, params)) {
         Ok(res) => res,
         Err(e) => {

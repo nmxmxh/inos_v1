@@ -15,6 +15,8 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
   // View cache to prevent object churn
   const viewCache = new Map<string, any>();
+  const viewCacheKeys: string[] = [];
+  const MAX_VIEW_CACHE = 500;
   let lastBuffer: ArrayBuffer | null = null;
 
   function getCachedView(type: any, offset: number, len: number) {
@@ -32,12 +34,20 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
     let view = viewCache.get(key);
     if (!view) {
       // CAUTION: Cap viewCache to prevent memory leaks from excessive sub-views
-      if (viewCache.size > 500) {
-        console.warn('[Bridge] ViewCache limit exceeded, flushing...');
-        viewCache.clear();
+      if (viewCacheKeys.length >= MAX_VIEW_CACHE) {
+        const oldest = viewCacheKeys.shift()!;
+        viewCache.delete(oldest);
       }
       view = new type(buffer, offset, len);
       viewCache.set(key, view);
+      viewCacheKeys.push(key);
+    } else {
+      // LRU Update: Move to end
+      const idx = viewCacheKeys.indexOf(key);
+      if (idx > -1) {
+        viewCacheKeys.splice(idx, 1);
+        viewCacheKeys.push(key);
+      }
     }
     return view;
   }

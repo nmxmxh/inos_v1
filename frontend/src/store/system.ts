@@ -39,7 +39,6 @@ export interface SystemStore {
   setError: (error: Error) => void;
   scanRegistry: (memory: WebAssembly.Memory) => void;
   signalModule: (name: string) => void;
-  pollAll: () => void;
   setMetric: (name: keyof KernelStats, value: number) => void;
   cleanup: () => void;
 }
@@ -189,8 +188,6 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         const now = performance.now();
         frames++;
 
-        get().pollAll();
-
         if (now > lastTime + 1000) {
           get().updateStats({ fps: frames });
           frames = 0;
@@ -268,22 +265,6 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
     const flags = new Int32Array(sab, 0, 16);
     Atomics.add(flags, 1, 1);
     Atomics.notify(flags, 1);
-  },
-
-  pollAll: () => {
-    const { moduleExports } = get();
-    if (!moduleExports) return;
-
-    for (const moduleName in moduleExports) {
-      const exports = moduleExports[moduleName];
-      if (exports && typeof exports.poll === 'function') {
-        try {
-          exports.poll();
-        } catch (e) {
-          console.error(`[System] Poll failed for ${moduleName}:`, e);
-        }
-      }
-    }
   },
 
   setMetric: (name: keyof KernelStats, value: number) => {

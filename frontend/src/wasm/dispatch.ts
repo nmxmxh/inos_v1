@@ -56,12 +56,27 @@ export class Dispatcher {
   }
 
   private static stringCache = new Map<string, Uint8Array>();
+  private static stringCacheKeys: string[] = [];
+  private static readonly MAX_STRING_CACHE = 100;
 
   private static getEncoded(str: string): Uint8Array {
     let cached = this.stringCache.get(str);
     if (!cached) {
       cached = this.encoder.encode(str);
+      // LRU Eviction
+      if (this.stringCacheKeys.length >= this.MAX_STRING_CACHE) {
+        const oldest = this.stringCacheKeys.shift()!;
+        this.stringCache.delete(oldest);
+      }
       this.stringCache.set(str, cached);
+      this.stringCacheKeys.push(str);
+    } else {
+      // Move to end (most recent)
+      const idx = this.stringCacheKeys.indexOf(str);
+      if (idx > -1) {
+        this.stringCacheKeys.splice(idx, 1);
+        this.stringCacheKeys.push(str);
+      }
     }
     return cached;
   }

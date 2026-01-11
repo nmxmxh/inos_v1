@@ -121,9 +121,9 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 func (s *BoidsSupervisor) autoDetectBirdCount() {
 	// Read bird count from SAB - if not yet set by Rust, use default
 	targetAddr := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_BIRD_COUNT*4
-	data, err := s.bridge.ReadRaw(targetAddr, 4)
-	if err == nil {
-		count := binary.LittleEndian.Uint32(data)
+	var buf [4]byte
+	if err := s.bridge.ReadAt(targetAddr, buf[:]); err == nil {
+		count := binary.LittleEndian.Uint32(buf[:])
 		if count > 0 && count <= MaxBirds {
 			s.birdCount = int(count)
 			utils.Info("Boids bird count detected", utils.Int("count", s.birdCount))
@@ -734,22 +734,21 @@ func (s *BoidsSupervisor) SignalEpoch() {
 	// Evolution Epoch at Idx 16
 	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_EVOLUTION_EPOCH*4
 
-	// Read current epoch from offset
-	epochBytes, err := s.bridge.ReadRaw(offset, 4)
-	if err != nil {
+	// Read current epoch from offset using stack array
+	var buf [4]byte
+	if err := s.bridge.ReadAt(offset, buf[:]); err != nil {
 		utils.Error("Failed to read epoch", utils.Err(err))
 		return
 	}
-	currentEpoch := binary.LittleEndian.Uint32(epochBytes)
+	currentEpoch := binary.LittleEndian.Uint32(buf[:])
 
 	// Increment
 	newEpoch := currentEpoch + 1
 	runtime.Gosched() // Yield execution
-	newBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(newBytes, newEpoch)
+	binary.LittleEndian.PutUint32(buf[:], newEpoch)
 
 	// Write back
-	if err := s.bridge.WriteRaw(offset, newBytes); err != nil {
+	if err := s.bridge.WriteRaw(offset, buf[:]); err != nil {
 		utils.Error("Failed to write epoch", utils.Err(err))
 		return
 	}

@@ -265,6 +265,15 @@ impl BoidUnit {
             grid[cell_idx].push(idx);
         }
 
+        // Periodic maintenance: Reclaim memory from dense clusters that have dispersed
+        if epoch % 500 == 0 {
+            for cell in grid.iter_mut() {
+                if cell.capacity() > cell.len() * 2 && cell.capacity() > 64 {
+                    cell.shrink_to_fit();
+                }
+            }
+        }
+
         // --- STEP 4: Process boids behavior ---
         for i in 0..n {
             let base = i * BIRD_STRIDE;

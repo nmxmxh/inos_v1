@@ -50,11 +50,11 @@ func (s *RobotSupervisor) Start(ctx context.Context) error {
 
 func (s *RobotSupervisor) initRobotState() {
 	// [Epoch(8), Phase(4), Syntropy(4), Score1(4), Score2(4), Score3(4), Score4(4)] = 32 bytes
-	data := make([]byte, 32)
-	binary.LittleEndian.PutUint64(data[0:8], 0) // Initial epoch
-	binary.LittleEndian.PutUint32(data[8:12], PhaseEntropic)
+	var buf [32]byte
+	binary.LittleEndian.PutUint64(buf[0:8], 0) // Initial epoch
+	binary.LittleEndian.PutUint32(buf[8:12], PhaseEntropic)
 
-	if err := s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE, data); err != nil {
+	if err := s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE, buf[:]); err != nil {
 		utils.Error("Failed to initialize robot state in SAB", utils.Err(err))
 	}
 }
@@ -132,19 +132,19 @@ func (s *RobotSupervisor) updateSyntropy() {
 	}
 
 	// 4. Update SAB
-	data := make([]byte, 24) // [Phase(4), Syntropy(4), Meta1..4(16)]
-	binary.LittleEndian.PutUint32(data[0:4], uint32(phase))
-	binary.LittleEndian.PutUint32(data[4:8], math.Float32bits(float32(syntropy)))
+	var buf [24]byte // [Phase(4), Syntropy(4), Meta1..4(16)]
+	binary.LittleEndian.PutUint32(buf[0:4], uint32(phase))
+	binary.LittleEndian.PutUint32(buf[4:8], math.Float32bits(float32(syntropy)))
 
 	// Fill meta scores with metric components for visualization
-	binary.LittleEndian.PutUint32(data[8:12], math.Float32bits(float32(nodeFactor)))
-	binary.LittleEndian.PutUint32(data[12:16], math.Float32bits(float32(computeFactor)))
+	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(float32(nodeFactor)))
+	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(float32(computeFactor)))
 
 	// META3: Model Accuracy (ML Score)
-	binary.LittleEndian.PutUint32(data[16:20], math.Float32bits(float32(modelAccuracy)))
+	binary.LittleEndian.PutUint32(buf[16:20], math.Float32bits(float32(modelAccuracy)))
 
 	// Write at offset 8 (after epoch)
-	if err := s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE+8, data); err != nil {
+	if err := s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE+8, buf[:]); err != nil {
 		utils.Error("Failed to update robot syntropy in SAB", utils.Err(err))
 	}
 
@@ -155,22 +155,20 @@ func (s *RobotSupervisor) updateSyntropy() {
 func (s *RobotSupervisor) signalRobotEpoch() {
 	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_ROBOT_EPOCH*4
 
-	epochBytes, err := s.bridge.ReadRaw(offset, 4)
-	if err != nil {
+	var buf [8]byte
+	if err := s.bridge.ReadAt(offset, buf[:4]); err != nil {
 		return
 	}
-	currentEpoch := binary.LittleEndian.Uint32(epochBytes)
+	currentEpoch := binary.LittleEndian.Uint32(buf[:4])
 
 	newEpoch := currentEpoch + 1
-	newBytes := make([]byte, 4)
-	binary.LittleEndian.PutUint32(newBytes, newEpoch)
+	binary.LittleEndian.PutUint32(buf[:4], newEpoch)
 
-	s.bridge.WriteRaw(offset, newBytes)
+	s.bridge.WriteRaw(offset, buf[:4])
 
 	// Also update the logical epoch in the RobotState region
-	stateEpochBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(stateEpochBuf, uint64(newEpoch))
-	s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE, stateEpochBuf)
+	binary.LittleEndian.PutUint64(buf[:], uint64(newEpoch))
+	s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE, buf[:])
 }
 
 func (s *RobotSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
@@ -178,9 +176,9 @@ func (s *RobotSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
 	switch job.Operation {
 	case "set_phase":
 		p, _ := job.Parameters["phase"].(float64)
-		data := make([]byte, 4)
-		binary.LittleEndian.PutUint32(data, uint32(p))
-		s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE+8, data)
+		var buf [4]byte
+		binary.LittleEndian.PutUint32(buf[:], uint32(p))
+		s.bridge.WriteRaw(sab_layout.OFFSET_ROBOT_STATE+8, buf[:])
 		s.signalRobotEpoch()
 		return &foundation.Result{JobID: job.ID, Success: true}
 	default:
