@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import D3Container from '../../ui/D3Container';
+import { useCallback, useState } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 
 const Style = {
   StoryContainer: styled.div`
     width: 100%;
-    height: 600px;
+    height: 550px;
     position: relative;
     overflow: hidden;
   `,
@@ -58,17 +59,12 @@ interface StoryNode {
 }
 
 export function DimostrazioneStory() {
-  const d3Container = useRef<SVGSVGElement | null>(null);
   const theme = useTheme();
   const [activeBuffer, setActiveBuffer] = useState<'A' | 'B'>('A');
 
-  useEffect(() => {
-    if (d3Container.current) {
-      const svg = d3.select(d3Container.current);
+  const renderViz = useCallback(
+    (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, width: number, height: number) => {
       svg.selectAll('*').remove();
-
-      const width = 800;
-      const height = 600;
 
       const nodes: StoryNode[] = [
         {
@@ -213,13 +209,13 @@ export function DimostrazioneStory() {
         .attr('opacity', 0.3);
 
       // Data pulses (Directional Flow)
-      function pulse(
+      const pulse = (
         fromId: string,
         toId: string,
         color: string,
         delay: number = 0,
         size: number = 2
-      ) {
+      ) => {
         const source = nodes.find(n => n.id === fromId);
         const target = nodes.find(n => n.id === toId);
         if (!source || !target) return;
@@ -255,9 +251,9 @@ export function DimostrazioneStory() {
             .attr('opacity', 0)
             .remove();
         });
-      }
+      };
 
-      function createRipple(x: number, y: number, color: string, isWrite: boolean) {
+      const createRipple = (x: number, y: number, color: string, isWrite: boolean) => {
         latticeContainer
           .append('circle')
           .attr('cx', x - (width / 2 - (gridSize * spacing) / 2))
@@ -291,7 +287,7 @@ export function DimostrazioneStory() {
           .duration(500)
           .attr('r', 1)
           .attr('opacity', 0.2);
-      }
+      };
 
       // Flip interval (The Heartbeat)
       const flipTimer = d3.interval(() => {
@@ -397,16 +393,17 @@ export function DimostrazioneStory() {
       return () => {
         flipTimer.stop();
       };
-    }
-  }, []);
+    },
+    [theme]
+  ); // Correct dependency on theme
 
   return (
     <Style.StoryContainer>
-      <svg
-        ref={d3Container}
-        width="100%"
-        height="100%"
+      <D3Container
+        render={renderViz}
+        dependencies={[renderViz]} // Stable dependnecy
         viewBox="0 0 800 600"
+        height="100%"
         preserveAspectRatio="xMidYMid meet"
       />
       <Style.Overlay>

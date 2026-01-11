@@ -5,10 +5,11 @@
  * climate cost, and wasted utilities.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as d3 from 'd3';
+import D3Container from '../ui/D3Container';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
@@ -146,248 +147,254 @@ const Style = {
 // D3 ILLUSTRATION: CENTRALIZATION TAX
 // Shows hub-spoke model with distinctive entity shapes
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: CENTRALIZATION TAX
+// Shows hub-spoke model with distinctive entity shapes
+// ────────────────────────────────────────────────────────────────────────────
 function CentralizationDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const centerX = 300; // 600 / 2
+      const centerY = 160; // 320 / 2
+      const orbitRadius = 110;
 
-    const width = 600;
-    const height = 320;
-    const centerX = width / 2;
-    const centerY = height / 2;
+      // Devices with distinctive shapes
+      const devices = [
+        { angle: 0, label: 'Mobile App', shape: 'phone', color: '#3b82f6' },
+        { angle: 60, label: 'Desktop', shape: 'laptop', color: '#8b5cf6' },
+        { angle: 120, label: 'Web Server', shape: 'server', color: '#f59e0b' },
+        { angle: 180, label: 'IoT Device', shape: 'iot', color: '#10b981' },
+        { angle: 240, label: 'API Gateway', shape: 'gateway', color: '#ec4899' },
+        { angle: 300, label: 'Browser', shape: 'browser', color: '#06b6d4' },
+      ];
 
-    const orbitRadius = 110;
+      // Glow filter
+      const defs = svg.append('defs');
+      const filter = defs.append('filter').attr('id', 'glow-central');
+      filter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur');
+      const feMerge = filter.append('feMerge');
+      feMerge.append('feMergeNode').attr('in', 'coloredBlur');
+      feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Devices with distinctive shapes
-    const devices = [
-      { angle: 0, label: 'Mobile App', shape: 'phone', color: '#3b82f6' },
-      { angle: 60, label: 'Desktop', shape: 'laptop', color: '#8b5cf6' },
-      { angle: 120, label: 'Web Server', shape: 'server', color: '#f59e0b' },
-      { angle: 180, label: 'IoT Device', shape: 'iot', color: '#10b981' },
-      { angle: 240, label: 'API Gateway', shape: 'gateway', color: '#ec4899' },
-      { angle: 300, label: 'Browser', shape: 'browser', color: '#06b6d4' },
-    ];
+      // Draw devices
+      devices.forEach((device, i) => {
+        const angle = (device.angle * Math.PI) / 180;
+        const x = centerX + orbitRadius * Math.cos(angle);
+        const y = centerY + orbitRadius * Math.sin(angle);
 
-    // Glow filter
-    const defs = svg.append('defs');
-    const filter = defs.append('filter').attr('id', 'glow-central');
-    filter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur');
-    const feMerge = filter.append('feMerge');
-    feMerge.append('feMergeNode').attr('in', 'coloredBlur');
-    feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+        // Line to center
+        svg
+          .append('line')
+          .attr('x1', x)
+          .attr('y1', y)
+          .attr('x2', centerX)
+          .attr('y2', centerY)
+          .attr('stroke', '#dc2626')
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '3,3')
+          .attr('opacity', 0.25);
 
-    // Draw devices
-    devices.forEach((device, i) => {
-      const angle = (device.angle * Math.PI) / 180;
-      const x = centerX + orbitRadius * Math.cos(angle);
-      const y = centerY + orbitRadius * Math.sin(angle);
+        // Animated data packet
+        const packet = svg
+          .append('circle')
+          .attr('r', 4)
+          .attr('fill', '#dc2626')
+          .attr('filter', 'url(#glow-central)')
+          .attr('opacity', 0);
 
-      // Line to center
-      svg
-        .append('line')
-        .attr('x1', x)
-        .attr('y1', y)
-        .attr('x2', centerX)
-        .attr('y2', centerY)
-        .attr('stroke', '#dc2626')
-        .attr('stroke-width', 1)
-        .attr('stroke-dasharray', '3,3')
-        .attr('opacity', 0.25);
+        function animatePacket() {
+          packet
+            .attr('cx', x)
+            .attr('cy', y)
+            .attr('opacity', 0.8)
+            .transition()
+            .delay(i * 250)
+            .duration(1400)
+            .ease(d3.easeCubicInOut)
+            .attr('cx', centerX)
+            .attr('cy', centerY)
+            .attr('opacity', 0)
+            .on('end', animatePacket);
+        }
+        animatePacket();
 
-      // Animated data packet
-      const packet = svg
-        .append('circle')
-        .attr('r', 4)
-        .attr('fill', '#dc2626')
-        .attr('filter', 'url(#glow-central)')
-        .attr('opacity', 0);
+        // Device shape based on type
+        const g = svg.append('g').attr('transform', `translate(${x}, ${y})`);
 
-      function animatePacket() {
-        packet
-          .attr('cx', x)
-          .attr('cy', y)
-          .attr('opacity', 0.8)
-          .transition()
-          .delay(i * 250)
-          .duration(1400)
-          .ease(d3.easeCubicInOut)
-          .attr('cx', centerX)
-          .attr('cy', centerY)
-          .attr('opacity', 0)
-          .on('end', animatePacket);
-      }
-      animatePacket();
-
-      // Device shape based on type
-      const g = svg.append('g').attr('transform', `translate(${x}, ${y})`);
-
-      if (device.shape === 'phone') {
-        g.append('rect')
-          .attr('x', -10)
-          .attr('y', -16)
-          .attr('width', 20)
-          .attr('height', 32)
-          .attr('rx', 3)
-          .attr('fill', 'rgba(255,255,255,0.95)')
-          .attr('stroke', device.color)
-          .attr('stroke-width', 1.5);
-        g.append('rect')
-          .attr('x', -7)
-          .attr('y', -12)
-          .attr('width', 14)
-          .attr('height', 20)
-          .attr('fill', device.color)
-          .attr('opacity', 0.15);
-      } else if (device.shape === 'laptop') {
-        g.append('rect')
-          .attr('x', -18)
-          .attr('y', -12)
-          .attr('width', 36)
-          .attr('height', 22)
-          .attr('rx', 2)
-          .attr('fill', 'rgba(255,255,255,0.95)')
-          .attr('stroke', device.color)
-          .attr('stroke-width', 1.5);
-        g.append('path')
-          .attr('d', 'M-22,10 L22,10 L18,14 L-18,14 Z')
-          .attr('fill', device.color)
-          .attr('opacity', 0.2);
-      } else if (device.shape === 'server') {
-        [-8, 0, 8].forEach(yOff => {
+        if (device.shape === 'phone') {
           g.append('rect')
-            .attr('x', -16)
-            .attr('y', yOff - 5)
-            .attr('width', 32)
-            .attr('height', 9)
-            .attr('rx', 1)
+            .attr('x', -10)
+            .attr('y', -16)
+            .attr('width', 20)
+            .attr('height', 32)
+            .attr('rx', 3)
             .attr('fill', 'rgba(255,255,255,0.95)')
             .attr('stroke', device.color)
-            .attr('stroke-width', 1);
-          g.append('circle')
-            .attr('cx', 10)
-            .attr('cy', yOff - 0.5)
-            .attr('r', 1.5)
-            .attr('fill', device.color);
-        });
-      } else if (device.shape === 'iot') {
-        g.append('circle')
-          .attr('r', 14)
-          .attr('fill', 'rgba(255,255,255,0.95)')
-          .attr('stroke', device.color)
-          .attr('stroke-width', 1.5);
-        g.append('circle').attr('r', 5).attr('fill', device.color).attr('opacity', 0.3);
-        [0, 120, 240].forEach(a => {
-          const rad = (a * Math.PI) / 180;
-          g.append('line')
-            .attr('x1', 7 * Math.cos(rad))
-            .attr('y1', 7 * Math.sin(rad))
-            .attr('x2', 12 * Math.cos(rad))
-            .attr('y2', 12 * Math.sin(rad))
+            .attr('stroke-width', 1.5);
+          g.append('rect')
+            .attr('x', -7)
+            .attr('y', -12)
+            .attr('width', 14)
+            .attr('height', 20)
+            .attr('fill', device.color)
+            .attr('opacity', 0.15);
+        } else if (device.shape === 'laptop') {
+          g.append('rect')
+            .attr('x', -18)
+            .attr('y', -12)
+            .attr('width', 36)
+            .attr('height', 22)
+            .attr('rx', 2)
+            .attr('fill', 'rgba(255,255,255,0.95)')
             .attr('stroke', device.color)
             .attr('stroke-width', 1.5);
-        });
-      } else if (device.shape === 'gateway') {
-        g.append('polygon')
-          .attr('points', '0,-16 16,0 0,16 -16,0')
-          .attr('fill', 'rgba(255,255,255,0.95)')
-          .attr('stroke', device.color)
-          .attr('stroke-width', 1.5);
-        g.append('circle').attr('r', 4).attr('fill', device.color).attr('opacity', 0.3);
-      } else if (device.shape === 'browser') {
-        g.append('rect')
-          .attr('x', -16)
-          .attr('y', -12)
-          .attr('width', 32)
-          .attr('height', 24)
-          .attr('rx', 2)
-          .attr('fill', 'rgba(255,255,255,0.95)')
-          .attr('stroke', device.color)
-          .attr('stroke-width', 1.5);
-        g.append('line')
-          .attr('x1', -16)
-          .attr('y1', -5)
-          .attr('x2', 16)
-          .attr('y2', -5)
-          .attr('stroke', device.color)
-          .attr('stroke-width', 0.75);
-        [-10, -5, 0].forEach(cx => {
+          g.append('path')
+            .attr('d', 'M-22,10 L22,10 L18,14 L-18,14 Z')
+            .attr('fill', device.color)
+            .attr('opacity', 0.2);
+        } else if (device.shape === 'server') {
+          [-8, 0, 8].forEach(yOff => {
+            g.append('rect')
+              .attr('x', -16)
+              .attr('y', yOff - 5)
+              .attr('width', 32)
+              .attr('height', 9)
+              .attr('rx', 1)
+              .attr('fill', 'rgba(255,255,255,0.95)')
+              .attr('stroke', device.color)
+              .attr('stroke-width', 1);
+            g.append('circle')
+              .attr('cx', 10)
+              .attr('cy', yOff - 0.5)
+              .attr('r', 1.5)
+              .attr('fill', device.color);
+          });
+        } else if (device.shape === 'iot') {
           g.append('circle')
-            .attr('cx', cx)
-            .attr('cy', -8.5)
-            .attr('r', 1.5)
-            .attr('fill', device.color);
-        });
+            .attr('r', 14)
+            .attr('fill', 'rgba(255,255,255,0.95)')
+            .attr('stroke', device.color)
+            .attr('stroke-width', 1.5);
+          g.append('circle').attr('r', 5).attr('fill', device.color).attr('opacity', 0.3);
+          [0, 120, 240].forEach(a => {
+            const rad = (a * Math.PI) / 180;
+            g.append('line')
+              .attr('x1', 7 * Math.cos(rad))
+              .attr('y1', 7 * Math.sin(rad))
+              .attr('x2', 12 * Math.cos(rad))
+              .attr('y2', 12 * Math.sin(rad))
+              .attr('stroke', device.color)
+              .attr('stroke-width', 1.5);
+          });
+        } else if (device.shape === 'gateway') {
+          g.append('polygon')
+            .attr('points', '0,-16 16,0 0,16 -16,0')
+            .attr('fill', 'rgba(255,255,255,0.95)')
+            .attr('stroke', device.color)
+            .attr('stroke-width', 1.5);
+          g.append('circle').attr('r', 4).attr('fill', device.color).attr('opacity', 0.3);
+        } else if (device.shape === 'browser') {
+          g.append('rect')
+            .attr('x', -16)
+            .attr('y', -12)
+            .attr('width', 32)
+            .attr('height', 24)
+            .attr('rx', 2)
+            .attr('fill', 'rgba(255,255,255,0.95)')
+            .attr('stroke', device.color)
+            .attr('stroke-width', 1.5);
+          g.append('line')
+            .attr('x1', -16)
+            .attr('y1', -5)
+            .attr('x2', 16)
+            .attr('y2', -5)
+            .attr('stroke', device.color)
+            .attr('stroke-width', 0.75);
+          [-10, -5, 0].forEach(cx => {
+            g.append('circle')
+              .attr('cx', cx)
+              .attr('cy', -8.5)
+              .attr('r', 1.5)
+              .attr('fill', device.color);
+          });
+        }
+
+        // Label
+        svg
+          .append('text')
+          .attr('x', x)
+          .attr('y', y + 32)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
+          .attr('font-weight', 600)
+          .attr('fill', theme.colors.inkDark)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(device.label);
+      });
+
+      // Central data center building
+      const dcG = svg.append('g').attr('transform', `translate(${centerX}, ${centerY})`);
+
+      // Building base
+      dcG
+        .append('rect')
+        .attr('x', -35)
+        .attr('y', -30)
+        .attr('width', 70)
+        .attr('height', 60)
+        .attr('rx', 4)
+        .attr('fill', 'rgba(220, 38, 38, 0.08)')
+        .attr('stroke', '#dc2626')
+        .attr('stroke-width', 2);
+
+      // Server racks inside - properly centered 2x3 grid
+      const rackSize = 14;
+      const rackGap = 4;
+      const gridWidth = 3 * rackSize + 2 * rackGap;
+      const gridHeight = 2 * rackSize + rackGap;
+      const gridStartX = -gridWidth / 2;
+      const gridStartY = -gridHeight / 2;
+
+      for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < 3; col++) {
+          const rx = gridStartX + col * (rackSize + rackGap);
+          const ry = gridStartY + row * (rackSize + rackGap);
+          dcG
+            .append('rect')
+            .attr('x', rx)
+            .attr('y', ry)
+            .attr('width', rackSize)
+            .attr('height', rackSize)
+            .attr('rx', 2)
+            .attr('fill', '#dc2626')
+            .attr('opacity', 0.15);
+        }
       }
 
-      // Label
-      svg
+      dcG
         .append('text')
-        .attr('x', x)
-        .attr('y', y + 32)
+        .attr('y', 48)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 600)
-        .attr('fill', theme.colors.inkDark)
+        .attr('font-size', 11)
+        .attr('font-weight', 700)
+        .attr('fill', '#dc2626')
         .attr('font-family', "'Inter', sans-serif")
-        .text(device.label);
-    });
+        .text('DATA CENTER');
+    },
+    [theme]
+  ); // Explicitly depend on theme since we use theme.colors.inkDark
 
-    // Central data center building
-    const dcG = svg.append('g').attr('transform', `translate(${centerX}, ${centerY})`);
-
-    // Building base
-    dcG
-      .append('rect')
-      .attr('x', -35)
-      .attr('y', -30)
-      .attr('width', 70)
-      .attr('height', 60)
-      .attr('rx', 4)
-      .attr('fill', 'rgba(220, 38, 38, 0.08)')
-      .attr('stroke', '#dc2626')
-      .attr('stroke-width', 2);
-
-    // Server racks inside - properly centered 2x3 grid
-    const rackSize = 14;
-    const rackGap = 4;
-    const gridWidth = 3 * rackSize + 2 * rackGap;
-    const gridHeight = 2 * rackSize + rackGap;
-    const gridStartX = -gridWidth / 2;
-    const gridStartY = -gridHeight / 2;
-
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 3; col++) {
-        const rx = gridStartX + col * (rackSize + rackGap);
-        const ry = gridStartY + row * (rackSize + rackGap);
-        dcG
-          .append('rect')
-          .attr('x', rx)
-          .attr('y', ry)
-          .attr('width', rackSize)
-          .attr('height', rackSize)
-          .attr('rx', 2)
-          .attr('fill', '#dc2626')
-          .attr('opacity', 0.15);
-      }
-    }
-
-    dcG
-      .append('text')
-      .attr('y', 48)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 11)
-      .attr('font-weight', 700)
-      .attr('fill', '#dc2626')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('DATA CENTER');
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 600 320" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 600 320" height={320} />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -445,123 +452,127 @@ const COPY_TAX_SCENARIOS = [
 ];
 
 function CopyTaxDiagram({ scenario }: { scenario: (typeof COPY_TAX_SCENARIOS)[0] }) {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const barHeight = 44;
+      const barGap = 8;
+      const startY = 20;
+      const leftMargin = 120;
+      const maxBarWidth = 420;
 
-    const width = 650;
-    const height = 380;
-    const barHeight = 44;
-    const barGap = 8;
-    const startY = 20;
-    const leftMargin = 120;
-    const maxBarWidth = 420;
-
-    // Data sizes growing at each step (representing overhead)
-    const stages = scenario.stages;
-    const sizes = stages.map((s, i) => {
-      // Calculate cumulative overhead
-      let overhead = 1.0;
-      for (let j = 0; j <= i; j++) {
-        if (stages[j].isCopy) overhead *= 1.35;
-      }
-      return { ...s, size: overhead, y: startY + i * (barHeight + barGap) };
-    });
-
-    const maxSize = Math.max(...sizes.map(s => s.size));
-
-    // Draw bars
-    sizes.forEach((stage, i) => {
-      const barWidth = (stage.size / maxSize) * maxBarWidth;
-      const y = stage.y;
-
-      // Bar background
-      svg
-        .append('rect')
-        .attr('x', leftMargin)
-        .attr('y', y)
-        .attr('width', barWidth)
-        .attr('height', barHeight)
-        .attr('rx', 3)
-        .attr('fill', stage.isCopy ? 'rgba(220, 38, 38, 0.15)' : stage.color)
-        .attr('opacity', stage.isCopy ? 1 : 0.2);
-
-      // Bar border
-      svg
-        .append('rect')
-        .attr('x', leftMargin)
-        .attr('y', y)
-        .attr('width', barWidth)
-        .attr('height', barHeight)
-        .attr('rx', 3)
-        .attr('fill', 'none')
-        .attr('stroke', stage.isCopy ? '#dc2626' : stage.color)
-        .attr('stroke-width', stage.isCopy ? 1.5 : 1);
-
-      // Stage label (left side)
-      const labelLines = stage.label.split('\n');
-      labelLines.forEach((line, li) => {
-        svg
-          .append('text')
-          .attr('x', leftMargin - 10)
-          .attr('y', y + barHeight / 2 + (li - (labelLines.length - 1) / 2) * 12 + 4)
-          .attr('text-anchor', 'end')
-          .attr('font-size', 10)
-          .attr('font-weight', 500)
-          .attr('fill', stage.isCopy ? '#dc2626' : theme.colors.inkDark)
-          .attr('font-family', "'Inter', sans-serif")
-          .text(line);
+      // Data sizes growing at each step (representing overhead)
+      const stages = scenario.stages;
+      const sizes = stages.map((s, i) => {
+        // Calculate cumulative overhead
+        let overhead = 1.0;
+        for (let j = 0; j <= i; j++) {
+          if (stages[j].isCopy) overhead *= 1.35;
+        }
+        return { ...s, size: overhead, y: startY + i * (barHeight + barGap) };
       });
 
-      // Size indicator (inside bar)
-      if (stage.isCopy) {
+      const maxSize = Math.max(...sizes.map(s => s.size));
+
+      // Draw bars
+      sizes.forEach((stage, i) => {
+        const barWidth = (stage.size / maxSize) * maxBarWidth;
+        const y = stage.y;
+
+        // Bar background
         svg
-          .append('text')
-          .attr('x', leftMargin + barWidth - 8)
-          .attr('y', y + barHeight / 2 + 4)
-          .attr('text-anchor', 'end')
-          .attr('font-size', 10)
-          .attr('font-weight', 700)
-          .attr('fill', '#dc2626')
-          .attr('font-family', "'Inter', sans-serif")
-          .text(`+${Math.round((stage.size - 1) * 100)}%`);
-      }
+          .append('rect')
+          .attr('x', leftMargin)
+          .attr('y', y)
+          .attr('width', barWidth)
+          .attr('height', barHeight)
+          .attr('rx', 3)
+          .attr('fill', stage.isCopy ? 'rgba(220, 38, 38, 0.15)' : stage.color)
+          .attr('opacity', stage.isCopy ? 1 : 0.2);
 
-      // Draw arrow connector to next
-      if (i < sizes.length - 1) {
-        const nextY = sizes[i + 1].y;
-        const arrowX = leftMargin + barWidth / 2;
+        // Bar border
         svg
-          .append('line')
-          .attr('x1', arrowX)
-          .attr('y1', y + barHeight)
-          .attr('x2', arrowX)
-          .attr('y2', nextY)
-          .attr('stroke', sizes[i + 1].isCopy ? '#dc2626' : '#d1d5db')
-          .attr('stroke-width', 1)
-          .attr('stroke-dasharray', sizes[i + 1].isCopy ? '3,2' : 'none')
-          .attr('opacity', 0.5);
-      }
-    });
+          .append('rect')
+          .attr('x', leftMargin)
+          .attr('y', y)
+          .attr('width', barWidth)
+          .attr('height', barHeight)
+          .attr('rx', 3)
+          .attr('fill', 'none')
+          .attr('stroke', stage.isCopy ? '#dc2626' : stage.color)
+          .attr('stroke-width', stage.isCopy ? 1.5 : 1);
 
-    // Legend
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', height - 10)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('fill', theme.colors.inkLight)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Bar width = memory footprint (JSON +30-50% vs Protobuf)');
-  }, [scenario, theme]);
+        // Stage label (left side)
+        const labelLines = stage.label.split('\n');
+        labelLines.forEach((line, li) => {
+          svg
+            .append('text')
+            .attr('x', leftMargin - 10)
+            .attr('y', y + barHeight / 2 + (li - (labelLines.length - 1) / 2) * 12 + 4)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10)
+            .attr('font-weight', 500)
+            .attr('fill', stage.isCopy ? '#dc2626' : theme.colors.inkDark)
+            .attr('font-family', "'Inter', sans-serif")
+            .text(line);
+        });
 
-  return <svg ref={svgRef} viewBox="0 0 650 380" style={{ width: '100%', height: 'auto' }} />;
+        // Size indicator (inside bar)
+        if (stage.isCopy) {
+          svg
+            .append('text')
+            .attr('x', leftMargin + barWidth - 8)
+            .attr('y', y + barHeight / 2 + 4)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10)
+            .attr('font-weight', 700)
+            .attr('fill', '#dc2626')
+            .attr('font-family', "'Inter', sans-serif")
+            .text(`+${Math.round((stage.size - 1) * 100)}%`);
+        }
+
+        // Draw arrow connector to next
+        if (i < sizes.length - 1) {
+          const nextY = sizes[i + 1].y;
+          const arrowX = leftMargin + barWidth / 2;
+          svg
+            .append('line')
+            .attr('x1', arrowX)
+            .attr('y1', y + barHeight)
+            .attr('x2', arrowX)
+            .attr('y2', nextY)
+            .attr('stroke', sizes[i + 1].isCopy ? '#dc2626' : '#d1d5db')
+            .attr('stroke-width', 1)
+            .attr('stroke-dasharray', sizes[i + 1].isCopy ? '3,2' : 'none')
+            .attr('opacity', 0.5);
+        }
+      });
+
+      // Legend
+      // Legend
+      svg
+        .append('text')
+        .attr('x', 650 / 2)
+        .attr('y', 380 - 10)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('fill', theme.colors.inkLight)
+        .attr('font-family', "'Inter', sans-serif")
+        .text('Bar width = memory footprint (JSON +30-50% vs Protobuf)');
+    },
+    [scenario, theme]
+  );
+
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 650 380" height={380} />
+  );
 }
 
 export function Problem() {

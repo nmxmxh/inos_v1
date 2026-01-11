@@ -233,7 +233,7 @@ export const GlobalDashboard: React.FC = () => {
       <Style.Visualizer>
         <Style.BlueprintLabel>MESHDATA_FLOW_VISUALIZER [REV_11.2]</Style.BlueprintLabel>
         <AnimatePresence mode="popLayout">
-          {Array.from({ length: analytics.activeNodeCount }).map((_, i) => (
+          {Array.from({ length: Math.min(analytics.activeNodeCount, 100) }).map((_, i) => (
             <Style.NodeDot
               key={i}
               initial={{ opacity: 0, scale: 0 }}
@@ -244,10 +244,27 @@ export const GlobalDashboard: React.FC = () => {
                 y: Math.cos(i * 1.5) * 30,
               }}
               exit={{ opacity: 0, scale: 0 }}
-              transition={{ delay: i * 0.1 }}
+              transition={{ delay: i * 0.05 }}
             />
           ))}
         </AnimatePresence>
+        {analytics.activeNodeCount > 100 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 8,
+              right: 8,
+              fontSize: '9px',
+              fontFamily: 'monospace',
+              color: '#6d28d9',
+              background: 'rgba(255,255,255,0.9)',
+              padding: '2px 6px',
+              borderRadius: '4px',
+            }}
+          >
+            + {analytics.activeNodeCount - 100} NODES
+          </div>
+        )}
         <motion.div
           style={{ position: 'absolute', width: '100%', height: '100%' }}
           animate={{ rotate: 360 }}

@@ -7,9 +7,10 @@
  * Educational approach: Teach the fundamentals before showing the implementation.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
+import D3Container from '../../ui/D3Container';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
@@ -281,482 +282,517 @@ const Style = {
 // D3 ILLUSTRATION: COPY TAX COMPARISON
 // ────────────────────────────────────────────────────────────────────────────
 function CopyTaxDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      // Traditional approach (top half)
+      const tradY = 50;
+      const stages = [
+        { x: 60, label: 'Module A', sublabel: 'Object in Memory' },
+        { x: 180, label: 'Serialize', sublabel: 'JSON.stringify' },
+        { x: 300, label: 'Copy', sublabel: 'postMessage' },
+        { x: 420, label: 'Deserialize', sublabel: 'JSON.parse' },
+        { x: 540, label: 'Module B', sublabel: 'New Object' },
+      ];
 
-    // Traditional approach (top half)
-    const tradY = 50;
-    const stages = [
-      { x: 60, label: 'Module A', sublabel: 'Object in Memory' },
-      { x: 180, label: 'Serialize', sublabel: 'JSON.stringify' },
-      { x: 300, label: 'Copy', sublabel: 'postMessage' },
-      { x: 420, label: 'Deserialize', sublabel: 'JSON.parse' },
-      { x: 540, label: 'Module B', sublabel: 'New Object' },
-    ];
-
-    // Title
-    svg
-      .append('text')
-      .attr('x', 30)
-      .attr('y', tradY - 15)
-      .attr('font-size', 11)
-      .attr('font-weight', 700)
-      .attr('fill', '#dc2626')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Traditional: The Copy Tax');
-
-    // Draw traditional stages
-    stages.forEach((stage, i) => {
-      // Box
-      svg
-        .append('rect')
-        .attr('x', stage.x)
-        .attr('y', tradY)
-        .attr('width', 100)
-        .attr('height', 50)
-        .attr('rx', 4)
-        .attr('fill', i === 0 || i === 4 ? 'rgba(220, 38, 38, 0.1)' : 'rgba(220, 38, 38, 0.05)')
-        .attr('stroke', '#dc2626')
-        .attr('stroke-width', 1);
-
-      // Label
+      // Title
       svg
         .append('text')
-        .attr('x', stage.x + 50)
-        .attr('y', tradY + 22)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 600)
+        .attr('x', 30)
+        .attr('y', tradY - 15)
+        .attr('font-size', 11)
+        .attr('font-weight', 700)
         .attr('fill', '#dc2626')
         .attr('font-family', "'Inter', sans-serif")
-        .text(stage.label);
+        .text('Traditional: The Copy Tax');
 
-      // Sublabel
-      svg
-        .append('text')
-        .attr('x', stage.x + 50)
-        .attr('y', tradY + 38)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
-        .attr('fill', theme.colors.inkLight)
-        .attr('font-family', "'Inter', sans-serif")
-        .text(stage.sublabel);
-
-      // Arrow
-      if (i < stages.length - 1) {
-        const nextX = stages[i + 1].x;
+      // Draw traditional stages
+      stages.forEach((stage, i) => {
+        // Box
         svg
-          .append('line')
-          .attr('x1', stage.x + 100)
-          .attr('y1', tradY + 25)
-          .attr('x2', nextX)
-          .attr('y2', tradY + 25)
+          .append('rect')
+          .attr('x', stage.x)
+          .attr('y', tradY)
+          .attr('width', 100)
+          .attr('height', 50)
+          .attr('rx', 4)
+          .attr('fill', i === 0 || i === 4 ? 'rgba(220, 38, 38, 0.1)' : 'rgba(220, 38, 38, 0.05)')
           .attr('stroke', '#dc2626')
-          .attr('stroke-width', 1.5);
+          .attr('stroke-width', 1);
 
+        // Label
         svg
-          .append('polygon')
-          .attr(
-            'points',
-            `${nextX},${tradY + 25} ${nextX - 6},${tradY + 21} ${nextX - 6},${tradY + 29}`
-          )
-          .attr('fill', '#dc2626');
-      }
-    });
+          .append('text')
+          .attr('x', stage.x + 50)
+          .attr('y', tradY + 22)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
+          .attr('font-weight', 600)
+          .attr('fill', '#dc2626')
+          .attr('font-family', "'Inter', sans-serif")
+          .text(stage.label);
 
-    // INOS approach (bottom half)
-    const inosY = 160;
+        // Sublabel
+        svg
+          .append('text')
+          .attr('x', stage.x + 50)
+          .attr('y', tradY + 38)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8)
+          .attr('fill', theme.colors.inkLight)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(stage.sublabel);
 
-    // Title
-    svg
-      .append('text')
-      .attr('x', 30)
-      .attr('y', inosY - 15)
-      .attr('font-size', 11)
-      .attr('font-weight', 700)
-      .attr('fill', '#16a34a')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('INOS: Zero-Copy via SAB');
+        // Arrow
+        if (i < stages.length - 1) {
+          const nextX = stages[i + 1].x;
+          svg
+            .append('line')
+            .attr('x1', stage.x + 100)
+            .attr('y1', tradY + 25)
+            .attr('x2', nextX)
+            .attr('y2', tradY + 25)
+            .attr('stroke', '#dc2626')
+            .attr('stroke-width', 1.5);
 
-    const inosStages = [
-      { x: 120, label: 'Module A', sublabel: 'Writes to SAB' },
-      { x: 300, label: 'SharedArrayBuffer', sublabel: 'Same Memory' },
-      { x: 480, label: 'Module B', sublabel: 'Reads from SAB' },
-    ];
+          svg
+            .append('polygon')
+            .attr(
+              'points',
+              `${nextX},${tradY + 25} ${nextX - 6},${tradY + 21} ${nextX - 6},${tradY + 29}`
+            )
+            .attr('fill', '#dc2626');
+        }
+      });
 
-    inosStages.forEach((stage, i) => {
-      // Box
-      const isMiddle = i === 1;
-      svg
-        .append('rect')
-        .attr('x', stage.x)
-        .attr('y', inosY)
-        .attr('width', isMiddle ? 140 : 100)
-        .attr('height', 50)
-        .attr('rx', 4)
-        .attr('fill', isMiddle ? 'rgba(139, 92, 246, 0.1)' : 'rgba(22, 163, 74, 0.1)')
-        .attr('stroke', isMiddle ? '#8b5cf6' : '#16a34a')
-        .attr('stroke-width', isMiddle ? 2 : 1);
+      // INOS approach (bottom half)
+      const inosY = 160;
 
-      // Label
+      // Title
       svg
         .append('text')
-        .attr('x', stage.x + (isMiddle ? 70 : 50))
-        .attr('y', inosY + 22)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
+        .attr('x', 30)
+        .attr('y', inosY - 15)
+        .attr('font-size', 11)
+        .attr('font-weight', 700)
+        .attr('fill', '#16a34a')
+        .attr('font-family', "'Inter', sans-serif")
+        .text('INOS: Zero-Copy via SAB');
+
+      const inosStages = [
+        { x: 120, label: 'Module A', sublabel: 'Writes to SAB' },
+        { x: 300, label: 'SharedArrayBuffer', sublabel: 'Same Memory' },
+        { x: 480, label: 'Module B', sublabel: 'Reads from SAB' },
+      ];
+
+      inosStages.forEach((stage, i) => {
+        // Box
+        const isMiddle = i === 1;
+        svg
+          .append('rect')
+          .attr('x', stage.x)
+          .attr('y', inosY)
+          .attr('width', isMiddle ? 140 : 100)
+          .attr('height', 50)
+          .attr('rx', 4)
+          .attr('fill', isMiddle ? 'rgba(139, 92, 246, 0.1)' : 'rgba(22, 163, 74, 0.1)')
+          .attr('stroke', isMiddle ? '#8b5cf6' : '#16a34a')
+          .attr('stroke-width', isMiddle ? 2 : 1);
+
+        // Label
+        svg
+          .append('text')
+          .attr('x', stage.x + (isMiddle ? 70 : 50))
+          .attr('y', inosY + 22)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
+          .attr('font-weight', 600)
+          .attr('fill', isMiddle ? '#8b5cf6' : '#16a34a')
+          .attr('font-family', "'Inter', sans-serif")
+          .text(stage.label);
+
+        // Sublabel
+        svg
+          .append('text')
+          .attr('x', stage.x + (isMiddle ? 70 : 50))
+          .attr('y', inosY + 38)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8)
+          .attr('fill', theme.colors.inkLight)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(stage.sublabel);
+      });
+
+      // Arrows for INOS
+      svg
+        .append('line')
+        .attr('x1', 220)
+        .attr('y1', inosY + 25)
+        .attr('x2', 300)
+        .attr('y2', inosY + 25)
+        .attr('stroke', '#16a34a')
+        .attr('stroke-width', 1.5);
+
+      svg
+        .append('polygon')
+        .attr('points', `300,${inosY + 25} 294,${inosY + 21} 294,${inosY + 29}`)
+        .attr('fill', '#16a34a');
+
+      svg
+        .append('line')
+        .attr('x1', 440)
+        .attr('y1', inosY + 25)
+        .attr('x2', 480)
+        .attr('y2', inosY + 25)
+        .attr('stroke', '#16a34a')
+        .attr('stroke-width', 1.5);
+
+      svg
+        .append('polygon')
+        .attr('points', `480,${inosY + 25} 474,${inosY + 21} 474,${inosY + 29}`)
+        .attr('fill', '#16a34a');
+
+      // Cost comparison
+      svg
+        .append('text')
+        .attr('x', 650)
+        .attr('y', tradY + 30)
+        .attr('text-anchor', 'end')
+        .attr('font-size', 9)
+        .attr('fill', '#dc2626')
+        .attr('font-family', "'Inter', sans-serif")
+        .text('~4 copies');
+
+      svg
+        .append('text')
+        .attr('x', 650)
+        .attr('y', inosY + 30)
+        .attr('text-anchor', 'end')
+        .attr('font-size', 9)
         .attr('font-weight', 600)
-        .attr('fill', isMiddle ? '#8b5cf6' : '#16a34a')
+        .attr('fill', '#16a34a')
         .attr('font-family', "'Inter', sans-serif")
-        .text(stage.label);
+        .text('0 copies');
+    },
+    [theme]
+  );
 
-      // Sublabel
-      svg
-        .append('text')
-        .attr('x', stage.x + (isMiddle ? 70 : 50))
-        .attr('y', inosY + 38)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
-        .attr('fill', theme.colors.inkLight)
-        .attr('font-family', "'Inter', sans-serif")
-        .text(stage.sublabel);
-    });
-
-    // Arrows for INOS
-    svg
-      .append('line')
-      .attr('x1', 220)
-      .attr('y1', inosY + 25)
-      .attr('x2', 300)
-      .attr('y2', inosY + 25)
-      .attr('stroke', '#16a34a')
-      .attr('stroke-width', 1.5);
-
-    svg
-      .append('polygon')
-      .attr('points', `300,${inosY + 25} 294,${inosY + 21} 294,${inosY + 29}`)
-      .attr('fill', '#16a34a');
-
-    svg
-      .append('line')
-      .attr('x1', 440)
-      .attr('y1', inosY + 25)
-      .attr('x2', 480)
-      .attr('y2', inosY + 25)
-      .attr('stroke', '#16a34a')
-      .attr('stroke-width', 1.5);
-
-    svg
-      .append('polygon')
-      .attr('points', `480,${inosY + 25} 474,${inosY + 21} 474,${inosY + 29}`)
-      .attr('fill', '#16a34a');
-
-    // Cost comparison
-    svg
-      .append('text')
-      .attr('x', 650)
-      .attr('y', tradY + 30)
-      .attr('text-anchor', 'end')
-      .attr('font-size', 9)
-      .attr('fill', '#dc2626')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('~4 copies');
-
-    svg
-      .append('text')
-      .attr('x', 650)
-      .attr('y', inosY + 30)
-      .attr('text-anchor', 'end')
-      .attr('font-size', 9)
-      .attr('font-weight', 600)
-      .attr('fill', '#16a34a')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('0 copies');
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 700 240" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 700 240" height={240} />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: SAB MEMORY REGIONS
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: SAB MEMORY REGIONS
+// ────────────────────────────────────────────────────────────────────────────
 function SABRegionsDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const startX = 80;
+      const barWidth = 500;
 
-    const startX = 80;
-    const barWidth = 500;
+      // Memory regions from sab_layout.capnp - adjusted for better visibility
+      const regions = [
+        { offset: '0x000000', label: 'Atomic Flags', size: '128B', color: '#dc2626', height: 24 },
+        {
+          offset: '0x000080',
+          label: 'Supervisor Alloc',
+          size: '176B',
+          color: '#f59e0b',
+          height: 24,
+        },
+        { offset: '0x000140', label: 'Module Registry', size: '6KB', color: '#8b5cf6', height: 32 },
+        {
+          offset: '0x002000',
+          label: 'Supervisor Headers',
+          size: '4KB',
+          color: '#00add8',
+          height: 28,
+        },
+        { offset: '0x004000', label: 'Economics', size: '16KB', color: '#16a34a', height: 36 },
+        {
+          offset: '0x008000',
+          label: 'Identity Registry',
+          size: '16KB',
+          color: '#ec4899',
+          height: 36,
+        },
+        {
+          offset: '0x010000',
+          label: 'Pattern Exchange',
+          size: '64KB',
+          color: '#6366f1',
+          height: 44,
+        },
+        { offset: '0x100000', label: 'Job Queues', size: '1MB', color: '#0ea5e9', height: 52 },
+        { offset: '0x200000', label: 'Dynamic Arena', size: '~30MB', color: '#84cc16', height: 70 },
+      ];
 
-    // Memory regions from sab_layout.capnp - adjusted for better visibility
-    const regions = [
-      { offset: '0x000000', label: 'Atomic Flags', size: '128B', color: '#dc2626', height: 24 },
-      { offset: '0x000080', label: 'Supervisor Alloc', size: '176B', color: '#f59e0b', height: 24 },
-      { offset: '0x000140', label: 'Module Registry', size: '6KB', color: '#8b5cf6', height: 32 },
-      {
-        offset: '0x002000',
-        label: 'Supervisor Headers',
-        size: '4KB',
-        color: '#00add8',
-        height: 28,
-      },
-      { offset: '0x004000', label: 'Economics', size: '16KB', color: '#16a34a', height: 36 },
-      {
-        offset: '0x008000',
-        label: 'Identity Registry',
-        size: '16KB',
-        color: '#ec4899',
-        height: 36,
-      },
-      { offset: '0x010000', label: 'Pattern Exchange', size: '64KB', color: '#6366f1', height: 44 },
-      { offset: '0x100000', label: 'Job Queues', size: '1MB', color: '#0ea5e9', height: 52 },
-      { offset: '0x200000', label: 'Dynamic Arena', size: '~30MB', color: '#84cc16', height: 70 },
-    ];
-
-    // Title
-    svg
-      .append('text')
-      .attr('x', startX + barWidth / 2)
-      .attr('y', 22)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('SharedArrayBuffer Memory Layout (32MB)');
-
-    let currentY = 45;
-    regions.forEach(region => {
-      // Region bar
-      svg
-        .append('rect')
-        .attr('x', startX)
-        .attr('y', currentY)
-        .attr('width', barWidth)
-        .attr('height', region.height)
-        .attr('rx', 3)
-        .attr('fill', `${region.color}15`)
-        .attr('stroke', region.color)
-        .attr('stroke-width', 1);
-
-      // Offset (left)
+      // Title
       svg
         .append('text')
-        .attr('x', startX - 8)
-        .attr('y', currentY + region.height / 2 + 4)
-        .attr('text-anchor', 'end')
-        .attr('font-size', 8)
-        .attr('font-family', "'JetBrains Mono', monospace")
-        .attr('fill', theme.colors.inkLight)
-        .text(region.offset);
-
-      // Label
-      svg
-        .append('text')
-        .attr('x', startX + 12)
-        .attr('y', currentY + region.height / 2 + 4)
-        .attr('font-size', 10)
+        .attr('x', startX + barWidth / 2)
+        .attr('y', 22)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 12)
         .attr('font-weight', 600)
-        .attr('fill', region.color)
+        .attr('fill', theme.colors.inkDark)
         .attr('font-family', "'Inter', sans-serif")
-        .text(region.label);
+        .text('SharedArrayBuffer Memory Layout (32MB)');
 
-      // Size (right)
-      svg
-        .append('text')
-        .attr('x', startX + barWidth - 12)
-        .attr('y', currentY + region.height / 2 + 4)
-        .attr('text-anchor', 'end')
-        .attr('font-size', 9)
-        .attr('font-weight', 500)
-        .attr('fill', region.color)
-        .attr('font-family', "'Inter', sans-serif")
-        .text(region.size);
+      let currentY = 45;
+      regions.forEach(region => {
+        // Region bar
+        svg
+          .append('rect')
+          .attr('x', startX)
+          .attr('y', currentY)
+          .attr('width', barWidth)
+          .attr('height', region.height)
+          .attr('rx', 3)
+          .attr('fill', `${region.color}15`)
+          .attr('stroke', region.color)
+          .attr('stroke-width', 1);
 
-      currentY += region.height + 6;
-    });
-  }, [theme]);
+        // Offset (left)
+        svg
+          .append('text')
+          .attr('x', startX - 8)
+          .attr('y', currentY + region.height / 2 + 4)
+          .attr('text-anchor', 'end')
+          .attr('font-size', 8)
+          .attr('font-family', "'JetBrains Mono', monospace")
+          .attr('fill', theme.colors.inkLight)
+          .text(region.offset);
 
-  return <svg ref={svgRef} viewBox="0 0 660 520" style={{ width: '100%', height: 'auto' }} />;
+        // Label
+        svg
+          .append('text')
+          .attr('x', startX + 12)
+          .attr('y', currentY + region.height / 2 + 4)
+          .attr('font-size', 10)
+          .attr('font-weight', 600)
+          .attr('fill', region.color)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(region.label);
+
+        // Size (right)
+        svg
+          .append('text')
+          .attr('x', startX + barWidth - 12)
+          .attr('y', currentY + region.height / 2 + 4)
+          .attr('text-anchor', 'end')
+          .attr('font-size', 9)
+          .attr('font-weight', 500)
+          .attr('fill', region.color)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(region.size);
+
+        currentY += region.height + 6;
+      });
+    },
+    [theme]
+  );
+
+  // viewBox 660x520 as per original
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 660 520" height={520} />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: RING BUFFER
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: RING BUFFER
+// ────────────────────────────────────────────────────────────────────────────
 function RingBufferDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const centerX = 200;
+      const centerY = 130;
+      const outerRadius = 90;
+      const innerRadius = 50;
+      const slotCount = 8;
 
-    const centerX = 200;
-    const centerY = 130;
-    const outerRadius = 90;
-    const innerRadius = 50;
-    const slotCount = 8;
-
-    // Title
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', 25)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Zero-Copy Ring Buffer');
-
-    // Draw ring segments
-    const arc = d3.arc();
-
-    for (let i = 0; i < slotCount; i++) {
-      const startAngle = (i / slotCount) * 2 * Math.PI - Math.PI / 2;
-      const endAngle = ((i + 1) / slotCount) * 2 * Math.PI - Math.PI / 2;
-
-      // Determine state (filled, empty, head, tail)
-      let fillColor = 'rgba(229, 231, 235, 0.5)';
-      let strokeColor: string = theme.colors.borderSubtle;
-      if (i >= 1 && i <= 4) {
-        fillColor = 'rgba(139, 92, 246, 0.2)';
-        strokeColor = '#8b5cf6';
-      }
-      if (i === 1) {
-        fillColor = 'rgba(22, 163, 74, 0.3)';
-        strokeColor = '#16a34a';
-      }
-      if (i === 4) {
-        fillColor = 'rgba(234, 179, 8, 0.3)';
-        strokeColor = '#eab308';
-      }
-
-      svg
-        .append('path')
-        .attr(
-          'd',
-          arc({
-            innerRadius,
-            outerRadius,
-            startAngle,
-            endAngle,
-            padAngle: 0.02,
-          }) || ''
-        )
-        .attr('transform', `translate(${centerX}, ${centerY})`)
-        .attr('fill', fillColor)
-        .attr('stroke', strokeColor)
-        .attr('stroke-width', 1.5);
-    }
-
-    // Center label
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', centerY)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkMedium)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Message');
-
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', centerY + 14)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkMedium)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Queue');
-
-    // Legend
-    const legendY = 260;
-    const legendItems = [
-      { color: '#16a34a', label: 'Head (read)' },
-      { color: '#eab308', label: 'Tail (write)' },
-      { color: '#8b5cf6', label: 'Filled slots' },
-    ];
-
-    legendItems.forEach((item, i) => {
-      const x = 80 + i * 120;
-      svg
-        .append('rect')
-        .attr('x', x)
-        .attr('y', legendY)
-        .attr('width', 12)
-        .attr('height', 12)
-        .attr('rx', 2)
-        .attr('fill', item.color);
-
+      // Title
       svg
         .append('text')
-        .attr('x', x + 18)
-        .attr('y', legendY + 10)
-        .attr('font-size', 10)
-        .attr('fill', theme.colors.inkMedium)
+        .attr('x', centerX)
+        .attr('y', 25)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 12)
+        .attr('font-weight', 600)
+        .attr('fill', theme.colors.inkDark)
         .attr('font-family', "'Inter', sans-serif")
-        .text(item.label);
-    });
+        .text('Zero-Copy Ring Buffer');
 
-    // Key operations
-    const opsX = 430;
-    svg
-      .append('text')
-      .attr('x', opsX)
-      .attr('y', 60)
-      .attr('font-size', 11)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Zero-Copy Operations');
+      // Draw ring segments
+      const arc = d3.arc();
 
-    const ops = [
-      { label: 'EnqueueZeroCopy()', desc: 'Returns SAB offset for direct write' },
-      { label: 'DequeueZeroCopy()', desc: 'Returns SAB offset for direct read' },
-      { label: 'No memcpy()', desc: 'Data never leaves SAB' },
-    ];
+      for (let i = 0; i < slotCount; i++) {
+        const startAngle = (i / slotCount) * 2 * Math.PI - Math.PI / 2;
+        const endAngle = ((i + 1) / slotCount) * 2 * Math.PI - Math.PI / 2;
 
-    ops.forEach((op, i) => {
-      const y = 90 + i * 55;
+        // Determine state (filled, empty, head, tail)
+        let fillColor = 'rgba(229, 231, 235, 0.5)';
+        let strokeColor: string = theme.colors.borderSubtle;
+        if (i >= 1 && i <= 4) {
+          fillColor = 'rgba(139, 92, 246, 0.2)';
+          strokeColor = '#8b5cf6';
+        }
+        if (i === 1) {
+          fillColor = 'rgba(22, 163, 74, 0.3)';
+          strokeColor = '#16a34a';
+        }
+        if (i === 4) {
+          fillColor = 'rgba(234, 179, 8, 0.3)';
+          strokeColor = '#eab308';
+        }
+
+        svg
+          .append('path')
+          .attr(
+            'd',
+            arc({
+              innerRadius,
+              outerRadius,
+              startAngle,
+              endAngle,
+              padAngle: 0.02,
+            }) || ''
+          )
+          .attr('transform', `translate(${centerX}, ${centerY})`)
+          .attr('fill', fillColor)
+          .attr('stroke', strokeColor)
+          .attr('stroke-width', 1.5);
+      }
+
+      // Center label
       svg
         .append('text')
-        .attr('x', opsX)
-        .attr('y', y)
+        .attr('x', centerX)
+        .attr('y', centerY)
+        .attr('text-anchor', 'middle')
         .attr('font-size', 10)
         .attr('font-weight', 600)
-        .attr('fill', '#8b5cf6')
-        .attr('font-family', "'JetBrains Mono', monospace")
-        .text(op.label);
+        .attr('fill', theme.colors.inkMedium)
+        .attr('font-family', "'Inter', sans-serif")
+        .text('Message');
 
       svg
         .append('text')
-        .attr('x', opsX)
-        .attr('y', y + 16)
-        .attr('font-size', 9)
+        .attr('x', centerX)
+        .attr('y', centerY + 14)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
         .attr('fill', theme.colors.inkMedium)
         .attr('font-family', "'Inter', sans-serif")
-        .text(op.desc);
-    });
-  }, [theme]);
+        .text('Queue');
 
-  return <svg ref={svgRef} viewBox="0 0 660 290" style={{ width: '100%', height: 'auto' }} />;
+      // Legend
+      const legendY = 260;
+      const legendItems = [
+        { color: '#16a34a', label: 'Head (read)' },
+        { color: '#eab308', label: 'Tail (write)' },
+        { color: '#8b5cf6', label: 'Filled slots' },
+      ];
+
+      legendItems.forEach((item, i) => {
+        const x = 80 + i * 120;
+        svg
+          .append('rect')
+          .attr('x', x)
+          .attr('y', legendY)
+          .attr('width', 12)
+          .attr('height', 12)
+          .attr('rx', 2)
+          .attr('fill', item.color);
+
+        svg
+          .append('text')
+          .attr('x', x + 18)
+          .attr('y', legendY + 10)
+          .attr('font-size', 10)
+          .attr('fill', theme.colors.inkMedium)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(item.label);
+      });
+
+      // Key operations
+      const opsX = 430;
+      svg
+        .append('text')
+        .attr('x', opsX)
+        .attr('y', 60)
+        .attr('font-size', 11)
+        .attr('font-weight', 600)
+        .attr('fill', theme.colors.inkDark)
+        .attr('font-family', "'Inter', sans-serif")
+        .text('Zero-Copy Operations');
+
+      const ops = [
+        { label: 'EnqueueZeroCopy()', desc: 'Returns SAB offset for direct write' },
+        { label: 'DequeueZeroCopy()', desc: 'Returns SAB offset for direct read' },
+        { label: 'No memcpy()', desc: 'Data never leaves SAB' },
+      ];
+
+      ops.forEach((op, i) => {
+        const y = 90 + i * 55;
+        svg
+          .append('text')
+          .attr('x', opsX)
+          .attr('y', y)
+          .attr('font-size', 10)
+          .attr('font-weight', 600)
+          .attr('fill', '#8b5cf6')
+          .attr('font-family', "'JetBrains Mono', monospace")
+          .text(op.label);
+
+        svg
+          .append('text')
+          .attr('x', opsX)
+          .attr('y', y + 16)
+          .attr('font-size', 9)
+          .attr('fill', theme.colors.inkMedium)
+          .attr('font-family', "'Inter', sans-serif")
+          .text(op.desc);
+      });
+    },
+    [theme]
+  );
+
+  // viewBox 660x290 as per original
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 660 290" height={290} />
+  );
 }
 
 export function ZeroCopy() {

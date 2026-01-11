@@ -5,9 +5,10 @@
  * Integrating N-Body physics and the Infinite Canvas.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
+import D3Container from '../ui/D3Container';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
@@ -202,306 +203,322 @@ const Style = {
 };
 
 function SupercomputerDensityMap() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      _width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const g = svg.append('g');
+      const g = svg.append('g');
 
-    let animId: number;
-    let timer = 0;
+      // Static elements (Monolith)
+      // --- LEFT SIDE: THE MONOLITH (CENTRALIZED) ---
+      const monolithX = 120;
+      const monolithY = 150;
 
-    // Static elements (Monolith)
-    // --- LEFT SIDE: THE MONOLITH (CENTRALIZED) ---
-    const monolithX = 120;
-    const monolithY = 150;
+      // Draw Rack
+      g.append('rect')
+        .attr('x', monolithX - 45)
+        .attr('y', monolithY - 75)
+        .attr('width', 90)
+        .attr('height', 150)
+        .attr('fill', '#1e293b')
+        .attr('stroke', '#334155')
+        .attr('stroke-width', 2)
+        .attr('rx', 2);
 
-    // Draw Rack
-    g.append('rect')
-      .attr('x', monolithX - 45)
-      .attr('y', monolithY - 75)
-      .attr('width', 90)
-      .attr('height', 150)
-      .attr('fill', '#1e293b')
-      .attr('stroke', '#334155')
-      .attr('stroke-width', 2)
-      .attr('rx', 2);
-
-    // Status lights
-    for (let i = 0; i < 12; i++) {
-      g.append('circle')
-        .attr('cx', monolithX - 35)
-        .attr('cy', monolithY - 66 + i * 12)
-        .attr('r', 1.5)
-        .attr('fill', '#ef4444')
-        .append('animate')
-        .attr('attributeName', 'opacity')
-        .attr('values', '0.2;1;0.2')
-        .attr('dur', `${0.5 + Math.random()}s`)
-        .attr('repeatCount', 'indefinite');
-    }
-
-    g.append('text')
-      .attr('x', monolithX)
-      .attr('y', monolithY + 100)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 9)
-      .attr('font-weight', 800)
-      .attr('fill', '#ef4444')
-      .text('CENTRALIZED LIMIT');
-
-    // --- RIGHT SIDE: THE SPIDER'S MESH ---
-    const meshCenterX = 600;
-    const meshCenterY = 150;
-    const meshGroup = g.append('g');
-    const particleGroup = g.append('g');
-
-    interface HubNode {
-      x: number;
-      y: number;
-      r: number;
-      isPrimary?: boolean;
-    }
-
-    const hubs: HubNode[] = [
-      { x: meshCenterX, y: meshCenterY, r: 0, isPrimary: true },
-      { x: meshCenterX - 60, y: meshCenterY - 60, r: 0 },
-      { x: meshCenterX + 70, y: meshCenterY - 40, r: 0 },
-      { x: meshCenterX - 50, y: meshCenterY + 70, r: 0 },
-      { x: meshCenterX + 60, y: meshCenterY + 60, r: 0 },
-    ];
-
-    // Create persistent rings and spokes to avoid frame-by-frame DOM churn
-    interface RingDataItem {
-      hub: HubNode;
-      ri: number;
-    }
-    const ringData: RingDataItem[] = hubs.flatMap((hub: HubNode) =>
-      [0, 1, 2].map(ri => ({ hub, ri }))
-    );
-
-    const rings = meshGroup
-      .selectAll<SVGCircleElement, RingDataItem>('.mesh-ring')
-      .data(ringData)
-      .enter()
-      .append('circle')
-      .attr('class', 'mesh-ring')
-      .attr('cx', (d: RingDataItem) => d.hub.x)
-      .attr('cy', (d: RingDataItem) => d.hub.y)
-      .attr('fill', 'none')
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 0.5);
-
-    interface SpokeDataItem {
-      hub: HubNode;
-      angleOffset: number;
-    }
-    const spokeData: SpokeDataItem[] = hubs.flatMap((hub: HubNode) =>
-      [0, 1, 2, 3, 4, 5, 6, 7].map(si => ({
-        hub,
-        angleOffset: (si / 8) * Math.PI * 2,
-      }))
-    );
-
-    const spokeLines = meshGroup
-      .selectAll<SVGLineElement, SpokeDataItem>('.mesh-spoke')
-      .data(spokeData)
-      .enter()
-      .append('line')
-      .attr('class', 'mesh-spoke')
-      .attr('x1', (d: SpokeDataItem) => d.hub.x)
-      .attr('y1', (d: SpokeDataItem) => d.hub.y)
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 0.3)
-      .style('opacity', 0.1);
-
-    // Hub nodes
-    meshGroup
-      .selectAll<SVGCircleElement, HubNode>('.hub-node')
-      .data(hubs)
-      .enter()
-      .append('circle')
-      .attr('class', 'hub-node')
-      .attr('cx', (d: HubNode) => d.x)
-      .attr('cy', (d: HubNode) => d.y)
-      .attr('r', 3)
-      .attr('fill', '#8b5cf6')
-      .style('opacity', 0.8);
-
-    function animateMesh() {
-      timer += 0.01;
-
-      rings
-        .attr('r', (d: RingDataItem) => ((timer + d.ri * 0.5) % 1.5) * 60)
-        .style('opacity', (d: RingDataItem) => (1 - ((timer + d.ri * 0.5) % 1.5) / 1.5) * 0.3);
-
-      spokeLines
-        .attr('x2', (d: SpokeDataItem) => d.hub.x + Math.cos(d.angleOffset + timer * 0.2) * 100)
-        .attr('y2', (d: SpokeDataItem) => d.hub.y + Math.sin(d.angleOffset + timer * 0.2) * 100);
-
-      if (Math.random() > 0.95) {
-        const startHub = hubs[Math.floor(Math.random() * hubs.length)];
-        const endHub = hubs[Math.floor(Math.random() * hubs.length)];
-        if (startHub !== endHub) {
-          const pulse = particleGroup
-            .append('circle')
-            .attr('r', 2)
-            .attr('fill', '#8b5cf6')
-            .attr('cx', startHub.x)
-            .attr('cy', startHub.y);
-
-          pulse
-            .transition()
-            .duration(1000)
-            .attr('cx', endHub.x)
-            .attr('cy', endHub.y)
-            .style('opacity', 0)
-            .on('end', () => pulse.remove());
-        }
+      // Status lights
+      for (let i = 0; i < 12; i++) {
+        g.append('circle')
+          .attr('cx', monolithX - 35)
+          .attr('cy', monolithY - 66 + i * 12)
+          .attr('r', 1.5)
+          .attr('fill', '#ef4444')
+          .append('animate')
+          .attr('attributeName', 'opacity')
+          .attr('values', '0.2;1;0.2')
+          .attr('dur', `${0.5 + Math.random()}s`)
+          .attr('repeatCount', 'indefinite');
       }
 
-      animId = requestAnimationFrame(animateMesh);
-    }
-    animateMesh();
-
-    g.append('text')
-      .attr('x', meshCenterX)
-      .attr('y', meshCenterY + 125)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 800)
-      .attr('fill', '#8b5cf6')
-      .text("SPIDER'S MESH: EVERY EDGE IS A CENTER");
-
-    g.append('text')
-      .attr('x', meshCenterX)
-      .attr('y', meshCenterY + 140)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', theme.colors.inkMedium)
-      .text('Continuous Expansion & Decentralized Search');
-
-    // --- DIVIDER & CONTRAST FLOW ---
-    const sourceX = 370;
-    const sourceY = 150;
-
-    const flowCount = 6;
-    for (let i = 0; i < flowCount; i++) {
-      // Monolith flow
-      g.append('circle')
-        .attr('r', 2)
+      g.append('text')
+        .attr('x', monolithX)
+        .attr('y', monolithY + 100)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9)
+        .attr('font-weight', 800)
         .attr('fill', '#ef4444')
-        .append('animateMotion')
-        .attr('path', `M ${sourceX + 30} ${sourceY} L ${monolithX + 45} ${sourceY}`)
-        .attr('dur', '2.5s')
-        .attr('begin', `${i * 1.5}s`)
-        .attr('repeatCount', 'indefinite');
+        .text('CENTRALIZED LIMIT');
 
-      // Mesh flow - floods all main hubs
-      hubs.forEach((hub, hi) => {
+      // --- RIGHT SIDE: THE SPIDER'S MESH ---
+      const meshCenterX = 600;
+      const meshCenterY = 150;
+      const meshGroup = g.append('g');
+      const particleGroup = g.append('g');
+
+      interface HubNode {
+        x: number;
+        y: number;
+        r: number;
+        isPrimary?: boolean;
+      }
+
+      const hubs: HubNode[] = [
+        { x: meshCenterX, y: meshCenterY, r: 0, isPrimary: true },
+        { x: meshCenterX - 60, y: meshCenterY - 60, r: 0 },
+        { x: meshCenterX + 70, y: meshCenterY - 40, r: 0 },
+        { x: meshCenterX - 50, y: meshCenterY + 70, r: 0 },
+        { x: meshCenterX + 60, y: meshCenterY + 60, r: 0 },
+      ];
+
+      // Create persistent rings and spokes to avoid frame-by-frame DOM churn
+      interface RingDataItem {
+        hub: HubNode;
+        ri: number;
+      }
+      const ringData: RingDataItem[] = hubs.flatMap((hub: HubNode) =>
+        [0, 1, 2].map(ri => ({ hub, ri }))
+      );
+
+      const rings = meshGroup
+        .selectAll<SVGCircleElement, RingDataItem>('.mesh-ring')
+        .data(ringData)
+        .enter()
+        .append('circle')
+        .attr('class', 'mesh-ring')
+        .attr('cx', (d: RingDataItem) => d.hub.x)
+        .attr('cy', (d: RingDataItem) => d.hub.y)
+        .attr('fill', 'none')
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 0.5);
+
+      interface SpokeDataItem {
+        hub: HubNode;
+        angleOffset: number;
+      }
+      const spokeData: SpokeDataItem[] = hubs.flatMap((hub: HubNode) =>
+        [0, 1, 2, 3, 4, 5, 6, 7].map(si => ({
+          hub,
+          angleOffset: (si / 8) * Math.PI * 2,
+        }))
+      );
+
+      const spokeLines = meshGroup
+        .selectAll<SVGLineElement, SpokeDataItem>('.mesh-spoke')
+        .data(spokeData)
+        .enter()
+        .append('line')
+        .attr('class', 'mesh-spoke')
+        .attr('x1', (d: SpokeDataItem) => d.hub.x)
+        .attr('y1', (d: SpokeDataItem) => d.hub.y)
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 0.3)
+        .style('opacity', 0.1);
+
+      // Hub nodes
+      meshGroup
+        .selectAll<SVGCircleElement, HubNode>('.hub-node')
+        .data(hubs)
+        .enter()
+        .append('circle')
+        .attr('class', 'hub-node')
+        .attr('cx', (d: HubNode) => d.x)
+        .attr('cy', (d: HubNode) => d.y)
+        .attr('r', 3)
+        .attr('fill', '#8b5cf6')
+        .style('opacity', 0.8);
+
+      let animId: number;
+      let timer = 0;
+
+      function animateMesh() {
+        timer += 0.01;
+
+        rings
+          .attr('r', (d: RingDataItem) => ((timer + d.ri * 0.5) % 1.5) * 60)
+          .style('opacity', (d: RingDataItem) => (1 - ((timer + d.ri * 0.5) % 1.5) / 1.5) * 0.3);
+
+        spokeLines
+          .attr('x2', (d: SpokeDataItem) => d.hub.x + Math.cos(d.angleOffset + timer * 0.2) * 100)
+          .attr('y2', (d: SpokeDataItem) => d.hub.y + Math.sin(d.angleOffset + timer * 0.2) * 100);
+
+        if (Math.random() > 0.95) {
+          const startHub = hubs[Math.floor(Math.random() * hubs.length)];
+          const endHub = hubs[Math.floor(Math.random() * hubs.length)];
+          if (startHub !== endHub) {
+            const pulse = particleGroup
+              .append('circle')
+              .attr('r', 2)
+              .attr('fill', '#8b5cf6')
+              .attr('cx', startHub.x)
+              .attr('cy', startHub.y);
+
+            pulse
+              .transition()
+              .duration(1000)
+              .attr('cx', endHub.x)
+              .attr('cy', endHub.y)
+              .style('opacity', 0)
+              .on('end', () => pulse.remove());
+          }
+        }
+
+        animId = requestAnimationFrame(animateMesh);
+      }
+      animateMesh();
+
+      g.append('text')
+        .attr('x', meshCenterX)
+        .attr('y', meshCenterY + 125)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 800)
+        .attr('fill', '#8b5cf6')
+        .text("SPIDER'S MESH: EVERY EDGE IS A CENTER");
+
+      g.append('text')
+        .attr('x', meshCenterX)
+        .attr('y', meshCenterY + 140)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 8)
+        .attr('fill', theme.colors.inkMedium)
+        .text('Continuous Expansion & Decentralized Search');
+
+      // --- DIVIDER & CONTRAST FLOW ---
+      const sourceX = 370;
+      const sourceY = 150;
+
+      const flowCount = 6;
+      for (let i = 0; i < flowCount; i++) {
+        // Monolith flow
         g.append('circle')
           .attr('r', 2)
-          .attr('fill', '#8b5cf6')
+          .attr('fill', '#ef4444')
           .append('animateMotion')
-          .attr('path', `M ${sourceX + 30} ${sourceY} L ${hub.x} ${hub.y}`)
-          .attr('dur', '0.8s')
-          .attr('begin', `${i * 0.2 + hi * 0.1}s`)
+          .attr('path', `M ${sourceX + 30} ${sourceY} L ${monolithX + 45} ${sourceY}`)
+          .attr('dur', '2.5s')
+          .attr('begin', `${i * 1.5}s`)
           .attr('repeatCount', 'indefinite');
-      });
-    }
 
-    svg
-      .append('line')
-      .attr('x1', 400)
-      .attr('y1', 50)
-      .attr('x2', 400)
-      .attr('y2', 250)
-      .attr('stroke', theme.colors.borderSubtle)
-      .attr('stroke-dasharray', '4,4');
+        // Mesh flow - floods all main hubs
+        hubs.forEach((hub, hi) => {
+          g.append('circle')
+            .attr('r', 2)
+            .attr('fill', '#8b5cf6')
+            .append('animateMotion')
+            .attr('path', `M ${sourceX + 30} ${sourceY} L ${hub.x} ${hub.y}`)
+            .attr('dur', '0.8s')
+            .attr('begin', `${i * 0.2 + hi * 0.1}s`)
+            .attr('repeatCount', 'indefinite');
+        });
+      }
 
-    return () => {
-      cancelAnimationFrame(animId);
-      svg.selectAll('*').interrupt().remove();
-    };
-  }, [theme]);
+      svg
+        .append('line')
+        .attr('x1', 400)
+        .attr('y1', 50)
+        .attr('x2', 400)
+        .attr('y2', 250)
+        .attr('stroke', theme.colors.borderSubtle)
+        .attr('stroke-dasharray', '4,4');
 
-  return <svg ref={svgRef} viewBox="0 0 800 300" style={{ width: '100%', height: 'auto' }} />;
+      return () => {
+        cancelAnimationFrame(animId);
+        svg.selectAll('*').interrupt().remove();
+      };
+    },
+    [theme]
+  );
+
+  // Using key to force re-render when theme changes if needed, though dependency array handles it.
+  // We use D3Container and pass the cleanup function returned by renderViz if any (but here we return the cleanup from useCallback itself)
+  // Wait, D3Container expects render to return void or cleanup.
+
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 800 300" height={300} />
+  );
 }
 
 function RoadmapTimeline() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderViz = useCallback(
+    (
+      svg: d3.Selection<SVGSVGElement, unknown, null, undefined>,
+      width: number,
+      _height: number
+    ) => {
+      svg.selectAll('*').remove();
 
-    const milestones = [
-      { label: 'SAB Signaling', status: 'done', color: '#16a34a' },
-      { label: 'Storage Mesh', status: 'done', color: '#16a34a' },
-      { label: 'Economic Layer', status: 'done', color: '#16a34a' },
-      { label: 'PoUW Consensus', status: 'next', color: '#8b5cf6' },
-      { label: 'Planetary Sim', status: 'next', color: '#8b5cf6' },
-    ];
+      const milestones = [
+        { label: 'SAB Signaling', status: 'done', color: '#16a34a' },
+        { label: 'Storage Mesh', status: 'done', color: '#16a34a' },
+        { label: 'Economic Layer', status: 'done', color: '#16a34a' },
+        { label: 'PoUW Consensus', status: 'next', color: '#8b5cf6' },
+        { label: 'Planetary Sim', status: 'next', color: '#8b5cf6' },
+      ];
 
-    const width = 600;
-    const startX = 50;
-    const step = (width - 100) / (milestones.length - 1);
-    const y = 80;
+      const startX = 50;
+      const step = (width - 100) / (milestones.length - 1);
+      const y = 80;
 
-    // Line
-    svg
-      .append('line')
-      .attr('x1', startX)
-      .attr('y1', y)
-      .attr('x2', startX + (milestones.length - 1) * step)
-      .attr('y2', y)
-      .attr('stroke', theme.colors.borderSubtle)
-      .attr('stroke-width', 2);
-
-    milestones.forEach((m, i) => {
-      const x = startX + i * step;
-
-      // Node
+      // Line
       svg
-        .append('circle')
-        .attr('cx', x)
-        .attr('cy', y)
-        .attr('r', 6)
-        .attr('fill', m.status === 'done' ? m.color : '#fff')
-        .attr('stroke', m.color)
+        .append('line')
+        .attr('x1', startX)
+        .attr('y1', y)
+        .attr('x2', startX + (milestones.length - 1) * step)
+        .attr('y2', y)
+        .attr('stroke', theme.colors.borderSubtle)
         .attr('stroke-width', 2);
 
-      // Label
-      svg
-        .append('text')
-        .attr('x', x)
-        .attr('y', y + 25)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('font-weight', 600)
-        .attr('fill', theme.colors.inkDark)
-        .text(m.label);
+      milestones.forEach((m, i) => {
+        const x = startX + i * step;
 
-      // Status
-      svg
-        .append('text')
-        .attr('x', x)
-        .attr('y', y - 15)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 7)
-        .attr('font-weight', 800)
-        .attr('fill', m.color)
-        .text(m.status === 'done' ? '✓ DONE' : '🚀 NEXT');
-    });
-  }, [theme]);
+        // Node
+        svg
+          .append('circle')
+          .attr('cx', x)
+          .attr('cy', y)
+          .attr('r', 6)
+          .attr('fill', m.status === 'done' ? m.color : '#fff')
+          .attr('stroke', m.color)
+          .attr('stroke-width', 2);
 
-  return <svg ref={svgRef} viewBox="0 0 600 150" style={{ width: '100%', height: 'auto' }} />;
+        // Label
+        svg
+          .append('text')
+          .attr('x', x)
+          .attr('y', y + 25)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9)
+          .attr('font-weight', 600)
+          .attr('fill', theme.colors.inkDark)
+          .text(m.label);
+
+        // Status
+        svg
+          .append('text')
+          .attr('x', x)
+          .attr('y', y - 15)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 7)
+          .attr('font-weight', 800)
+          .attr('fill', m.color)
+          .text(m.status === 'done' ? '✓ DONE' : '🚀 NEXT');
+      });
+    },
+    [theme]
+  );
+
+  // viewBox 600 width is consistent with previous code
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 600 150" height={150} />
+  );
 }
 
 /**
@@ -509,157 +526,160 @@ function RoadmapTimeline() {
  * Visualizing the flow from Sensors -> SAB -> AI -> Actuators
  */
 function TheAutonomousStream() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderViz = useCallback(
+    (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, width: number, height: number) => {
+      svg.selectAll('*').remove();
 
-    const width = 800;
-    const height = 300;
-    const centerY = height / 2;
+      const centerY = height / 2;
 
-    const g = svg.append('g');
+      const g = svg.append('g');
 
-    // 1. Sources (Left)
-    const sources = [
-      { id: 'lidar', label: 'LIDAR', y: centerY - 60 },
-      { id: 'cam', label: 'VISION', y: centerY },
-      { id: 'bio', label: 'BIO-SENSORS', y: centerY + 60 },
-    ];
+      // 1. Sources (Left)
+      const sources = [
+        { id: 'lidar', label: 'LIDAR', y: centerY - 60 },
+        { id: 'cam', label: 'VISION', y: centerY },
+        { id: 'bio', label: 'BIO-SENSORS', y: centerY + 60 },
+      ];
 
-    // 2. The Core (Center)
-    const core = { x: width / 2, y: centerY, label: 'SAB HIVE MIND' };
+      // 2. The Core (Center)
+      const core = { x: width / 2, y: centerY, label: 'SAB HIVE MIND' };
 
-    // 3. The Outputs (Right)
-    const outputs = [
-      { id: 'vr', label: 'HOLOGRAMS', y: centerY - 60 },
-      { id: 'drone', label: 'SWARMS', y: centerY },
-      { id: 'car', label: 'AUTONOMY', y: centerY + 60 },
-    ];
+      // 3. The Outputs (Right)
+      const outputs = [
+        { id: 'vr', label: 'HOLOGRAMS', y: centerY - 60 },
+        { id: 'drone', label: 'SWARMS', y: centerY },
+        { id: 'car', label: 'AUTONOMY', y: centerY + 60 },
+      ];
 
-    // Draw lines first (back layer)
-    sources.forEach(s => {
-      g.append('path')
-        .attr('d', `M 150 ${s.y} C 250 ${s.y}, 300 ${centerY}, ${width / 2 - 40} ${centerY}`)
-        .attr('fill', 'none')
-        .attr('stroke', '#e2e8f0')
-        .attr('stroke-width', 1);
-    });
+      // Draw lines first (back layer)
+      sources.forEach(s => {
+        g.append('path')
+          .attr('d', `M 150 ${s.y} C 250 ${s.y}, 300 ${centerY}, ${width / 2 - 40} ${centerY}`)
+          .attr('fill', 'none')
+          .attr('stroke', '#e2e8f0')
+          .attr('stroke-width', 1);
+      });
 
-    outputs.forEach(o => {
-      g.append('path')
-        .attr('d', `M ${width / 2 + 40} ${centerY} C 500 ${centerY}, 550 ${o.y}, 650 ${o.y}`)
-        .attr('fill', 'none')
-        .attr('stroke', '#e2e8f0')
-        .attr('stroke-width', 1);
-    });
+      outputs.forEach(o => {
+        g.append('path')
+          .attr('d', `M ${width / 2 + 40} ${centerY} C 500 ${centerY}, 550 ${o.y}, 650 ${o.y}`)
+          .attr('fill', 'none')
+          .attr('stroke', '#e2e8f0')
+          .attr('stroke-width', 1);
+      });
 
-    // Draw Source Nodes
-    const sourceGroups = g
-      .selectAll('.source')
-      .data(sources)
-      .enter()
-      .append('g')
-      .attr('transform', d => `translate(150, ${d.y})`);
+      // Draw Source Nodes
+      const sourceGroups = g
+        .selectAll('.source')
+        .data(sources)
+        .enter()
+        .append('g')
+        .attr('transform', d => `translate(150, ${d.y})`);
 
-    sourceGroups.append('circle').attr('r', 4).attr('fill', '#64748b');
-    sourceGroups
-      .append('text')
-      .attr('x', -15)
-      .attr('dy', 4)
-      .attr('text-anchor', 'end')
-      .attr('font-size', 9)
-      .attr('font-weight', 700)
-      .attr('fill', '#64748b')
-      .text(d => d.label);
+      sourceGroups.append('circle').attr('r', 4).attr('fill', '#64748b');
+      sourceGroups
+        .append('text')
+        .attr('x', -15)
+        .attr('dy', 4)
+        .attr('text-anchor', 'end')
+        .attr('font-size', 9)
+        .attr('font-weight', 700)
+        .attr('fill', '#64748b')
+        .text(d => d.label);
 
-    // Draw Output Nodes
-    const outputGroups = g
-      .selectAll('.output')
-      .data(outputs)
-      .enter()
-      .append('g')
-      .attr('transform', d => `translate(650, ${d.y})`);
+      // Draw Output Nodes
+      const outputGroups = g
+        .selectAll('.output')
+        .data(outputs)
+        .enter()
+        .append('g')
+        .attr('transform', d => `translate(650, ${d.y})`);
 
-    outputGroups.append('circle').attr('r', 4).attr('fill', '#ec4899');
-    outputGroups
-      .append('text')
-      .attr('x', 15)
-      .attr('dy', 4)
-      .attr('text-anchor', 'start')
-      .attr('font-size', 9)
-      .attr('font-weight', 700)
-      .attr('fill', '#ec4899')
-      .text(d => d.label);
+      outputGroups.append('circle').attr('r', 4).attr('fill', '#ec4899');
+      outputGroups
+        .append('text')
+        .attr('x', 15)
+        .attr('dy', 4)
+        .attr('text-anchor', 'start')
+        .attr('font-size', 9)
+        .attr('font-weight', 700)
+        .attr('fill', '#ec4899')
+        .text(d => d.label);
 
-    // Draw Core
-    g.append('circle')
-      .attr('cx', core.x)
-      .attr('cy', core.y)
-      .attr('r', 40)
-      .attr('fill', '#fff')
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 2);
+      // Draw Core
+      g.append('circle')
+        .attr('cx', core.x)
+        .attr('cy', core.y)
+        .attr('r', 40)
+        .attr('fill', '#fff')
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 2);
 
-    g.append('text')
-      .attr('x', core.x)
-      .attr('y', core.y + 4)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 800)
-      .attr('fill', '#8b5cf6')
-      .text('INOS KERNEL');
+      g.append('text')
+        .attr('x', core.x)
+        .attr('y', core.y + 4)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 800)
+        .attr('fill', '#8b5cf6')
+        .text('INOS KERNEL');
 
-    // Particles
-    function emitParticle() {
-      const source = sources[Math.floor(Math.random() * sources.length)];
-      const output = outputs[Math.floor(Math.random() * outputs.length)];
+      // Particles
+      let timer: ReturnType<typeof setInterval>;
 
-      const p = g.append('circle').attr('r', 2).attr('fill', '#8b5cf6').attr('opacity', 0);
+      function emitParticle() {
+        const source = sources[Math.floor(Math.random() * sources.length)];
+        const output = outputs[Math.floor(Math.random() * outputs.length)];
 
-      // Path 1: Source -> Core
-      p.attr('transform', `translate(150, ${source.y})`)
-        .transition()
-        .duration(1000)
-        .ease(d3.easeLinear)
-        .attr('opacity', 1)
-        .attrTween('transform', () => t => {
-          const endX = width / 2 - 40;
-          // simplify: linear move for now to ensure robustness without path ref
-          const currX = 150 + (endX - 150) * t;
-          const currY = source.y + (centerY - source.y) * t;
-          // Add a slight curve
-          const curveY = currY + Math.sin(t * Math.PI) * (centerY - source.y) * 0.5;
-          return `translate(${currX}, ${curveY})`;
-        })
-        .on('end', () => {
-          // Path 2: Core -> Output
-          p.transition()
-            .duration(1000)
-            .ease(d3.easeQuadOut)
-            .attrTween('transform', () => t => {
-              const startX = width / 2 + 40;
-              const endX = 650;
-              const currX = startX + (endX - startX) * t;
-              const currY = centerY + (output.y - centerY) * t;
-              // Add a slight curve
-              const curveY = currY + Math.sin(t * Math.PI) * (output.y - centerY) * 0.5;
+        const p = g.append('circle').attr('r', 2).attr('fill', '#8b5cf6').attr('opacity', 0);
 
-              return `translate(${currX}, ${curveY})`;
-            })
-            .attr('fill', '#ec4899') // Change color to output
-            .on('end', () => p.remove());
-        });
-    }
+        // Path 1: Source -> Core
+        p.attr('transform', `translate(150, ${source.y})`)
+          .transition()
+          .duration(1000)
+          .ease(d3.easeLinear)
+          .attr('opacity', 1)
+          .attrTween('transform', () => t => {
+            const endX = width / 2 - 40;
+            // simplify: linear move for now to ensure robustness without path ref
+            const currX = 150 + (endX - 150) * t;
+            const currY = source.y + (centerY - source.y) * t;
+            // Add a slight curve
+            const curveY = currY + Math.sin(t * Math.PI) * (centerY - source.y) * 0.5;
+            return `translate(${currX}, ${curveY})`;
+          })
+          .on('end', () => {
+            // Path 2: Core -> Output
+            p.transition()
+              .duration(1000)
+              .ease(d3.easeQuadOut)
+              .attrTween('transform', () => t => {
+                const startX = width / 2 + 40;
+                const endX = 650;
+                const currX = startX + (endX - startX) * t;
+                const currY = centerY + (output.y - centerY) * t;
+                // Add a slight curve
+                const curveY = currY + Math.sin(t * Math.PI) * (output.y - centerY) * 0.5;
 
-    const timer = setInterval(emitParticle, 100);
-    return () => clearInterval(timer);
-  }, [theme]);
+                return `translate(${currX}, ${curveY})`;
+              })
+              .attr('fill', '#ec4899') // Change color to output
+              .on('end', () => p.remove());
+          });
+      }
 
-  return <svg ref={svgRef} viewBox="0 0 800 300" style={{ width: '100%', height: 'auto' }} />;
+      timer = setInterval(emitParticle, 100);
+      return () => clearInterval(timer);
+    },
+    [theme]
+  );
+
+  // viewBox 800 width consistent with original
+  return (
+    <D3Container render={renderViz} dependencies={[renderViz]} viewBox="0 0 800 300" height={300} />
+  );
 }
 
 export default function Cosmos() {
