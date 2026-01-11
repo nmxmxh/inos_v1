@@ -618,18 +618,18 @@ func (s *BoidsSupervisor) Mutate(genes BirdGenes) BirdGenes {
 func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	population := make([]BirdGenes, s.birdCount)
 
-	// Determine active buffer from ping-pong epoch
-	activeEpochBytes, err := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read active buffer epoch: %w", err)
-	}
-	active := binary.LittleEndian.Uint32(activeEpochBytes)
+	// Determine active buffer from ping-pong (Stable Read Buffer)
+	active := s.bridge.ReadAtomicI32(sab_layout.IDX_PINGPONG_ACTIVE)
 
 	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
-	// If Writer is Active on A (0), we read B (Stable)
-	// If Writer is Active on B (1), we read A (Stable)
-	if active == 0 {
+	if active == 1 {
 		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
+	}
+
+	// If active is neither 0 nor 1, we haven't initialized yet or have a corruption.
+	// Default to A as it's the boot buffer.
+	if active < 0 || active > 1 {
+		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
 	}
 
 	utils.Info("DEBUG: ReadPopulation",
@@ -681,59 +681,37 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 // We NEVER overwrite [Position/Velocity/Rotation] (Offset 0..56) because Rust is updating those at 60Hz.
 // Overwriting them with old data cause "time travel" rubber-banding.
 func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
-	// Determine Active Buffer to write to (Target the Stable buffer)
-	activeEpochBytes, _ := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
-	active := binary.LittleEndian.Uint32(activeEpochBytes)
+	// Determine current READ buffer (Stable).
+	// Writing to the READ buffer ensures Rust picks up new genes in its NEXT physics step.
+	active := s.bridge.ReadAtomicI32(sab_layout.IDX_PINGPONG_ACTIVE)
 
-	// If Active=0 (A), Rust reads A, writes B. Stable is B.
-	// If Active=1 (B), Rust reads B, writes A. Stable is A.
 	baseOffset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
-	if active == 0 {
+	if active == 1 {
 		baseOffset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
 	}
 
-	// Apply "Magical Pulse" - Time-based oscillation for "Breathing" effect
-	t := float64(time.Now().UnixNano()) / 1e9
-	sepPulse := float32(math.Sin(t*0.6) * 2.0)
-	cohPulse := float32(math.Cos(t*0.6) * 2.0)
-	aliPulse := float32(math.Sin(t*2.0) * 0.5)
-
-	// Spotlight: Randomly pick trick performers (5% of flock)
-	trickTargets := make(map[int]bool)
-	targetCount := max(1, s.birdCount/20)
-	for i := 0; i < targetCount; i++ {
-		trickTargets[rand.Intn(s.birdCount)] = true
+	// Default to A if not initialized
+	if active < 0 || active > 1 {
+		baseOffset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
 	}
+
+	utils.Info("Writing evolved population to stable buffer",
+		utils.Int("active_idx", int(active)),
+		utils.String("offset", fmt.Sprintf("0x%X", baseOffset)))
 
 	s.mu.RLock()
 	chunk := s.birdChunkBuf
 	s.mu.RUnlock()
 
 	for i, bird := range population {
-		// Prepare data chunk
-		// 1. Fitness
+		// Prepare data chunk (only Weights/Fitness)
 		binary.LittleEndian.PutUint32(chunk[0:4], math.Float32bits(float32(bird.Fitness)))
 
-		// 2. Weights - Apply Pulses
-		w := bird.Weights // Copy array
-		w[0] += sepPulse
-		w[1] += aliPulse
-		w[2] += cohPulse
-		w[3] = 0.0 // Reset trick
-		if trickTargets[i] {
-			if rand.Float64() > 0.5 {
-				w[3] = 5.0
-			} else {
-				w[3] = -5.0
-			}
-		}
-
 		for j := 0; j < 44; j++ {
-			binary.LittleEndian.PutUint32(chunk[4+j*4:8+j*4], math.Float32bits(w[j]))
+			binary.LittleEndian.PutUint32(chunk[4+j*4:8+j*4], math.Float32bits(bird.Weights[j]))
 		}
 
-		// Calculate target address
-		// Offset 56 is where Fitness starts (after 14 floats * 4)
+		// Calculate target address (Index 14 floats)
 		targetAddr := baseOffset + uint32(i*BytesPerBird) + 56
 
 		// Write ONLY the weight chunk
@@ -745,8 +723,7 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	// Debug log first bird's new weights
 	if len(population) > 0 {
 		utils.Info("Gen Evolved & Weights Patched",
-			utils.String("target_buffer", fmt.Sprintf("0x%X", baseOffset)),
-			utils.Float64("pulse_sep", float64(sepPulse)))
+			utils.String("target_buffer", fmt.Sprintf("0x%X", baseOffset)))
 	}
 
 	return nil

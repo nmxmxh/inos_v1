@@ -50,9 +50,16 @@ const MAX_SPEED: f32 = 6.0;
 const MIN_SPEED: f32 = 2.0;
 
 /// World boundaries
-const BOUND_X: f32 = 25.0;
-const BOUND_Y: f32 = 12.0;
-const BOUND_Z: f32 = 20.0;
+// ============= WORLD DIMENSIONS =============
+// Derived from Spatial Grid: GRID * CELL_SIZE = Total Span
+const WORLD_HALF_X: f32 = (GRID_X as f32 * CELL_SIZE) / 2.0; // 40.0
+const WORLD_HALF_Y: f32 = (GRID_Y as f32 * CELL_SIZE) / 2.0; // 30.0
+const WORLD_HALF_Z: f32 = (GRID_Z as f32 * CELL_SIZE) / 2.0; // 40.0
+
+/// World boundaries for physics clamping
+const BOUND_X: f32 = WORLD_HALF_X - 2.0; // 38.0
+const BOUND_Y: f32 = WORLD_HALF_Y - 2.0; // 28.0
+const BOUND_Z: f32 = WORLD_HALF_Z - 2.0; // 38.0
 
 // ============= SPATIAL HASHING 2.0 =============
 // Fixed-size grid to eliminate HashMap overhead and fragmentation
@@ -62,44 +69,13 @@ const GRID_Y: usize = 6; // ±30 units
 const GRID_Z: usize = 8; // ±40 units
 const GRID_TOTAL: usize = GRID_X * GRID_Y * GRID_Z;
 
-/// Hash a 3D position to a single flat grid index
 #[inline]
 fn spatial_hash(x: f32, y: f32, z: f32) -> usize {
-    // Map -40..40 to 0..8 (X/Z) and -30..30 to 0..6 (Y)
-    let ix = (((x + 40.0) / CELL_SIZE).max(0.0) as usize).min(GRID_X - 1);
-    let iy = (((y + 30.0) / CELL_SIZE).max(0.0) as usize).min(GRID_Y - 1);
-    let iz = (((z + 40.0) / CELL_SIZE).max(0.0) as usize).min(GRID_Z - 1);
+    // Map -WORLD_HALF to +WORLD_HALF into 0..GRID_DIM
+    let ix = (((x + WORLD_HALF_X) / CELL_SIZE).max(0.0) as usize).min(GRID_X - 1);
+    let iy = (((y + WORLD_HALF_Y) / CELL_SIZE).max(0.0) as usize).min(GRID_Y - 1);
+    let iz = (((z + WORLD_HALF_Z) / CELL_SIZE).max(0.0) as usize).min(GRID_Z - 1);
     (ix * GRID_Y * GRID_Z) + (iy * GRID_Z) + iz
-}
-
-/// Get indices of neighboring cells
-fn neighbor_cells(idx: usize) -> Vec<usize> {
-    let mut neighbors = Vec::with_capacity(27);
-    let iz = idx % GRID_Z;
-    let iy = (idx / GRID_Z) % GRID_Y;
-    let ix = idx / (GRID_Y * GRID_Z);
-
-    for dx in -1..=1 {
-        let nx = ix as i32 + dx;
-        if nx < 0 || nx >= GRID_X as i32 {
-            continue;
-        }
-        for dy in -1..=1 {
-            let ny = iy as i32 + dy;
-            if ny < 0 || ny >= GRID_Y as i32 {
-                continue;
-            }
-            for dz in -1..=1 {
-                let nz = iz as i32 + dz;
-                if nz < 0 || nz >= GRID_Z as i32 {
-                    continue;
-                }
-                neighbors
-                    .push((nx as usize * GRID_Y * GRID_Z) + (ny as usize * GRID_Z) + nz as usize);
-            }
-        }
-    }
-    neighbors
 }
 
 // ============= FLOCKING FORCES =============
@@ -423,13 +399,16 @@ impl BoidUnit {
             let bnd = boundary_force(&pos);
 
             // ========== APPLY FORCES ==========
-            // ========== APPLY FORCES with Evolutionary Multipliers ==========
-            // Base weights * (1.0 + evolved_weight). Evolved weight range typically -5.0 to 5.0
-            // We clamp multiplier to be non-negative to avoid reversed forces (unless desired?)
-            let mod_sep = SEPARATION_WEIGHT * (1.0 + w_sep).max(0.0);
-            let mod_ali = ALIGNMENT_WEIGHT * (1.0 + w_ali).max(0.0);
-            let mod_coh = COHESION_WEIGHT * (1.0 + w_coh).max(0.0);
-            let mod_bnd = BOUNDARY_WEIGHT; // Keep boundary constant for stability
+            // ========== APPLY FORCES with Evolutionary Multipliers & Autonomous Pulses ==========
+            // Add "Breathing" pulses (0.6 Hz and 2.0 Hz) moved from Kernel to Rust for fluidity
+            let sep_pulse = (time * 0.6).sin() as f32 * 2.0;
+            let coh_pulse = (time * 0.6).cos() as f32 * 2.0;
+            let ali_pulse = (time * 2.0).sin() as f32 * 0.5;
+
+            let mod_sep = SEPARATION_WEIGHT * (1.0 + w_sep + sep_pulse).max(0.01);
+            let mod_ali = ALIGNMENT_WEIGHT * (1.0 + w_ali + ali_pulse).max(0.01);
+            let mod_coh = COHESION_WEIGHT * (1.0 + w_coh + coh_pulse).max(0.01);
+            let mod_bnd = BOUNDARY_WEIGHT;
 
             let accel_scale = dt * 60.0;
             vel[0] += (sep[0] * mod_sep + ali[0] * mod_ali + coh[0] * mod_coh + bnd[0] * mod_bnd)
@@ -470,10 +449,23 @@ impl BoidUnit {
             energy = energy.clamp(0.4, 1.0); // Higher minimum = always active
 
             // ========== TRICK SYSTEM: STATE SMOOTHING & SCREW MOTION ==========
-            // Use local persistent storage for trick intensity
-            let mut trick_intensity = intensities[i];
+            // Autonomous Trick Trigger: 5% of birds perform tricks based on time windows
+            let bird_trick_seed = (i as f32 * 0.13 + (time / 10.0).floor()) % 1.0;
+            let is_performing_autonomous = bird_trick_seed < 0.05;
 
-            let is_barrel_roll = w_trick < -2.0;
+            // Combine evolved trick weight with autonomous trigger
+            let effective_trick_w = if is_performing_autonomous {
+                if i % 2 == 0 {
+                    -5.0
+                } else {
+                    5.0
+                }
+            } else {
+                w_trick
+            };
+
+            let mut trick_intensity = intensities[i];
+            let is_barrel_roll = effective_trick_w < -2.0;
             let target_intensity = if is_barrel_roll { 1.0 } else { 0.0 };
 
             // Lerp intensity for SMOOTH transitions (slower = more comfortable)
@@ -481,7 +473,7 @@ impl BoidUnit {
             trick_intensity += (target_intensity - trick_intensity) * dt * lerp_speed;
 
             // Hover Mode (> 2.0) - kept simple
-            if w_trick > 2.0 {
+            if effective_trick_w > 2.0 {
                 vel[0] *= 0.90;
                 vel[1] *= 0.90;
                 vel[2] *= 0.90;
