@@ -91,20 +91,62 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
       shared: true,
     });
 
-    // 3. Load and instantiate Go kernel using streaming (Optimized)
+    // 3. Load and instantiate Go kernel using streaming (Robust Loader)
     const go = new window.Go();
     const isDev = import.meta.env.DEV;
-    const wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br';
-    console.log(`[Kernel] Fetching from ${wasmUrl}...`);
-    const response = fetch(wasmUrl);
 
-    const result = await WebAssembly.instantiateStreaming(response, {
-      ...go.importObject,
-      env: {
-        ...go.importObject.env,
-        memory: sharedMemory,
-      },
-    });
+    // Helper to attempt loading
+    const loadWasm = async (
+      url: string,
+      useStreaming = true
+    ): Promise<WebAssembly.WebAssemblyInstantiatedSource> => {
+      console.log(`[Kernel] Attempting to load from ${url} (streaming: ${useStreaming})...`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+
+      // iOS/Safari basic check: if streaming isn't supported or fails content-type check, we might need arrayBuffer
+      if (useStreaming && typeof WebAssembly.instantiateStreaming === 'function') {
+        try {
+          return await WebAssembly.instantiateStreaming(response, {
+            ...go.importObject,
+            env: { ...go.importObject.env, memory: sharedMemory },
+          });
+        } catch (e) {
+          console.warn(
+            `[Kernel] Streaming instantiation failed for ${url}, falling back to ArrayBuffer`,
+            e
+          );
+          // Fallthrough to ArrayBuffer method
+        }
+      }
+
+      // ArrayBuffer Fallback
+      const bytes = await response.arrayBuffer();
+      return await WebAssembly.instantiate(bytes, {
+        ...go.importObject,
+        env: { ...go.importObject.env, memory: sharedMemory },
+      });
+    };
+
+    let result: WebAssembly.WebAssemblyInstantiatedSource;
+
+    try {
+      // Primary Attempt: Use localized strategy
+      // If Prod, try the Brotli file explicitly. If Dev, simple wasm.
+      const primaryUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br';
+      result = await loadWasm(primaryUrl, true);
+    } catch (e) {
+      console.warn('[Kernel] Primary WASM load failed, attempting fallback to /kernel.wasm...', e);
+      // Fallback: Always try the raw uncompressed kernel.wasm
+      try {
+        result = await loadWasm('/kernel.wasm', false); // Force ArrayBuffer on fallback for max safety
+      } catch (fallbackError) {
+        console.error('[Kernel] CRITICAL: All WASM load attempts failed.');
+        throw fallbackError;
+      }
+    }
 
     console.log('[Kernel] Starting Go WASM...');
     go.run(result.instance);
