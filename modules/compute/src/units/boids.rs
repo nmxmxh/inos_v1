@@ -123,12 +123,12 @@ fn normalize(v: &mut [f32; 3]) -> f32 {
 
 #[derive(Default)]
 struct PersistentScratch {
-    population_data: Vec<u8>,
-    positions: Vec<[f32; 3]>,
-    velocities: Vec<[f32; 3]>,
+    population_data: Vec<f32>,  // Aligned buffer matching SAB layout
     grid: Vec<Vec<usize>>,      // Spatial Grid 2.0
     neighbor_cache: Vec<usize>, // Reusable neighbor list
-    intensities: Vec<f32>,      // Persistent trick intensities (local-only)
+    intensities: Vec<f32>,      // Persistent trick intensities (local-only, not in SAB)
+    last_evolution_epoch: u32,  // Track external updates
+    last_bird_count: u32,       // Track resizing
 }
 
 pub struct BoidUnit {
@@ -169,6 +169,7 @@ impl BoidUnit {
     /// Memory flow: Read from active buffer → compute in linear memory → write to inactive buffer → flip
     pub fn step_physics_sab(&self, sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
         use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, IDX_BIRD_EPOCH, OFFSET_ATOMIC_FLAGS};
+        const IDX_EVOLUTION_EPOCH: usize = 16;
 
         // Ensure logging is initialized (idempotent)
         sdk::init_logging();
@@ -179,14 +180,13 @@ impl BoidUnit {
             .lock()
             .map_err(|_| "Failed to lock scratch buffers")?;
 
-        // Destructure to allow simultaneous field access
         let PersistentScratch {
             ref mut population_data,
-            ref mut positions,
-            ref mut velocities,
             ref mut grid,
             ref mut neighbor_cache,
             ref mut intensities,
+            ref mut last_evolution_epoch,
+            ref mut last_bird_count,
         } = *scratch_guard;
 
         // Create ping-pong buffer accessor
@@ -198,16 +198,16 @@ impl BoidUnit {
         let epoch = EPOCH_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         // Diagnostic log every 100 steps
-        // if epoch % 100 == 0 {
-        //     log::info!(
-        //         "[Boids] Step {} | Count: {} | DT: {:.4} | Read: 0x{:X} | Write: 0x{:X}",
-        //         epoch,
-        //         bird_count,
-        //         dt,
-        //         read_info.offset,
-        //         write_info.offset
-        //     );
-        // }
+        if epoch % 100 == 0 {
+            log::info!(
+                "[Boids] Step {} | Count: {} | DT: {:.4} | Read: 0x{:X} | Write: 0x{:X}",
+                epoch,
+                bird_count,
+                dt,
+                read_info.offset,
+                write_info.offset
+            );
+        }
 
         static mut GLOBAL_TIME: f32 = 0.0;
         unsafe {
@@ -215,39 +215,66 @@ impl BoidUnit {
         }
         let time = unsafe { GLOBAL_TIME };
 
-        // --- STEP 1: Resize buffers if needed ---
-        let total_bytes = bird_count as usize * BIRD_STRIDE;
-        if population_data.len() < total_bytes {
-            population_data.resize(total_bytes, 0);
-        }
+        // --- STEP 1: Check External State (Evolution / Resize) ---
+        let mut force_read = false;
+        let total_floats = bird_count as usize * (BIRD_STRIDE / 4);
         let n = bird_count as usize;
-        if positions.len() < n {
-            positions.resize(n, [0.0; 3]);
-            velocities.resize(n, [0.0; 3]);
-            intensities.resize(n, 0.0);
+
+        // Check Evolution Epoch (Atomic Read)
+        let evolution_bytes = sab
+            .read(OFFSET_ATOMIC_FLAGS + IDX_EVOLUTION_EPOCH * 4, 4)
+            .unwrap_or(vec![0, 0, 0, 0]);
+        let evolution_epoch = u32::from_le_bytes([
+            evolution_bytes[0],
+            evolution_bytes[1],
+            evolution_bytes[2],
+            evolution_bytes[3],
+        ]);
+
+        if evolution_epoch > *last_evolution_epoch {
+            force_read = true;
+            *last_evolution_epoch = evolution_epoch;
+        }
+
+        if bird_count != *last_bird_count {
+            force_read = true;
+            *last_bird_count = bird_count;
+            // Resize logic
+            if population_data.len() < total_floats {
+                population_data.resize(total_floats, 0.0);
+            }
+            if intensities.len() < n {
+                intensities.resize(n, 0.0);
+            }
+        }
+
+        // Initial load check
+        if population_data.is_empty() {
+            force_read = true;
+            population_data.resize(total_floats, 0.0);
         }
 
         // --- STEP 2: Read from SAB ---
-        sab.read_raw(read_info.offset, &mut population_data[..total_bytes])?;
+        // OPTIMIZATION: "Write-Forwarding"
+        // We only read from SAB if external state changed (Evolution/Resize) or first run.
+        // Otherwise, PersistentScratch holds the authoritative simulation state.
+        if force_read {
+            // Cast aligned f32 buffer to u8 slice for reading
+            let byte_slice = unsafe {
+                std::slice::from_raw_parts_mut(
+                    population_data.as_mut_ptr() as *mut u8,
+                    total_floats * 4,
+                )
+            };
+            sab.read_raw(read_info.offset, byte_slice)?;
 
-        // Extract positions and velocities
-        for i in 0..n {
-            let base = i * BIRD_STRIDE;
-            for j in 0..3 {
-                positions[i][j] = f32::from_le_bytes([
-                    population_data[base + j * 4],
-                    population_data[base + j * 4 + 1],
-                    population_data[base + j * 4 + 2],
-                    population_data[base + j * 4 + 3],
-                ]);
-                velocities[i][j] = f32::from_le_bytes([
-                    population_data[base + 12 + j * 4],
-                    population_data[base + 12 + j * 4 + 1],
-                    population_data[base + 12 + j * 4 + 2],
-                    population_data[base + 12 + j * 4 + 3],
-                ]);
-            }
+            // log::info!("[Boids] Sync: Read from SAB (Epoch: {})", evolution_epoch);
+        } else {
+            // Zero-Copy! We skip the read entirely and use resident memory.
         }
+
+        // Note: We NO LONGER copy to positions/velocities vectors.
+        // We operate directly on population_data.
 
         // --- STEP 3: Build spatial hash 2.0 ---
         // Pre-allocate grid cells if empty
@@ -260,9 +287,15 @@ impl BoidUnit {
             cell.clear();
         }
 
-        for (idx, pos) in positions[..n].iter().enumerate() {
-            let cell_idx = spatial_hash(pos[0], pos[1], pos[2]);
-            grid[cell_idx].push(idx);
+        for i in 0..n {
+            let base = i * (BIRD_STRIDE / 4);
+            // DIRECT READ from population_data
+            let px = population_data[base + 0];
+            let py = population_data[base + 1];
+            let pz = population_data[base + 2];
+
+            let cell_idx = spatial_hash(px, py, pz);
+            grid[cell_idx].push(i);
         }
 
         // Periodic maintenance: Reclaim memory from dense clusters that have dispersed
@@ -275,55 +308,38 @@ impl BoidUnit {
         }
 
         // --- STEP 4: Process boids behavior ---
+
         for i in 0..n {
-            let base = i * BIRD_STRIDE;
-            let pos = positions[i];
-            let mut vel = velocities[i];
+            let base = i * (BIRD_STRIDE / 4); // Float index
 
-            // Extract evolutionary weights (offsets 0, 1, 2) to modulate behavior
-            // Weights start at base + 60 (byte offset) -> 15th float
-            // We use the first 3 weights for force multipliers
-            let w_sep = f32::from_le_bytes([
-                population_data[base + 60],
-                population_data[base + 61],
-                population_data[base + 62],
-                population_data[base + 63],
-            ]);
-            let w_ali = f32::from_le_bytes([
-                population_data[base + 64],
-                population_data[base + 65],
-                population_data[base + 66],
-                population_data[base + 67],
-            ]);
-            let w_coh = f32::from_le_bytes([
-                population_data[base + 68],
-                population_data[base + 69],
-                population_data[base + 70],
-                population_data[base + 71],
-            ]);
-            let w_trick = f32::from_le_bytes([
-                population_data[base + 72],
-                population_data[base + 73],
-                population_data[base + 74],
-                population_data[base + 75],
-            ]);
+            // DIRECT COPY: Read pos/vel from buffer into local registers
+            let pos = [
+                population_data[base + 0],
+                population_data[base + 1],
+                population_data[base + 2],
+            ];
+            let mut vel = [
+                population_data[base + 3],
+                population_data[base + 4],
+                population_data[base + 5],
+            ];
 
-            // Debug log for Bird 0 to verify writes (throttled)
-            if i == 0 && epoch % 200 == 0 {
-                log::info!(
-                    "[Boids] Bird 0 Weights | Sep: {:.4} | Ali: {:.4} | Coh: {:.4} | Trick: {:.4}",
-                    w_sep,
-                    w_ali,
-                    w_coh,
-                    w_trick
-                );
-            }
+            // Extract evolutionary weights... (rest is same, but careful about neighbors)
+            // ...
+
+            // Re-fetch weights to ensure variables are defined
+            let w_sep = population_data[base + 15];
+            let w_ali = population_data[base + 16];
+            let w_coh = population_data[base + 17];
+            let w_trick = population_data[base + 18];
+
+            // Debug log logic... (omitted for brevity in replacement if unchanged)
 
             // Get neighbors via Spatial Grid 2.0
             neighbor_cache.clear();
             let center_idx = spatial_hash(pos[0], pos[1], pos[2]);
 
-            // Recompute neighboring cell indices (could be optimized with a look-up table)
+            // Recompute neighboring cell indices
             let iz = center_idx % GRID_Z;
             let iy = (center_idx / GRID_Z) % GRID_Y;
             let ix = center_idx / (GRID_Y * GRID_Z);
@@ -346,12 +362,18 @@ impl BoidUnit {
 
                         let nc_idx =
                             (nx as usize * GRID_Y * GRID_Z) + (ny as usize * GRID_Z) + nz as usize;
+
+                        // NEIGHBOR LOOKUP: Read directly from population_data
                         for &other_idx in &grid[nc_idx] {
                             if other_idx != i {
-                                let other_pos = &positions[other_idx];
-                                let dist_sq = (pos[0] - other_pos[0]).powi(2)
-                                    + (pos[1] - other_pos[1]).powi(2)
-                                    + (pos[2] - other_pos[2]).powi(2);
+                                let other_base = other_idx * (BIRD_STRIDE / 4);
+                                let other_pos_x = population_data[other_base + 0];
+                                let other_pos_y = population_data[other_base + 1];
+                                let other_pos_z = population_data[other_base + 2];
+
+                                let dist_sq = (pos[0] - other_pos_x).powi(2)
+                                    + (pos[1] - other_pos_y).powi(2)
+                                    + (pos[2] - other_pos_z).powi(2);
                                 if dist_sq < PERCEPTION_RADIUS * PERCEPTION_RADIUS {
                                     neighbor_cache.push(other_idx);
                                 }
@@ -372,13 +394,24 @@ impl BoidUnit {
                 let inv_neighbors = 1.0 / neighbor_cache.len() as f32;
 
                 for &ni in neighbor_cache.iter() {
-                    let other_pos = &positions[ni];
-                    let other_vel = &velocities[ni];
+                    let other_base = ni * (BIRD_STRIDE / 4);
+                    // READ NEIGHBOR DIRECTLY
+                    let other_pos = [
+                        population_data[other_base + 0],
+                        population_data[other_base + 1],
+                        population_data[other_base + 2],
+                    ];
+                    let other_vel = [
+                        population_data[other_base + 3],
+                        population_data[other_base + 4],
+                        population_data[other_base + 5],
+                    ];
 
                     // Separation
                     let dx = pos[0] - other_pos[0];
                     let dy = pos[1] - other_pos[1];
                     let dz = pos[2] - other_pos[2];
+
                     let d_sq = (dx * dx + dy * dy + dz * dz).max(0.01);
                     let d = d_sq.sqrt();
                     if d < DESIRED_SEPARATION {
@@ -428,13 +461,8 @@ impl BoidUnit {
                 * accel_scale;
 
             // ========== ENERGY SYSTEM: Flap-Glide Cycles ==========
-            // Energy stored at Offset 40 (idx 10)
-            let mut energy = f32::from_le_bytes([
-                population_data[base + 40],
-                population_data[base + 41],
-                population_data[base + 42],
-                population_data[base + 43],
-            ]);
+            // Energy stored at Offset 10 (float index)
+            let mut energy = population_data[base + 10];
 
             // Initialize energy if zero (first frame)
             if energy <= 0.0 || energy > 1.0 {
@@ -532,13 +560,13 @@ impl BoidUnit {
             new_pos[1] += vel[1] * dt;
             new_pos[2] += vel[2] * dt;
 
-            // Encode results back to scratch
-            for j in 0..3 {
-                population_data[base + j * 4..base + j * 4 + 4]
-                    .copy_from_slice(&new_pos[j].to_le_bytes());
-                population_data[base + 12 + j * 4..base + 16 + j * 4]
-                    .copy_from_slice(&vel[j].to_le_bytes());
-            }
+            // Update scratch
+            population_data[base + 0] = new_pos[0];
+            population_data[base + 1] = new_pos[1];
+            population_data[base + 2] = new_pos[2];
+            population_data[base + 3] = vel[0];
+            population_data[base + 4] = vel[1];
+            population_data[base + 5] = vel[2];
 
             // Save local intensity state
             intensities[i] = trick_intensity;
@@ -561,11 +589,11 @@ impl BoidUnit {
                 use nalgebra::UnitQuaternion;
                 let q = UnitQuaternion::from_euler_angles(0.0, rot_y as f64, bank_z as f64);
 
-                // Write 4 components to index 6..9 (base+24, 28, 32, 36)
-                population_data[base + 24..base + 28].copy_from_slice(&(q.i as f32).to_le_bytes());
-                population_data[base + 28..base + 32].copy_from_slice(&(q.j as f32).to_le_bytes());
-                population_data[base + 32..base + 36].copy_from_slice(&(q.k as f32).to_le_bytes());
-                population_data[base + 36..base + 40].copy_from_slice(&(q.w as f32).to_le_bytes());
+                // Write 4 components to index 6..9
+                population_data[base + 6] = q.i as f32;
+                population_data[base + 7] = q.j as f32;
+                population_data[base + 8] = q.k as f32;
+                population_data[base + 9] = q.w as f32;
             }
 
             // ========== ENERGY-BASED FLIGHT MODES ==========
@@ -593,12 +621,13 @@ impl BoidUnit {
             let left_wing = -flap + trick_intensity * 0.4;
             let right_wing = flap - trick_intensity * 0.4;
 
-            population_data[base + 44..base + 48].copy_from_slice(&left_wing.to_le_bytes());
-            population_data[base + 48..base + 52].copy_from_slice(&right_wing.to_le_bytes());
+            // Offsets 11, 12, 13 (wings left, right, tail)
+            population_data[base + 11] = left_wing;
+            population_data[base + 12] = right_wing;
 
-            // Write tail_yaw at offset 52 (idx 13) - math.rs expects this here
+            // Write tail_yaw at offset 13
             let tail_yaw = (-vel[0] * 0.1).clamp(-0.15, 0.15);
-            population_data[base + 52..base + 56].copy_from_slice(&tail_yaw.to_le_bytes());
+            population_data[base + 13] = tail_yaw;
 
             // ========== COMPETITIVE FITNESS FUNCTION ==========
             // Creates REAL selection pressure with penalties
@@ -634,14 +663,17 @@ impl BoidUnit {
             let energy_score = if energy > 0.5 { 0.25 } else { energy * 0.4 };
 
             let fitness = fitness_base + neighbor_score + speed_score + energy_score;
-            population_data[base + 56..base + 60].copy_from_slice(&fitness.to_le_bytes());
+            population_data[base + 14] = fitness;
 
-            // Save energy state at offset 40
-            population_data[base + 40..base + 44].copy_from_slice(&energy.to_le_bytes());
+            // Save energy state at offset 10 (re-written)
+            population_data[base + 10] = energy;
         }
 
         // --- STEP 5: Write Scratch → SAB ---
-        sab.write_raw(write_info.offset, &population_data[..total_bytes])?;
+        let byte_slice = unsafe {
+            std::slice::from_raw_parts(population_data.as_ptr() as *const u8, total_floats * 4)
+        };
+        sab.write_raw(write_info.offset, byte_slice)?;
 
         // Write bird count to Atomic Flags (Index 20 - IDX_BIRD_COUNT)
         // Use absolute offset (OFFSET_ATOMIC_FLAGS + Index * 4)

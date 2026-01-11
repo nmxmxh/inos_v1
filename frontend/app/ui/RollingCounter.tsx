@@ -45,6 +45,7 @@ const RollingDigit = memo(({ value }: RollingDigitProps) => {
     mass: 0.8,
   });
 
+  // Automatically animates when 'value' prop changes
   useEffect(() => {
     spring.set(value);
   }, [value, spring]);
@@ -81,7 +82,8 @@ export const RollingCounter = memo(
           if (isNaN(num)) {
             return <span key={i}>{char}</span>;
           }
-          return <RollingDigit key={`${i}-${num}`} value={num} />;
+          // FIX: Use index as key to persist component and enable animation
+          return <RollingDigit key={i} value={num} />;
         })}
         {suffix && <span>{suffix}</span>}
       </Style.CounterContainer>

@@ -12,6 +12,7 @@ import {
   IDX_BIRD_EPOCH,
   IDX_MATRIX_EPOCH,
   IDX_METRICS_EPOCH,
+  IDX_ARENA_ALLOCATOR,
   OFFSET_BRIDGE_METRICS,
 } from '../../src/wasm/layout';
 import NumberFormatter from '../ui/NumberFormatter';
@@ -184,6 +185,8 @@ interface SystemMetrics {
   matrixEpoch: number;
   metricsEpoch: number;
   active: boolean;
+  sabSize: number;
+  arenaHead: number;
   bridge: {
     hits: number;
     misses: number;
@@ -200,6 +203,8 @@ export default function Diagnostics() {
     matrixEpoch: 0,
     metricsEpoch: 0,
     active: false,
+    sabSize: 0,
+    arenaHead: 0,
     bridge: { hits: 0, misses: 0, readNs: 0, writeNs: 0, health: 100 },
   });
 
@@ -225,13 +230,20 @@ export default function Diagnostics() {
         const total = hits + misses;
         const health = total > 0 ? (hits / total) * 100 : 100;
         const active = birdEpoch !== lastBirdEpoch;
+
         lastBirdEpoch = birdEpoch;
+
+        // Dynamic System Metrics
+        const arenaHead = Atomics.load(flags, IDX_ARENA_ALLOCATOR);
+        const sabSize = sab.byteLength;
 
         setMetrics({
           birdEpoch,
           matrixEpoch,
           metricsEpoch,
           active,
+          sabSize,
+          arenaHead,
           bridge: { hits, misses, readNs, writeNs, health },
         });
       } catch (e) {
@@ -350,11 +362,11 @@ export default function Diagnostics() {
           <Style.CardTitle>Linear Memory Map</Style.CardTitle>
           <Style.MetricRow>
             <Style.MetricLabel>SharedArrayBuffer Size</Style.MetricLabel>
-            <Style.MetricValue>80 MB</Style.MetricValue>
+            <Style.MetricValue>{(metrics.sabSize / (1024 * 1024)).toFixed(0)} MB</Style.MetricValue>
           </Style.MetricRow>
           <Style.MetricRow>
-            <Style.MetricLabel>Reserved Regions</Style.MetricLabel>
-            <Style.MetricValue>16 MB</Style.MetricValue>
+            <Style.MetricLabel>Arena Head</Style.MetricLabel>
+            <Style.MetricValue>0x{metrics.arenaHead.toString(16).toUpperCase()}</Style.MetricValue>
           </Style.MetricRow>
           <Style.MetricRow>
             <Style.MetricLabel>Dynamic Heap Index</Style.MetricLabel>

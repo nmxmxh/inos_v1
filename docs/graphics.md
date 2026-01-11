@@ -95,7 +95,15 @@ static SCRATCH: Lazy<Mutex<PersistentScratch>> = Lazy::new(|| {
 ### 5. FFI Bulk I/O
 Inter-language calls (FFI) are expensive.
 - **Bulk Transfers**: Instead of per-float calls, read/write entire buffers at once.
+- **Bulk Transfers**: Instead of per-float calls, read/write entire buffers at once.
 - **The 3000x Win**: Refactoring from per-float updates to `read_raw`/`write_raw` reduced FFI overhead by 3 orders of magnitude.
+
+### 5.5. Write-Forwarding (The "True" Zero-Copy)
+To eliminate even the "Bulk I/O" copy overhead:
+- **Authoritative Scratch**: The Rust module treats its persistence `scratch` buffer as the source of truth.
+- **Skip Read**: If `scratch` is populated and no external flags (like Evolution Epoch) have changed, we **skip** reading from SAB entirely.
+- **Write-Only**: We only write the result to the *next* SAB buffer for the renderer.
+- **Result**: 50% reduction in memory bandwidth per frame (Eliminates the "Read" copy).
 
 ### 6. Instanced Rendering
 To minimize draw calls on the GPU:

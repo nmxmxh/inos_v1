@@ -17,11 +17,11 @@ use serde_json::Value as JsonValue;
 /// - Transforms: compose, decompose, apply_to_points
 /// - Batch: batch_transform, compute_instance_matrices
 struct PersistentScratch {
-    input_data: Vec<u8>,
-    output_data: Vec<u8>,
-    // Pre-calculated constant rotation matrices for bird parts
-    body_rot: nalgebra::Matrix4<f64>,
-    beak_rot: nalgebra::Matrix4<f64>,
+    input_data: Vec<f32>,
+    output_data: Vec<f32>,
+    // Pre-calculated constant rotation matrices for bird parts (f32 for performance)
+    body_rot: nalgebra::Matrix4<f32>,
+    beak_rot: nalgebra::Matrix4<f32>,
 }
 
 impl Default for PersistentScratch {
@@ -30,9 +30,9 @@ impl Default for PersistentScratch {
         Self {
             input_data: Vec::new(),
             output_data: Vec::new(),
-            body_rot: Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+            body_rot: Rotation3::from_euler_angles(std::f32::consts::FRAC_PI_2, 0.0, 0.0)
                 .to_homogeneous(),
-            beak_rot: Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+            beak_rot: Rotation3::from_euler_angles(std::f32::consts::FRAC_PI_2, 0.0, 0.0)
                 .to_homogeneous(),
         }
     }
@@ -560,68 +560,72 @@ impl UnitProxy for MathUnit {
                         .lock()
                         .map_err(|_| ComputeError::ExecutionFailed("Mutex lock failed".into()))?;
 
-                    // Resize buffers if needed
-                    let input_size = count * BIRD_STRIDE;
-                    if scratch.input_data.len() < input_size {
-                        scratch.input_data.resize(input_size, 0);
+                    // Resize buffers if needed (using f32 count)
+                    let input_floats = count * (BIRD_STRIDE / 4);
+                    if scratch.input_data.len() < input_floats {
+                        scratch.input_data.resize(input_floats, 0.0);
                     }
-                    // Pre-allocate output buffer for 8 parts × count birds × 64 bytes per matrix
+                    // Output: 8 parts * count * 16 floats
                     const PARTS: usize = 8;
-                    let output_size = PARTS * count * 64;
-                    if scratch.output_data.len() < output_size {
-                        scratch.output_data.resize(output_size, 0);
+                    const FLOATS_PER_MAT: usize = 16;
+                    let output_floats = PARTS * count * FLOATS_PER_MAT;
+                    if scratch.output_data.len() < output_floats {
+                        scratch.output_data.resize(output_floats, 0.0);
                     }
 
-                    // Read ALL bird base data in one call
-                    sab.read_raw(bird_info.offset, &mut scratch.input_data[..input_size])
+                    // READ: Cast input f32 vec to u8 slice
+                    let input_bytes = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            scratch.input_data.as_mut_ptr() as *mut u8,
+                            input_floats * 4,
+                        )
+                    };
+                    sab.read_raw(bird_info.offset, input_bytes)
                         .map_err(|e| ComputeError::ExecutionFailed(e))?;
 
+                    let PersistentScratch {
+                        ref input_data,
+                        ref mut output_data,
+                        body_rot,
+                        beak_rot,
+                    } = *scratch;
+
+                    // Rename for clarity in loop
+                    let scratch_in = input_data;
+                    let scratch_out = output_data;
+
                     for i in 0..count {
-                        let bird_base = i * BIRD_STRIDE;
+                        let bird_base = i * (BIRD_STRIDE / 4);
 
-                        // Read floats from local buffer
-                        let read_f32 = |idx: usize| -> f32 {
-                            let offset = bird_base + idx * 4;
-                            f32::from_le_bytes([
-                                scratch.input_data[offset],
-                                scratch.input_data[offset + 1],
-                                scratch.input_data[offset + 2],
-                                scratch.input_data[offset + 3],
-                            ])
-                        };
-
+                        // Direct float Read
                         let pos = Vector3::new(
-                            read_f32(0) as f64,
-                            read_f32(1) as f64,
-                            read_f32(2) as f64,
+                            scratch_in[bird_base + 0],
+                            scratch_in[bird_base + 1],
+                            scratch_in[bird_base + 2],
                         );
 
-                        // --- READ QUATERNION ---
+                        // --- READ QUATERNION (f32) ---
                         use nalgebra::{Quaternion, UnitQuaternion};
+                        // Layout: 6,7,8,9 -> x,y,z,w
                         let q = UnitQuaternion::new_normalize(Quaternion::new(
-                            read_f32(9) as f64, // w
-                            read_f32(6) as f64, // i (x)
-                            read_f32(7) as f64, // j (y)
-                            read_f32(8) as f64, // k (z)
+                            scratch_in[bird_base + 9], // w
+                            scratch_in[bird_base + 6], // i (x)
+                            scratch_in[bird_base + 7], // j (y)
+                            scratch_in[bird_base + 8], // k (z)
                         ));
 
-                        let lw_flap = read_f32(11) as f64;
-                        let rw_flap = read_f32(12) as f64;
-                        let tail_yaw = read_f32(13) as f64;
+                        let lw_flap = scratch_in[bird_base + 11];
+                        let rw_flap = scratch_in[bird_base + 12];
+                        let tail_yaw = scratch_in[bird_base + 13];
 
                         let bird_matrix = Matrix4::new_translation(&pos) * q.to_homogeneous();
 
-                        let (body_rot, beak_rot) = (scratch.body_rot, scratch.beak_rot);
-                        let scratch_view = &mut scratch.output_data;
-
-                        // Write matrix to local buffer
-                        let mut write_mat = |mat: &Matrix4<f64>, part_idx: usize| {
-                            let write_off = (part_idx * count * 64) + (i * 64);
-                            for (m_idx, &val) in mat.iter().enumerate() {
-                                let bytes = (val as f32).to_le_bytes();
-                                let dest = write_off + m_idx * 4;
-                                scratch_view[dest..dest + 4].copy_from_slice(&bytes);
-                            }
+                        // Write closure utilizing direct slice assignment
+                        // 16 floats per matrix
+                        let mut write_mat = |mat: &Matrix4<f32>, part_idx: usize| {
+                            let start = (part_idx * count * FLOATS_PER_MAT) + (i * FLOATS_PER_MAT);
+                            // Copy the 16 floats directly
+                            scratch_out[start..start + 16].copy_from_slice(mat.as_slice());
                         };
 
                         // 0. Body
@@ -679,8 +683,14 @@ impl UnitProxy for MathUnit {
                         write_mat(&tail_mat, 7);
                     }
 
-                    // Write ALL matrices in one call to the INACTIVE matrix buffer
-                    sab.write_raw(matrix_info.offset, &scratch.output_data[..output_size])
+                    // WRITE: Cast output f32 vec to u8 slice
+                    let output_bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            scratch.output_data.as_ptr() as *const u8,
+                            output_floats * 4,
+                        )
+                    };
+                    sab.write_raw(matrix_info.offset, output_bytes)
                         .map_err(|e| ComputeError::ExecutionFailed(e))?;
 
                     // FLIP MATRIX EPOCH to signal JS that new matrices are ready
