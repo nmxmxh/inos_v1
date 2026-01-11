@@ -20,6 +20,7 @@ function ScrollToTop() {
 
 // Layout
 import Layout from './ui/Layout';
+import MysticLoader from './ui/MysticLoader';
 
 // Pages
 import Landing from './pages/Landing';
@@ -110,49 +111,7 @@ function SystemLoader({ children }: { children: React.ReactNode }) {
   }
 
   if (loading || !ready) {
-    return (
-      <div className="minimal-app">
-        <style>{`
-          @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 0.5; }
-            50% { transform: scale(1.5); opacity: 1; }
-          }
-        `}</style>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100vh',
-            flexDirection: 'column',
-          }}
-        >
-          {/* Minimal Loader */}
-          <div
-            style={{ position: 'relative', width: '40px', height: '40px', marginBottom: '2rem' }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                border: '2px solid var(--sepia-accent)',
-                animation: 'pulse 2s infinite ease-in-out',
-              }}
-            />
-          </div>
-
-          <h2 className="minimal-title" style={{ fontSize: '24px', margin: 0 }}>
-            INOS Kernel
-          </h2>
-          <p className="minimal-text" style={{ fontSize: '14px', marginTop: '1rem' }}>
-            Initializing distributed runtime...
-          </p>
-        </div>
-      </div>
-    );
+    return <MysticLoader status={status} />;
   }
 
   // System ready - render children

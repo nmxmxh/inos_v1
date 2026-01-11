@@ -134,6 +134,23 @@ export const MANUSCRIPT_VARIANTS: Variants = {
   },
 };
 
+/** Mystic page transition (Magic/Mystery) */
+export const MYSTIC_VARIANTS: Variants = {
+  initial: { opacity: 0, scale: 0.98, filter: 'blur(3px)' },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    filter: 'blur(0px)',
+    transition: { duration: 0.6, ease: EASING.standard },
+  },
+  exit: {
+    opacity: 0,
+    scale: 1.01,
+    filter: 'blur(4px)',
+    transition: { duration: 0.4, ease: EASING.accelerate },
+  },
+};
+
 /** Blueprint technical reveal */
 export const BLUEPRINT_VARIANTS: Variants = {
   initial: { opacity: 0, clipPath: 'inset(0 100% 0 0)' },

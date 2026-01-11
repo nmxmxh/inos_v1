@@ -7,7 +7,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
-import { PAGE_VARIANTS, REDUCED_MOTION_VARIANTS } from '../styles/motion';
+import { MYSTIC_VARIANTS, REDUCED_MOTION_VARIANTS } from '../styles/motion';
 import { usePrefersReducedMotion } from '../hooks/useReducedMotion';
 
 interface PageTransitionProps {
@@ -18,7 +18,7 @@ export function PageTransition({ children }: PageTransitionProps) {
   const location = useLocation();
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  const variants = prefersReducedMotion ? REDUCED_MOTION_VARIANTS : PAGE_VARIANTS;
+  const variants = prefersReducedMotion ? REDUCED_MOTION_VARIANTS : MYSTIC_VARIANTS;
 
   return (
     <AnimatePresence mode="wait" initial={false}>
