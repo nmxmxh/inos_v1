@@ -1,6 +1,9 @@
 package foundation
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Priority levels
 type Priority int
@@ -130,6 +133,11 @@ func (ft FeedbackType) String() string {
 // Dispatcher allows the engine to request job execution from its supervisor
 type Dispatcher interface {
 	ExecuteJob(job *Job) *Result
+}
+
+// MeshDelegator defines the interface for offloading tasks to the global mesh
+type MeshDelegator interface {
+	DelegateJob(ctx context.Context, job *Job) (*Result, error)
 }
 
 // Job represents a unit of work

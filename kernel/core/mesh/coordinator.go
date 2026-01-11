@@ -18,6 +18,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 )
 
 // SABWriter defines the interface for writing to the SharedArrayBuffer.
@@ -63,14 +64,19 @@ type MeshCoordinator struct {
 	epochTicker    *optimization.EpochTicker
 
 	// Monitoring
-	metrics      MeshMetrics
-	metricsMu    sync.RWMutex
-	healthTicker *time.Ticker
-	shutdown     chan struct{}
+	metrics       common.MeshMetrics
+	metricsMu     sync.RWMutex
+	peerMetrics   map[string]common.MeshMetrics
+	peerMetricsMu sync.RWMutex
+	healthTicker  *time.Ticker
+	shutdown      chan struct{}
 
 	// Configuration
 	config CoordinatorConfig
 	logger *slog.Logger
+
+	// External Dispatcher for remote delegation
+	dispatcher foundation.Dispatcher
 }
 
 // CoordinatorConfig holds mesh coordinator settings
@@ -163,6 +169,7 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 		circuitBreakers: make(map[string]*CircuitBreaker),
 		peerCache:       make(map[string]PeerCacheEntry),
 		peerCacheTTL:    config.CacheTTL,
+		peerMetrics:     make(map[string]common.MeshMetrics),
 		shutdown:        make(chan struct{}),
 		config:          config,
 		logger:          logger.With("component", "mesh_coordinator", "node_id", getShortID(nodeID)),
@@ -193,6 +200,9 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 
 	// Register gossip handlers for mesh coordination
 	coord.registerGossipHandlers()
+
+	// Register RPC handlers for remote delegation
+	coord.registerRPCHandlers()
 
 	return coord
 }
@@ -915,6 +925,7 @@ func (m *MeshCoordinator) metricsLoop() {
 		select {
 		case <-ticker.C:
 			m.updateMetrics()
+			m.gossipMetrics()
 		case <-m.shutdown:
 			return
 		}
@@ -1050,6 +1061,28 @@ func (m *MeshCoordinator) registerGossipHandlers() {
 		m.cachePeer(capability.PeerID, &capability)
 		return nil
 	})
+
+	m.gossip.RegisterHandler("mesh_metrics", func(msg *common.GossipMessage) error {
+		payload, ok := msg.Payload.(map[string]interface{})
+		if !ok {
+			return errors.New("invalid payload type for mesh_metrics")
+		}
+
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+
+		var peerMetrics common.MeshMetrics
+		if err := json.Unmarshal(data, &peerMetrics); err != nil {
+			return err
+		}
+
+		m.peerMetricsMu.Lock()
+		m.peerMetrics[msg.Sender] = peerMetrics
+		m.peerMetricsMu.Unlock()
+		return nil
+	})
 }
 
 // ========== METRICS RECORDING ==========
@@ -1087,6 +1120,106 @@ func (m *MeshCoordinator) GetMetrics() MeshMetrics {
 	m.metricsMu.RLock()
 	defer m.metricsMu.RUnlock()
 	return m.metrics
+}
+
+// UpdateComputeMetrics updates the local compute metrics
+func (m *MeshCoordinator) ReportComputeActivity(ops float64, gflops float64) {
+	m.metricsMu.Lock()
+	defer m.metricsMu.Unlock()
+
+	// Accumulate stats (simplified for now, ideally rolling window)
+	// We'll treat the input as "current rate" for simplicity in this latent model
+	m.metrics.GlobalOpsPerSec = float32(ops)
+	m.metrics.TotalComputeGFLOPS = float32(gflops)
+}
+
+// GetGlobalMetrics aggregates local and peer metrics
+func (m *MeshCoordinator) GetGlobalMetrics() common.MeshMetrics {
+	m.metricsMu.RLock()
+	local := m.metrics
+	m.metricsMu.RUnlock()
+
+	global := local
+	global.ActiveNodeCount = 1 // Start with self
+
+	m.peerMetricsMu.RLock()
+	defer m.peerMetricsMu.RUnlock()
+
+	for _, pm := range m.peerMetrics {
+		global.TotalStorageBytes += pm.TotalStorageBytes
+		global.TotalComputeGFLOPS += pm.TotalComputeGFLOPS
+		global.GlobalOpsPerSec += pm.GlobalOpsPerSec
+		global.ActiveNodeCount++
+	}
+
+	return global
+}
+
+func (m *MeshCoordinator) gossipMetrics() {
+	m.metricsMu.RLock()
+	metrics := m.metrics
+	m.metricsMu.RUnlock()
+
+	m.gossip.Broadcast("mesh_metrics", metrics)
+}
+
+// SetDispatcher injects the dispatcher for remote job execution
+func (m *MeshCoordinator) SetDispatcher(d foundation.Dispatcher) {
+	m.dispatcher = d
+}
+
+// DelegateJob dispatches a job to the most suitable peer in the mesh
+func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) (*foundation.Result, error) {
+	// 1. Find suitable peers (those with required capabilities)
+	m.peerMetricsMu.RLock()
+	var bestPeer string
+	var bestScore float32 = -1.0
+
+	for peerID, metrics := range m.peerMetrics {
+		// Score based on reputation and available capacity
+		// Using reputation as primary multiplier for reliability
+		score := metrics.AvgReputation * (1.0 / (metrics.P50LatencyMs + 0.1))
+		if score > bestScore {
+			bestScore = score
+			bestPeer = peerID
+		}
+	}
+	m.peerMetricsMu.RUnlock()
+
+	if bestPeer == "" {
+		return nil, errors.New("no suitable peers found for delegation (peer metrics empty)")
+	}
+
+	m.logger.Debug("delegating job", "job_id", job.ID, "to_peer", getShortID(bestPeer), "score", bestScore)
+
+	// 2. Dispatch via RPC
+	var result foundation.Result
+	err := m.transport.SendRPC(ctx, bestPeer, "mesh.ExecuteJob", job, &result)
+	if err != nil {
+		m.logger.Error("mesh delegation failed", "job_id", job.ID, "peer", getShortID(bestPeer), "error", err)
+		return nil, fmt.Errorf("mesh delegation failed to peer %s: %w", bestPeer, err)
+	}
+
+	return &result, nil
+}
+
+func (m *MeshCoordinator) registerRPCHandlers() {
+	m.transport.RegisterRPCHandler("mesh.ExecuteJob", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
+		if m.dispatcher == nil {
+			return nil, errors.New("local dispatcher not initialized")
+		}
+
+		var job foundation.Job
+		if err := json.Unmarshal(args, &job); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal job: %w", err)
+		}
+
+		m.logger.Debug("executing remote job", "job_id", job.ID, "from_peer", getShortID(peerID))
+
+		// Execute locally!
+		result := m.dispatcher.ExecuteJob(&job)
+		return result, nil
+	})
 }
 
 func minInt(a, b int) int {

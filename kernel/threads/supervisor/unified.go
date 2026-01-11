@@ -21,6 +21,7 @@ import (
 type UnifiedSupervisor struct {
 	name         string
 	capabilities []string
+	delegator    foundation.MeshDelegator // Mesh offloading capability
 
 	// Intelligence engines (from Week 1-2)
 	learning  *learning.EnhancedLearningEngine
@@ -58,10 +59,12 @@ func NewUnifiedSupervisor(
 	capabilities []string,
 	patterns *pattern.TieredPatternStorage,
 	knowledge *intelligence.KnowledgeGraph,
+	delegator foundation.MeshDelegator,
 ) *UnifiedSupervisor {
 	us := &UnifiedSupervisor{
 		name:         name,
 		capabilities: capabilities,
+		delegator:    delegator,
 		optimizer:    optimization.NewOptimizationEngine(),
 		scheduler:    scheduling.NewSchedulingEngine(),
 		security:     security.NewSecurityEngine(),
@@ -92,6 +95,8 @@ func (us *UnifiedSupervisor) Start(ctx context.Context) error {
 	go us.learningLoop()
 	go us.healthLoop()
 
+	// BLOCK until context cancelled (spawnChild expects blocking)
+	<-us.ctx.Done()
 	return nil
 }
 
@@ -269,10 +274,12 @@ func (us *UnifiedSupervisor) Monitor(ctx context.Context) error {
 	return nil
 }
 
-// Coordinate coordinates with other supervisors
-func (us *UnifiedSupervisor) Coordinate(job *foundation.Job, peer string) (*foundation.Result, error) {
-	// Mesh coordination placeholder
-	return nil, fmt.Errorf("mesh coordination not implemented")
+// Coordinate coordinates with other supervisors (Mesh Offloading)
+func (us *UnifiedSupervisor) Coordinate(ctx context.Context, job *foundation.Job) (*foundation.Result, error) {
+	if us.delegator == nil {
+		return nil, fmt.Errorf("mesh delegator not available for supervisor: %s", us.name)
+	}
+	return us.delegator.DelegateJob(ctx, job)
 }
 
 func (us *UnifiedSupervisor) SharePatterns(patterns []*pattern.EnhancedPattern) error {

@@ -2,6 +2,14 @@
 # INOS Project .gitignore
 # ============================================================================
 
+# Generic Build Artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
 # ============================================================================
 # Operating System Files
 # ============================================================================
@@ -274,15 +282,7 @@ docker-compose.override.yml
 # Build Artifacts
 # ============================================================================
 
-# Compressed files
-*.gz
-*.br
-*.zip
-*.tar
-*.tar.gz
-*.tgz
-*.rar
-*.7z
+# Optimized WASM
 
 # Optimized WASM
 *.wasm.opt

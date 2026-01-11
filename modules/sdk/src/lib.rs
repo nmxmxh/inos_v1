@@ -71,6 +71,10 @@ pub mod sab_layout_capnp {
 pub mod identity_capnp {
     include!(concat!(env!("OUT_DIR"), "/identity/v1/identity_capnp.rs"));
 }
+#[allow(dead_code, unused_imports, unused_parens, clippy::match_single_binding)]
+pub mod resource_capnp {
+    include!(concat!(env!("OUT_DIR"), "/system/v1/resource_capnp.rs"));
+}
 
 pub mod protocols {
     pub use crate::actor_capnp as actor;
@@ -78,7 +82,8 @@ pub mod protocols {
     pub use crate::capsule_capnp as compute;
     pub use crate::identity_capnp as identity;
     pub use crate::ledger_capnp as economy;
-    pub use crate::orchestration_capnp as system;
+    pub use crate::orchestration_capnp as orchestration;
+    pub use crate::resource_capnp as resource;
     pub use crate::sab_layout_capnp as sab;
     pub use crate::sensor_capnp as io;
     pub use crate::syscall_capnp as syscall;

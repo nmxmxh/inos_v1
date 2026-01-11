@@ -65,9 +65,13 @@ const sizeSyscallTable       :UInt32 = 0x001000;   # 4KB
 const offsetMeshMetrics      :UInt32 = 0x00004000; # Mesh network telemetry
 const sizeMeshMetrics        :UInt32 = 0x000100;   # 256 bytes
 
-# Economics Region (0x004100 - 0x008000)
-const offsetEconomics        :UInt32 = 0x00004100; # Credit accounts and resource metrics
-const sizeEconomics          :UInt32 = 0x003F00;   # ~16KB
+# Global Analytics Region (0x004100 - 0x004200)
+const offsetGlobalAnalytics  :UInt32 = 0x00004100; # Aggregated mesh metrics
+const sizeGlobalAnalytics    :UInt32 = 0x000100;   # 256 bytes
+
+# Economics Region (0x004200 - 0x008000)
+const offsetEconomics        :UInt32 = 0x00004200; # Credit accounts and resource metrics
+const sizeEconomics          :UInt32 = 0x003E00;   # ~15.5KB
 
 # Identity Registry (0x008000 - 0x00C000)
 const offsetIdentityRegistry :UInt32 = 0x00008000; # DIDs, device binding, TSS metadata
@@ -119,6 +123,14 @@ const maxArenaRequests         :UInt32 = 64;
 const offsetBirdState        :UInt32 = 0x00160000; # Bird state metadata
 const sizeBirdState          :UInt32 = 0x001000;   # 4KB
 
+# Robot Animation State (Moonshot)
+const offsetRobotState       :UInt32 = 0x01200000; # Robot global state (Phase, Syntropy)
+const sizeRobotState         :UInt32 = 0x000100;   # 256 bytes
+const offsetRobotNodes       :UInt32 = 0x01200100; # Node matrices (32KB for 512 nodes)
+const sizeRobotNodes         :UInt32 = 0x008000;   # 32KB
+const offsetRobotFilaments   :UInt32 = 0x01208100; # Filament data (12KB for 1024 links)
+const sizeRobotFilaments     :UInt32 = 0x003000;   # 12KB
+
 # ========== PING-PONG BUFFERS (Arena) ==========
 
 # Control Block
@@ -165,6 +177,8 @@ const idxHealthEpoch         :UInt32 = 17; # Health metrics updated
 const idxLearningEpoch       :UInt32 = 18; # Pattern learning complete
 const idxEconomyEpoch        :UInt32 = 19; # Credit settlement needed
 const idxBirdCount           :UInt32 = 20; # Active bird count (mutable)
+const idxGlobalMetricsEpoch  :UInt32 = 21; # Global diagnostics complete
+const idxRobotEpoch          :UInt32 = 22; # Robot simulation update complete
 
 # Context Verification (Zero-Copy)
 const idxContextIdHash       :UInt32 = 31; # Hash of initialization context ID

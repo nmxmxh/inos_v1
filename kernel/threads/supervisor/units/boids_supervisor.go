@@ -11,11 +11,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/nmxmxh/inos_v1/kernel/utils"
+	capnp "zombiezen.com/go/capnproto2"
 )
 
 const (
@@ -28,7 +31,7 @@ const (
 	DefaultMutationRate   = 0.6             // Increased for more exploration
 	DefaultCrossoverRate  = 0.5             // Reduced for less blending
 	DefaultTournamentSize = 5               // Increased for stronger selection
-	EvolutionInterval     = 3 * time.Second // Slightly slower for stability
+	EvolutionInterval     = 1 * time.Second // Faster updates for liveness
 )
 
 // BirdGenes represents the neural network weights for a bird
@@ -42,6 +45,7 @@ type BirdGenes struct {
 type SABInterface interface {
 	ReadRaw(offset uint32, size uint32) ([]byte, error)
 	ReadAt(offset uint32, dest []byte) error                                  // Zero-allocation optimized read
+	ReadAtomicI32(epochIndex uint32) int32                                    // Atomic read
 	WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} // Zero-latency wait
 	WriteRaw(offset uint32, data []byte) error
 	SignalInbox()
@@ -52,7 +56,8 @@ type SABInterface interface {
 // Executes genetic algorithm, coordinates P2P learning, signals epochs
 type BoidsSupervisor struct {
 	*supervisor.UnifiedSupervisor
-	bridge SABInterface
+	bridge          supervisor.SABInterface
+	metricsProvider MetricsProvider // For reporting latent compute stats
 
 	// Learning configuration
 	mu             sync.RWMutex
@@ -63,37 +68,37 @@ type BoidsSupervisor struct {
 	tournamentSize int
 
 	// Evolution state
-	lastEvolutionTime time.Time
-	evolutionInterval time.Duration
+	lastEvolutionTime     time.Time
+	evolutionInterval     time.Duration
+	lastExecutionDuration time.Duration // Actual CPU time of last cycle
 
 	// P2P mesh boost
 	meshNodesActive int
 
 	// Optimization: Reusable buffer for population reads to avoid GC pressure
 	populationBuf []byte
+
+	// Delegation for mesh-aware evolution
+	delegator foundation.MeshDelegator
 }
 
 // NewBoidsSupervisor creates a supervisor for learning birds
-func NewBoidsSupervisor(bridge SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string) *BoidsSupervisor {
-	if len(capabilities) == 0 {
-		capabilities = []string{
-			"boids.init_population",
-			"boids.step_physics",
-			"boids.step_learning",
-			"boids.evolve_generation",
-			"boids.forward_pass",
-		}
+func NewBoidsSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string, metricsProvider MetricsProvider, delegator foundation.MeshDelegator) *BoidsSupervisor {
+	if capabilities == nil {
+		capabilities = []string{"boids.physics", "boids.evolution"}
 	}
-
-	return &BoidsSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge),
+	s := &BoidsSupervisor{
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator),
 		bridge:            bridge,
-		mutationRate:      DefaultMutationRate,
-		crossoverRate:     DefaultCrossoverRate,
-		tournamentSize:    DefaultTournamentSize,
+		metricsProvider:   metricsProvider,
+		birdCount:         1000, // Default
+		tournamentSize:    3,
+		crossoverRate:     0.7,
+		mutationRate:      0.1,
+		meshNodesActive:   0,
 		evolutionInterval: EvolutionInterval,
-		lastEvolutionTime: time.Now(),
 	}
+	return s
 }
 
 // Start begins the learning supervision loop - BLOCKS until context cancelled
@@ -129,17 +134,22 @@ func (s *BoidsSupervisor) autoDetectBirdCount() {
 	utils.Debug("Using default bird count", utils.Int("count", s.birdCount))
 }
 
-// learningLoop monitors SAB and executes genetic algorithm
+// learningLoop monitors SAB and executes genetic algorithm using low-latency wait-free signaling
 func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
-	ticker := time.NewTicker(100 * time.Millisecond) // Check every 100ms
-	defer ticker.Stop()
+	utils.Info("Boids learning loop starting (Wait-Free Mode)")
+
+	// Determine initial epoch state
+	currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
 
 	for {
+		// 1. Wait for Signal from Rust/JS or Kernel Dispatch (Zero-Latency)
+		// We wait for IDX_EVOLUTION_EPOCH using Wait-Free Atomic Monitoring
 		select {
 		case <-ctx.Done():
 			return
-
-		case <-ticker.C:
+		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_EVOLUTION_EPOCH, currentEpoch):
+			// Signal received!
+			currentEpoch = s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
 			s.checkEvolution()
 		}
 	}
@@ -196,11 +206,25 @@ func (s *BoidsSupervisor) checkEvolution() {
 	s.generation++
 	s.lastEvolutionTime = time.Now()
 	duration := time.Since(startTime)
+	s.lastExecutionDuration = duration // Store for adaptive logic
 
 	// Log evolution complete
 	utils.Info("Evolution Cycle Complete",
 		utils.Int("gen", s.generation),
-		utils.Duration("took", duration))
+		utils.Duration("took", duration),
+		utils.Bool("local_optimized", s.meshNodesActive > 0 && duration < 16*time.Millisecond))
+
+	// Report Latent Compute to Mesh Metrics
+	// Ops = Birds * Genes (44) * ~50 FLOPs (Selection/Crossover/Mutation)
+	latentOps := float64(s.birdCount) * 44.0 * 50.0
+	seconds := duration.Seconds()
+	if seconds > 0 {
+		opsPerSec := latentOps / seconds
+		gflops := opsPerSec / 1e9
+		if s.metricsProvider != nil {
+			s.metricsProvider.ReportComputeActivity(opsPerSec, gflops)
+		}
+	}
 
 	// Signal epoch update to frontend
 	s.SignalEpoch()
@@ -231,39 +255,152 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 		utils.Float64("avg", avgFit),
 		utils.Float64("min", minFit))
 
-	// Selection: keep top 25%
+	// Selection: keep top 25% (elites)
 	survivalCount := max(2, s.birdCount/4)
 	survivors := population[:survivalCount]
 
 	// Generate new population through crossover + mutation
 	newPopulation := make([]BirdGenes, s.birdCount)
+	copy(newPopulation[:survivalCount], survivors) // Keep elites
 
-	for i := 0; i < s.birdCount; i++ {
-		// Yield execution every 50 birds to prevent UI stutter
-		if i%50 == 0 {
-			runtime.Gosched()
-		}
+	// Offload to mesh ONLY if local processing is struggling (>16ms/frame)
+	offspringNeeded := s.birdCount - survivalCount
+	offloadCount := 0
 
-		if i < len(survivors) {
-			// Keep elites
-			newPopulation[i] = survivors[i]
-		} else {
-			// Breed new individual
-			parent1 := s.TournamentSelect(survivors)
-			parent2 := s.TournamentSelect(survivors)
+	// Adaptive Scaling:
+	// If the last evolution took < 16ms (60fps budget), keep it 100% local.
+	// Only offload if we are dropping frames or if explicitly requested via high load.
+	if s.meshNodesActive > 0 && s.delegator != nil && s.lastExecutionDuration > 16*time.Millisecond {
+		offloadCount = offspringNeeded / 5 // Offload 20% to mesh if slow
+	}
+	localCount := offspringNeeded - offloadCount
 
-			child := s.Crossover(parent1, parent2)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// 2. Parallel Local Generation
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < localCount; i++ {
+			if i%50 == 0 {
+				time.Sleep(1 * time.Nanosecond) // Yield to JS event loop to prevent blocking
+			}
+			p1 := s.TournamentSelect(survivors)
+			p2 := s.TournamentSelect(survivors)
+			child := s.Crossover(p1, p2)
 			child = s.Mutate(child)
-			child.BirdID = i
-			child.Fitness = 0 // Reset fitness for new generation
+			child.BirdID = survivalCount + i
+			child.Fitness = 0
 
-			newPopulation[i] = child
+			mu.Lock()
+			newPopulation[survivalCount+i] = child
+			mu.Unlock()
 		}
+	}()
+
+	// 3. Mesh Delegation (Async)
+	if offloadCount > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// Serialize survivors using binary encoding for "water-like" fluidity
+			packedParents := serializeGenesBinary(survivors)
+
+			// Wrap in Universal Resource Protocol
+			msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+			if err != nil {
+				utils.Error("Failed to create capnp message", utils.Err(err))
+				return
+			}
+			resource, err := system.NewRootResource(seg)
+			if err != nil {
+				utils.Error("Failed to create resource struct", utils.Err(err))
+				return
+			}
+
+			resource.SetId(fmt.Sprintf("boids-evolve-%d", s.generation))
+			resource.SetPriority(200) // High priority for compute
+			resource.SetTimestamp(uint64(time.Now().UnixNano()))
+			resource.SetInline(packedParents)
+
+			// Add metadata for mesh context
+			meta, _ := resource.NewMetadata()
+			meta.SetContentType("application/x-inos-boids-genes")
+
+			// Encode resource to bytes
+			resourceData, err := msg.Marshal()
+			if err != nil {
+				utils.Error("Failed to marshal resource", utils.Err(err))
+				return
+			}
+
+			job := &foundation.Job{
+				ID:        fmt.Sprintf("boids-evolve-%d", s.generation),
+				Type:      "compute",
+				Operation: "boids.evolve_batch",
+				Data:      resourceData,
+				Parameters: map[string]interface{}{
+					"count":   offloadCount,
+					"base_id": survivalCount + localCount,
+				},
+			}
+
+			result, err := s.delegator.DelegateJob(context.Background(), job)
+			if err != nil {
+				utils.Warn("Mesh delegation failed, falling back to local for batch", utils.Err(err))
+				// Fallback: execute locally
+				for i := 0; i < offloadCount; i++ {
+					p1 := s.TournamentSelect(survivors)
+					p2 := s.TournamentSelect(survivors)
+					child := s.Crossover(p1, p2)
+					child = s.Mutate(child)
+					child.BirdID = survivalCount + localCount + i
+
+					mu.Lock()
+					newPopulation[survivalCount+localCount+i] = child
+					mu.Unlock()
+				}
+				return
+			}
+
+			// Deserialize Resource result
+			resMsg, err := capnp.Unmarshal(result.Data)
+			if err != nil {
+				utils.Error("Failed to unmarshal result resource", utils.Err(err))
+				return
+			}
+			res, err := system.ReadRootResource(resMsg)
+			if err != nil {
+				utils.Error("Failed to read root resource", utils.Err(err))
+				return
+			}
+
+			inlineData, err := res.Inline()
+			if err != nil {
+				utils.Error("Failed to get inline data from resource", utils.Err(err))
+				return
+			}
+
+			remoteGenes := deserializeGenesBinary(inlineData)
+			mu.Lock()
+			for i, genes := range remoteGenes {
+				if survivalCount+localCount+i < s.birdCount {
+					newPopulation[survivalCount+localCount+i] = genes
+				}
+			}
+			mu.Unlock()
+			utils.Info("Mesh delegation successful (Binary Resource)", utils.Int("genes_received", len(remoteGenes)))
+		}()
 	}
 
+	wg.Wait()
+
 	utils.Debug("Writing evolved population to SAB",
-		utils.Int("elites", len(survivors)),
-		utils.Int("offspring", s.birdCount-len(survivors)))
+		utils.Int("elites", survivalCount),
+		utils.Int("local", localCount),
+		utils.Int("remote", offloadCount))
 
 	// Write new population back to SAB
 	if err := s.WritePopulation(newPopulation); err != nil {
@@ -271,6 +408,116 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 	}
 
 	return nil
+}
+
+// ExecuteJob handles remote evolution requests (Mesh Role)
+func (s *BoidsSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
+	if job.Operation != "boids.evolve_batch" {
+		return &foundation.Result{
+			JobID: job.ID,
+			Error: "unsupported boids operation: " + job.Operation,
+		}
+	}
+
+	// Unmarshal Resource request
+	resMsg, err := capnp.Unmarshal(job.Data)
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to unmarshal request resource: " + err.Error()}
+	}
+	res, err := system.ReadRootResource(resMsg)
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to read root resource: " + err.Error()}
+	}
+
+	inlineData, err := res.Inline()
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to get inline data: " + err.Error()}
+	}
+
+	survivors := deserializeGenesBinary(inlineData)
+	count, _ := job.Parameters["count"].(float64)
+	baseID, _ := job.Parameters["base_id"].(float64)
+
+	offspring := make([]BirdGenes, int(count))
+	for i := 0; i < int(count); i++ {
+		p1 := s.TournamentSelect(survivors)
+		p2 := s.TournamentSelect(survivors)
+		child := s.Crossover(p1, p2)
+		child = s.Mutate(child)
+		child.BirdID = int(baseID) + i
+		child.Fitness = 0
+		offspring[i] = child
+	}
+
+	// Wrap response in Resource
+	packedOffspring := serializeGenesBinary(offspring)
+	outMsg, outSeg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to create out message: " + err.Error()}
+	}
+	outRes, err := system.NewRootResource(outSeg)
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to create out resource: " + err.Error()}
+	}
+	outRes.SetId(job.ID + "-res")
+	outRes.SetInline(packedOffspring)
+	outData, err := outMsg.Marshal()
+	if err != nil {
+		return &foundation.Result{JobID: job.ID, Error: "failed to marshal out resource: " + err.Error()}
+	}
+
+	return &foundation.Result{
+		JobID:   job.ID,
+		Success: true,
+		Data:    outData,
+	}
+}
+
+// Binary serialization helpers for "water-like" fluidity (Zero-Allocation friendly)
+
+func serializeGenesBinary(genes []BirdGenes) []byte {
+	// [ID(4) | Fitness(8) | Weights(44*4)] per bird
+	// Size = 4 + 8 + 176 = 188 bytes per bird
+	const stride = 188
+	buf := make([]byte, len(genes)*stride)
+
+	for i, g := range genes {
+		offset := i * stride
+		binary.LittleEndian.PutUint32(buf[offset:offset+4], uint32(g.BirdID))
+		binary.LittleEndian.PutUint64(buf[offset+4:offset+12], math.Float64bits(g.Fitness))
+
+		weightsOffset := offset + 12
+		for w := 0; w < 44; w++ {
+			binary.LittleEndian.PutUint32(buf[weightsOffset+w*4:weightsOffset+(w+1)*4], math.Float32bits(g.Weights[w]))
+		}
+	}
+	return buf
+}
+
+func deserializeGenesBinary(data []byte) []BirdGenes {
+	const stride = 188
+	count := len(data) / stride
+	genes := make([]BirdGenes, count)
+
+	for i := 0; i < count; i++ {
+		offset := i * stride
+		id := binary.LittleEndian.Uint32(data[offset : offset+4])
+		fitness := math.Float64frombits(binary.LittleEndian.Uint64(data[offset+4 : offset+12]))
+
+		var weights [44]float32
+		weightsOffset := offset + 12
+		for w := 0; w < 44; w++ {
+			bits := binary.LittleEndian.Uint32(data[weightsOffset+w*4 : weightsOffset+(w+1)*4])
+			weights[w] = math.Float32frombits(bits)
+		}
+
+		genes[i] = BirdGenes{
+			BirdID:  int(id),
+			Fitness: fitness,
+			Weights: weights,
+		}
+	}
+	return genes
 }
 
 // avgFitness calculates average fitness of population
@@ -427,96 +674,77 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 	return population, nil
 }
 
-// WritePopulation writes evolved genes back to SAB in a single BULK OPERATION
+// WritePopulation writes evolved genes back to SAB
+// CRITICAL FIX: We only write [Fitness + Weights] (Offset 56..236).
+// We NEVER overwrite [Position/Velocity/Rotation] (Offset 0..56) because Rust is updating those at 60Hz.
+// Overwriting them with old data cause "time travel" rubber-banding.
 func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
-	totalSize := s.birdCount * BytesPerBird
-	bulkData := make([]byte, totalSize)
-
-	// Determine Active Buffer
+	// Determine Active Buffer to write to (Target the Stable buffer)
 	activeEpochBytes, _ := s.bridge.ReadRaw(uint32(sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_PINGPONG_ACTIVE*4), 4)
 	active := binary.LittleEndian.Uint32(activeEpochBytes)
 
-	// Target the STABLE buffer (Reader Buffer, Source of next frame)
-	// If active is 0 (Buffer A is Active/Readable), then Rust is writing B.
-	// We update A so that when Rust flips next frame, it reads our new weights from A.
-	// This avoids race conditions as we only touch the buffer Rust has finished with.
-	offset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
-	if active == 1 {
-		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
+	// If Active=0 (A), Rust reads A, writes B. Stable is B.
+	// If Active=1 (B), Rust reads B, writes A. Stable is A.
+	baseOffset := uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
+	if active == 0 {
+		baseOffset = uint32(sab_layout.OFFSET_BIRD_BUFFER_B)
 	}
-
-	currentData, err := s.bridge.ReadRaw(offset, uint32(totalSize))
-	if err != nil {
-		return fmt.Errorf("bulk read for patch failed at offset %x: %w", offset, err)
-	}
-	copy(bulkData, currentData)
 
 	// Apply "Magical Pulse" - Time-based oscillation for "Breathing" effect
-	// Time since epoch logic or just wall clock
 	t := float64(time.Now().UnixNano()) / 1e9
-
-	// Separation Pulse: Oscillates from -2.0 to +2.0 over 10 seconds
 	sepPulse := float32(math.Sin(t*0.6) * 2.0)
-
-	// Cohesion Pulse: Inverse oscillation (when Sep is high, Coh is low)
 	cohPulse := float32(math.Cos(t*0.6) * 2.0)
-
-	// Alignment Pulse: Faster shimmer
 	aliPulse := float32(math.Sin(t*2.0) * 0.5)
 
-	// Spotlight: Randomly pick trick performers (5% of flock = 50 birds)
+	// Spotlight: Randomly pick trick performers (5% of flock)
 	trickTargets := make(map[int]bool)
-	targetCount := max(1, s.birdCount/20) // 5%
+	targetCount := max(1, s.birdCount/20)
 	for i := 0; i < targetCount; i++ {
 		trickTargets[rand.Intn(s.birdCount)] = true
 	}
 
+	// Pre-allocate a reused buffer for one bird's weight data (180 bytes)
+	// Layout: Fitness (4) + Weights (44 * 4 = 176) = 180 bytes
+	chunk := make([]byte, 180)
+
 	for i, bird := range population {
-		birdBase := i * BytesPerBird
+		// Prepare data chunk
+		// 1. Fitness
+		binary.LittleEndian.PutUint32(chunk[0:4], math.Float32bits(float32(bird.Fitness)))
 
-		// Patch fitness
-		fitnessOffset := 14 * 4
-		binary.LittleEndian.PutUint32(bulkData[birdBase+fitnessOffset:], math.Float32bits(float32(bird.Fitness)))
-
-		// Patch weights with Pulse
-		weightsOffset := 15 * 4
-
-		// Apply Pulses to Genes 0, 1, 2
-		bird.Weights[0] += sepPulse
-		bird.Weights[1] += aliPulse
-		bird.Weights[2] += cohPulse
-
-		// TRICK SYSTEM: Spotlight Logic
-		// Reset Trick Weight (w3) to 0 first (unless mutated natural talent)
-		bird.Weights[3] = 0.0
-
-		// If this is a chosen performer, activate Trick
+		// 2. Weights - Apply Pulses
+		w := bird.Weights // Copy array
+		w[0] += sepPulse
+		w[1] += aliPulse
+		w[2] += cohPulse
+		w[3] = 0.0 // Reset trick
 		if trickTargets[i] {
 			if rand.Float64() > 0.5 {
-				bird.Weights[3] = 5.0 // Hover
+				w[3] = 5.0
 			} else {
-				bird.Weights[3] = -5.0 // Barrel Roll
+				w[3] = -5.0
 			}
 		}
 
-		for w := 0; w < 44; w++ {
-			val := bird.Weights[w]
-			binary.LittleEndian.PutUint32(bulkData[birdBase+weightsOffset+w*4:], math.Float32bits(val))
+		for j := 0; j < 44; j++ {
+			binary.LittleEndian.PutUint32(chunk[4+j*4:8+j*4], math.Float32bits(w[j]))
 		}
-	}
 
-	// --- BULK WRITE: 1 interop call ---
-	if err := s.bridge.WriteRaw(offset, bulkData); err != nil {
-		return fmt.Errorf("bulk write failed at offset %x: %w", offset, err)
+		// Calculate target address
+		// Offset 56 is where Fitness starts (after 14 floats * 4)
+		targetAddr := baseOffset + uint32(i*BytesPerBird) + 56
+
+		// Write ONLY the weight chunk
+		if err := s.bridge.WriteRaw(targetAddr, chunk); err != nil {
+			return fmt.Errorf("weight write failed at bird %d: %w", i, err)
+		}
 	}
 
 	// Debug log first bird's new weights
 	if len(population) > 0 {
-		utils.Info("Gen Evolved & Written",
-			utils.String("target_offset", fmt.Sprintf("0x%X", offset)),
-			utils.Float64("pulse_sep", float64(sepPulse)),
-			utils.Float64("b0_w0", float64(population[0].Weights[0])),
-			utils.Float64("b0_w3_trick", float64(population[0].Weights[3])))
+		utils.Info("Gen Evolved & Weights Patched",
+			utils.String("target_buffer", fmt.Sprintf("0x%X", baseOffset)),
+			utils.Float64("pulse_sep", float64(sepPulse)))
 	}
 
 	return nil

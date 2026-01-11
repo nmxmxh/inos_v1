@@ -204,7 +204,7 @@ export default function Genesis() {
             </p>
             <p>
               This isn't just a minor overhead. Research from <strong>Google</strong> and
-              <strong>Facebook</strong> reveals that up to{' '}
+              <strong> Facebook</strong> reveals that up to{' '}
               <Style.StatHighlight>6% of all CPU cycles</Style.StatHighlight> in their massive data
               centers are spent solely on Protobuf and Thrift serialization.
             </p>
@@ -272,7 +272,7 @@ export default function Genesis() {
               <h3>Rust: The Muscle (Execution)</h3>
               <p>
                 In the <strong>2024 Stack Overflow Developer Survey</strong>, Rust was voted the
-                <strong>Most Loved Language</strong> for the 9th year in a row (72% admiration). We
+                <strong> Most Loved Language</strong> for the 9th year in a row (72% admiration). We
                 use it because it provides <strong>Zero-Cost Abstractions</strong>.
               </p>
               <p>
@@ -300,8 +300,8 @@ export default function Genesis() {
             <h3>WebAssembly: The Universal Lung</h3>
             <p>
               WebAssembly (Wasm) is the portability layer that allows INOS to run anywhere. Recent
-              2025 benchmarks demonstrate that **Rust compiled to WebAssembly** can achieve
-              performance within <strong>1.5x of native speed</strong>, while bypassing the
+              2025 benchmarks demonstrate that <strong>Rust compiled to WebAssembly</strong> can
+              achieve performance within <strong>1.5x of native speed</strong>, while bypassing the
               performance spikes of garbage-collected runtimes.
             </p>
             <p>

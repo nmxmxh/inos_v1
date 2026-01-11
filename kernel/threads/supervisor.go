@@ -55,7 +55,7 @@ type Supervisor struct {
 
 	// Phase 17: Economy & Identity
 	credits  *supervisor.CreditSupervisor
-	identity *supervisor.IdentitySupervisor
+	identity *units.IdentitySupervisor
 	social   *supervisor.SocialGraphSupervisor
 }
 
@@ -203,7 +203,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 
 	// Initialize Core System Supervisors
 	s.credits = supervisor.NewCreditSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_ECONOMICS))
-	s.identity = supervisor.NewIdentitySupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_IDENTITY_REGISTRY))
+	s.identity = units.NewIdentitySupervisor(s.bridge, s.patterns, s.knowledge, s.sab, s.sabSize, uint32(sab_layout.OFFSET_IDENTITY_REGISTRY), nil)
 	s.social = supervisor.NewSocialGraphSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_SOCIAL_GRAPH))
 
 	s.logger.Info("Core regions established",
@@ -218,7 +218,17 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 
 	s.logger.Info("Initializing compute units with shared SAB")
 
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
+	// Cast MeshCoordinator for metrics sharing
+	var mp units.MetricsProvider
+	var md foundation.MeshDelegator
+	if m, ok := s.config.MeshCoordinator.(units.MetricsProvider); ok {
+		mp = m
+	}
+	if d, ok := s.config.MeshCoordinator.(foundation.MeshDelegator); ok {
+		md = d
+	}
+
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, mp, md)
 	loadedUnits, bridge := loader.LoadUnits()
 	s.bridge = bridge
 	s.units = loadedUnits
@@ -247,7 +257,16 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 // runDiscoveryLoop waits for module registration signals (zero-CPU blocking)
 // Replaces polling with Atomics.wait on IDX_REGISTRY_EPOCH
 func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits)
+	// Cast MeshCoordinator for metrics sharing
+	var mp units.MetricsProvider
+	var md foundation.MeshDelegator
+	if m, ok := s.config.MeshCoordinator.(units.MetricsProvider); ok {
+		mp = m
+	}
+	if d, ok := s.config.MeshCoordinator.(foundation.MeshDelegator); ok {
+		md = d
+	}
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, mp, md)
 	var lastRegistryEpoch int32 = 0
 
 	for {

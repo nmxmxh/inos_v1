@@ -916,8 +916,8 @@ export function Database() {
         <Style.ContentCard>
           <h3>Lesson 1: Tier 1 - The Circulatory System</h3>
           <p>
-            The fastest storage is the one that never waits. In INOS, the **Hot Tier** is a region
-            of the SharedArrayBuffer called the <strong>Pattern Exchange</strong>.
+            The fastest storage is the one that never waits. In INOS, the <strong>Hot Tier</strong>{' '}
+            is a region of the SharedArrayBuffer called the <strong>Pattern Exchange</strong>.
           </p>
           <p>
             Whenever the Kernel (Go) or a Muscle (Rust) discovers a data pattern, it is stored
@@ -1043,7 +1043,7 @@ export function Database() {
           <h3>Lesson 4: Double Compression Alchemy</h3>
           <p>
             Storage is a trade-off between speed and density. INOS employs a two-pass compression
-            strategy known as **Double Compression**.
+            strategy known as <strong>Double Compression</strong>.
           </p>
 
           <Style.Timeline>
@@ -1079,10 +1079,10 @@ export function Database() {
             collaborate to store the world's data.
           </p>
           <p>
-            Availability is guaranteed by a **Dynamic Replication Factor (RF)**. Standard data is
-            mirrored on 3 nodes (RF=3). Viral patterns or critical system assets scale automatically
-            up to **RF=50**, creating a self-healing, high-bandwidth CDN distributed across the
-            globe.
+            Availability is guaranteed by a <strong>Dynamic Replication Factor (RF)</strong>.
+            Standard data is mirrored on 3 nodes (RF=3). Viral patterns or critical system assets
+            scale automatically up to <strong>RF=50</strong>, creating a self-healing,
+            high-bandwidth CDN distributed across the globe.
           </p>
 
           <Style.IllustrationContainer>

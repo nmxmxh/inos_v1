@@ -277,8 +277,9 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 			}
 		}
 
-		// 2. Fallback: Efficient Polling (1ms) if waitAsync missing
-		ticker := time.NewTicker(1 * time.Millisecond)
+		// 2. Fallback: Efficient Polling (100ms) if waitAsync missing
+		// relaxed for "no heat" architecture
+		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for range ticker.C {
 			if sb.ReadAtomicI32(epochIndex) != expectedValue {
@@ -337,7 +338,7 @@ func (sb *SABBridge) pollForEpochChange(epochIndex uint32, expectedValue int32, 
 		if sb.ReadAtomicI32(epochIndex) != expectedValue {
 			return 1
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	return 2
 }

@@ -21,7 +21,7 @@ const Style = {
     border-top: 1px solid ${p => p.theme.colors.borderSubtle};
   `,
 
-  NavButton: styled(motion(Link))`
+  NavButton: styled(motion.create(Link))`
     display: flex;
     align-items: center;
     gap: ${p => p.theme.spacing[3]};

@@ -13,6 +13,7 @@ fn main() {
         .file("../protocols/schemas/system/v1/orchestration.capnp")
         .file("../protocols/schemas/system/v1/syscall.capnp")
         .file("../protocols/schemas/system/v1/sab_layout.capnp")
+        .file("../protocols/schemas/system/v1/resource.capnp")
         // Compute protocols
         .file("../protocols/schemas/compute/v1/capsule.capnp")
         // I/O protocols

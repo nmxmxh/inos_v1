@@ -1,13 +1,16 @@
 package units
 
 import (
+	"context"
 	"encoding/binary"
 	"testing"
 
 	"unsafe"
 
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 // MockSABBridge for testing
@@ -60,6 +63,36 @@ func (m *MockSABBridge) SignalInbox() {
 	// No-op
 }
 
+func (m *MockSABBridge) RegisterJob(jobID string) chan *foundation.Result {
+	return make(chan *foundation.Result, 1)
+}
+
+func (m *MockSABBridge) WriteJob(job *foundation.Job) error {
+	return nil
+}
+
+type MockMeshDelegator struct{}
+
+func (m *MockMeshDelegator) DelegateJob(ctx context.Context, job *foundation.Job) (*foundation.Result, error) {
+	return &foundation.Result{JobID: job.ID, Success: true}, nil
+}
+
+func (m *MockSABBridge) SignalEpoch(index uint32) {
+	// Simple implementation for testing: increment value at offset index*4
+	offset := index * 4
+	current := m.ReadAtomicI32(index)
+	newData := make([]byte, 4)
+	binary.LittleEndian.PutUint32(newData, uint32(current+1))
+	m.data[offset] = newData
+}
+
+func (m *MockSABBridge) ReadAtomicI32(offset uint32) int32 {
+	if data, ok := m.data[offset]; ok && len(data) >= 4 {
+		return int32(binary.LittleEndian.Uint32(data[:4]))
+	}
+	return 0
+}
+
 func (m *MockSABBridge) IsReady() bool {
 	return true // Always ready in tests
 }
@@ -73,7 +106,7 @@ func TestNewBoidsSupervisor(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	if supervisor == nil {
 		t.Fatal("Expected supervisor to be created")
@@ -92,7 +125,7 @@ func TestSetBirdCount(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	// Test normal count
 	supervisor.SetBirdCount(12)
@@ -101,7 +134,7 @@ func TestSetBirdCount(t *testing.T) {
 	}
 
 	// Test exceeding max
-	supervisor.SetBirdCount(3000)
+	supervisor.SetBirdCount(12000)
 	if supervisor.birdCount != MaxBirds {
 		t.Errorf("Expected birdCount capped at %d, got %d", MaxBirds, supervisor.birdCount)
 	}
@@ -115,7 +148,7 @@ func TestSetMeshNodes(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	supervisor.SetMeshNodes(0)
 	if supervisor.meshNodesActive != 0 {
@@ -136,7 +169,7 @@ func TestTournamentSelect(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	population := []BirdGenes{
 		{Fitness: 10.0, BirdID: 0},
@@ -166,7 +199,7 @@ func TestCrossover(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	parent1 := BirdGenes{}
 	parent2 := BirdGenes{}
@@ -204,7 +237,7 @@ func TestMutate(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	original := BirdGenes{}
 	for i := 0; i < 44; i++ {
@@ -267,10 +300,10 @@ func TestSignalEpoch(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
-	// Mock initial epoch at index 0 (byte offset 0)
-	epochOffset := uint32(0)
+	// Mock initial epoch
+	epochOffset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_EVOLUTION_EPOCH*4)
 	initialEpoch := uint32(64)
 	epochBytes := make([]byte, 4)
 	binary.LittleEndian.PutUint32(epochBytes, initialEpoch)
@@ -296,7 +329,7 @@ func TestMeshLearningBoost(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil)
+	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	original := BirdGenes{}
 	for i := 0; i < 44; i++ {

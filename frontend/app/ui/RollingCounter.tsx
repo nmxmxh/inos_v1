@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, memo } from 'react';
 import styled from 'styled-components';
 import { motion, useSpring, useTransform } from 'framer-motion';
 
@@ -38,7 +38,7 @@ interface RollingDigitProps {
   value: number;
 }
 
-function RollingDigit({ value }: RollingDigitProps) {
+const RollingDigit = memo(({ value }: RollingDigitProps) => {
   const spring = useSpring(value, {
     damping: 20,
     stiffness: 100,
@@ -60,7 +60,7 @@ function RollingDigit({ value }: RollingDigitProps) {
       </Style.DigitColumn>
     </Style.DigitWrapper>
   );
-}
+});
 
 interface RollingCounterProps {
   value: number;
@@ -69,28 +69,24 @@ interface RollingCounterProps {
   suffix?: string;
 }
 
-export function RollingCounter({
-  value,
-  decimals = 0,
-  prefix = '',
-  suffix = '',
-}: RollingCounterProps) {
-  const formatted = value.toFixed(decimals);
-  const parts = formatted.split('');
+export const RollingCounter = memo(
+  ({ value, decimals = 0, prefix = '', suffix = '' }: RollingCounterProps) => {
+    const formatted = value.toFixed(decimals);
 
-  return (
-    <Style.CounterContainer>
-      {prefix && <span>{prefix}</span>}
-      {parts.map((char, i) => {
-        const num = parseInt(char, 10);
-        if (isNaN(num)) {
-          return <span key={i}>{char}</span>;
-        }
-        return <RollingDigit key={i} value={num} />;
-      })}
-      {suffix && <span>{suffix}</span>}
-    </Style.CounterContainer>
-  );
-}
+    return (
+      <Style.CounterContainer>
+        {prefix && <span>{prefix}</span>}
+        {Array.from(formatted).map((char, i) => {
+          const num = parseInt(char, 10);
+          if (isNaN(num)) {
+            return <span key={i}>{char}</span>;
+          }
+          return <RollingDigit key={`${i}-${num}`} value={num} />;
+        })}
+        {suffix && <span>{suffix}</span>}
+      </Style.CounterContainer>
+    );
+  }
+);
 
 export default RollingCounter;

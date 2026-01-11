@@ -185,16 +185,16 @@ impl BoidUnit {
         let epoch = EPOCH_COUNTER.fetch_add(1, Ordering::SeqCst);
 
         // Diagnostic log every 100 steps
-        if epoch % 100 == 0 {
-            log::info!(
-                "[Boids] Step {} | Count: {} | DT: {:.4} | Read: 0x{:X} | Write: 0x{:X}",
-                epoch,
-                bird_count,
-                dt,
-                read_info.offset,
-                write_info.offset
-            );
-        }
+        // if epoch % 100 == 0 {
+        //     log::info!(
+        //         "[Boids] Step {} | Count: {} | DT: {:.4} | Read: 0x{:X} | Write: 0x{:X}",
+        //         epoch,
+        //         bird_count,
+        //         dt,
+        //         read_info.offset,
+        //         write_info.offset
+        //     );
+        // }
 
         static mut GLOBAL_TIME: f32 = 0.0;
         unsafe {
@@ -725,7 +725,7 @@ impl UnitProxy for BoidUnit {
         "boids"
     }
     fn actions(&self) -> Vec<&str> {
-        vec!["init_population", "step_physics"]
+        vec!["init_population", "step_physics", "evolve_batch"]
     }
     fn resource_limits(&self) -> ResourceLimits {
         ResourceLimits::default()
@@ -736,10 +736,16 @@ impl UnitProxy for BoidUnit {
         _input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
-        let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
         let res = match method {
-            "init_population" => self.init_population_impl(&params)?,
-            "step_physics" => self.step_physics_impl(&params)?,
+            "init_population" => {
+                let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
+                self.init_population_impl(&params)?
+            }
+            "step_physics" => {
+                let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
+                self.step_physics_impl(&params)?
+            }
+            "evolve_batch" => return self.evolve_batch_impl(params),
             _ => {
                 return Err(ComputeError::UnknownMethod {
                     library: "boids".to_string(),
@@ -749,4 +755,152 @@ impl UnitProxy for BoidUnit {
         };
         Ok(serde_json::to_vec(&res).unwrap())
     }
+}
+
+impl BoidUnit {
+    fn evolve_batch_impl(&self, resource_data: &[u8]) -> Result<Vec<u8>, ComputeError> {
+        use sdk::protocols::resource::resource;
+
+        // 1. Decode Resource Wrapper
+        let mut reader = std::io::Cursor::new(resource_data);
+        let message_reader =
+            capnp::serialize::read_message(&mut reader, capnp::message::ReaderOptions::new())
+                .map_err(|e| ComputeError::ExecutionFailed(format!("Capnp read error: {}", e)))?;
+
+        let res_reader = message_reader
+            .get_root::<resource::Reader>()
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Capnp root error: {}", e)))?;
+
+        // 2. Extract Inline Data (Packed Parents)
+        let inline_data = match res_reader.which() {
+            Ok(resource::Which::Inline(data)) => {
+                data.map_err(|_| ComputeError::ExecutionFailed("Invalid inline data".into()))?
+            }
+            _ => {
+                return Err(ComputeError::ExecutionFailed(
+                    "Expected inline resource data".into(),
+                ))
+            }
+        };
+
+        let parents = deserialize_genes_binary(inline_data);
+        if parents.is_empty() {
+            return Err(ComputeError::ExecutionFailed(
+                "No parents provided for evolution".into(),
+            ));
+        }
+
+        // 3. Simple Evolution Parameters (Hardcoded for now, can be in metadata/parameters)
+        let offspring_count = parents.len(); // Default to 1:1 for simplicity in this shard
+
+        let mut offspring = Vec::with_capacity(offspring_count);
+        let mut rng = rand::thread_rng();
+
+        for _i in 0..offspring_count {
+            let p1 = tournament_select(&parents, &mut rng);
+            let p2 = tournament_select(&parents, &mut rng);
+            let mut child = crossover(&p1, &p2, &mut rng);
+            mutate(&mut child, &mut rng);
+            // BirdID will be reassigned by the supervisor in Go
+            offspring.push(child);
+        }
+
+        // 4. Wrap Response in Resource
+        let packed_offspring = serialize_genes_binary(&offspring);
+
+        let mut out_message = capnp::message::Builder::new_default();
+        {
+            let mut out_res = out_message.init_root::<resource::Builder>();
+            out_res.set_id("boids-evolve-res");
+            out_res.set_inline(&packed_offspring);
+        }
+
+        let mut output_bytes = Vec::new();
+        capnp::serialize::write_message(&mut output_bytes, &out_message)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Serialize error: {}", e)))?;
+
+        Ok(output_bytes)
+    }
+}
+
+// ============= GENETIC ALGORITHM HELPERS (RUST SIDE) =============
+
+#[derive(Clone, Debug)]
+struct RustBirdGenes {
+    bird_id: u32,
+    fitness: f64,
+    weights: [f32; 44],
+}
+
+fn tournament_select(population: &[RustBirdGenes], rng: &mut impl rand::Rng) -> RustBirdGenes {
+    let mut best = &population[rng.gen_range(0..population.len())];
+    for _ in 1..3 {
+        let candidate = &population[rng.gen_range(0..population.len())];
+        if candidate.fitness > best.fitness {
+            best = candidate;
+        }
+    }
+    best.clone()
+}
+
+fn crossover(p1: &RustBirdGenes, p2: &RustBirdGenes, rng: &mut impl rand::Rng) -> RustBirdGenes {
+    let mut weights = [0.0f32; 44];
+    for i in 0..44 {
+        weights[i] = if rng.gen_bool(0.5) {
+            p1.weights[i]
+        } else {
+            p2.weights[i]
+        };
+    }
+    RustBirdGenes {
+        bird_id: 0,
+        fitness: 0.0,
+        weights,
+    }
+}
+
+fn mutate(genes: &mut RustBirdGenes, rng: &mut impl rand::Rng) {
+    for i in 0..44 {
+        if rng.gen_bool(0.1) {
+            genes.weights[i] += rng.gen_range(-0.5..0.5);
+            genes.weights[i] = genes.weights[i].clamp(-10.0, 10.0);
+        }
+    }
+}
+
+fn serialize_genes_binary(genes: &[RustBirdGenes]) -> Vec<u8> {
+    const STRIDE: usize = 188;
+    let mut buf = vec![0u8; genes.len() * STRIDE];
+    for (i, g) in genes.iter().enumerate() {
+        let offset = i * STRIDE;
+        buf[offset..offset + 4].copy_from_slice(&g.bird_id.to_le_bytes());
+        buf[offset + 4..offset + 12].copy_from_slice(&g.fitness.to_le_bytes());
+        for w in 0..44 {
+            let wo = offset + 12 + w * 4;
+            buf[wo..wo + 4].copy_from_slice(&g.weights[w].to_le_bytes());
+        }
+    }
+    buf
+}
+
+fn deserialize_genes_binary(data: &[u8]) -> Vec<RustBirdGenes> {
+    const STRIDE: usize = 188;
+    let count = data.len() / STRIDE;
+    let mut genes = Vec::with_capacity(count);
+    for i in 0..count {
+        let offset = i * STRIDE;
+        let bird_id = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+        let fitness = f64::from_le_bytes(data[offset + 4..offset + 12].try_into().unwrap());
+        let mut weights = [0.0f32; 44];
+        for w in 0..44 {
+            let wo = offset + 12 + w * 4;
+            weights[w] = f32::from_le_bytes(data[wo..wo + 4].try_into().unwrap());
+        }
+        genes.push(RustBirdGenes {
+            bird_id,
+            fitness,
+            weights,
+        });
+    }
+    genes
 }

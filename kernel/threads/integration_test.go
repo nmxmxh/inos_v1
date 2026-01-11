@@ -30,6 +30,7 @@ func TestIntegration_LoopOfIntelligence(t *testing.T) {
 		[]string{"compute", "ml"},
 		storage,
 		knowledge,
+		nil,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

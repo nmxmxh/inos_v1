@@ -5,12 +5,20 @@
  * Integrating N-Body physics, Robotics protocols, and the Infinite Canvas.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
+import GlobalDashboard from '../features/analytics/GlobalDashboard';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Float } from '@react-three/drei';
+import { EffectComposer, Bloom, Noise } from '@react-three/postprocessing';
+import { MorphicLattice } from '../features/robot/MorphicLattice';
+import { useLatticeState } from '../features/robot/useLatticeState';
+import { useGlobalAnalytics } from '../features/analytics/useGlobalAnalytics';
+import RollingCounter from '../ui/RollingCounter';
 
 const Style = {
   ...ManuscriptStyle,
@@ -155,7 +163,7 @@ const Style = {
 
   GalaxyContainer: styled.div`
     height: 600px;
-    background: #000;
+    background: #ffffff;
     border-radius: 8px;
     position: relative;
     overflow: hidden;
@@ -627,6 +635,39 @@ function RoadmapTimeline() {
   return <svg ref={svgRef} viewBox="0 0 600 150" style={{ width: '100%', height: 'auto' }} />;
 }
 
+const LatticeTelemetry = () => {
+  const { metrics } = useLatticeState();
+  const globalAnalytics = useGlobalAnalytics();
+  const activeNodes = globalAnalytics?.activeNodeCount ?? 1;
+
+  const phaseName = useMemo(() => {
+    switch (metrics?.phase) {
+      case 0:
+        return 'ENTROPIC (INIT)';
+      case 1:
+        return 'EMERGENT (SEEKING)';
+      case 2:
+        return 'MORPHIC (LOCKED)';
+      default:
+        return 'CONNECTING...';
+    }
+  }, [metrics?.phase]);
+
+  return (
+    <Style.StatBadge>
+      SIMULATION: <span>{phaseName}</span>
+      {activeNodes === 1 ? 'NODE' : 'NODES'}:{' '}
+      <span>
+        <RollingCounter value={activeNodes} decimals={0} />
+      </span>
+      SYNTROPY:{' '}
+      <span>
+        <RollingCounter value={metrics ? metrics.syntropy : 0} decimals={4} />
+      </span>
+    </Style.StatBadge>
+  );
+};
+
 export default function Cosmos() {
   const theme = useTheme();
 
@@ -641,9 +682,61 @@ export default function Cosmos() {
           </p>
         </Style.HeroSection>
       </ScrollReveal>
-
       <Style.SectionDivider />
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>The Morphic Lattice</h3>
+          <p>
+            We stopped trying to build a robot that looks like a human. That was thinking too small.
+          </p>
+          <p>
+            The <strong>Morphic Lattice</strong> is the shape of this planetary computer. It
+            connects thousands of isolated devices into a single, breathing organism. No wires. Just
+            pure math holding them together in a living geometry.
+          </p>
 
+          <Style.GalaxyContainer>
+            <LatticeTelemetry />
+            <Canvas camera={{ position: [0, 8, 12], fov: 60 }} dpr={[1, 2]}>
+              <color attach="background" args={['#ffffff']} />
+              <fog attach="fog" args={['#ffffff', 10, 30]} />
+              <ambientLight intensity={0.8} />
+              <OrbitControls
+                makeDefault
+                enableZoom={true}
+                enablePan={false}
+                autoRotate
+                autoRotateSpeed={0.5}
+                minDistance={5}
+                maxDistance={18}
+                enableDamping
+                dampingFactor={0.05}
+                zoomSpeed={0.4}
+              />
+              <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
+                <MorphicLattice />
+              </Float>
+              <EffectComposer enableNormalPass={false}>
+                <Bloom luminanceThreshold={0.5} mipmapBlur intensity={0.8} radius={0.4} />
+                <Noise opacity={0.02} />
+              </EffectComposer>
+            </Canvas>
+          </Style.GalaxyContainer>
+
+          <Style.DefinitionBox>
+            <h4>Syntropy (The Heartbeat)</h4>
+            <p>
+              Think of Syntropy as the network's metabolism. When it's low, devices are
+              wandering—searching for peers in the dark (<strong>Red Pulse</strong>).
+            </p>
+            <p>
+              When it's high, they lock into place (<strong>Violet Pulse</strong>). They stop
+              competing and start computing together. The chaos organizes into a crystal.
+            </p>
+          </Style.DefinitionBox>
+        </Style.ContentCard>
+      </ScrollReveal>
+      <Style.SectionDivider />
       <ScrollReveal>
         <Style.ContentCard>
           <h3>Chapter 7: The Grand Finale</h3>
@@ -665,6 +758,11 @@ export default function Cosmos() {
             </p>
           </Style.DefinitionBox>
         </Style.ContentCard>
+      </ScrollReveal>
+      <ScrollReveal>
+        <div style={{ margin: '40px 0' }}>
+          <GlobalDashboard />
+        </div>
       </ScrollReveal>
 
       <ScrollReveal>
@@ -694,9 +792,7 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
-
       <Style.SectionDivider />
-
       <ScrollReveal>
         <Style.ContentCard>
           <h3>Lesson 2: The Computation (N-Body)</h3>
@@ -712,7 +808,6 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
-
       <ScrollReveal>
         <Style.ContentCard>
           <h3>Lesson 3: The Real-World Link</h3>
@@ -739,9 +834,7 @@ export default function Cosmos() {
           </Style.IllustrationContainer>
         </Style.ContentCard>
       </ScrollReveal>
-
       <Style.SectionDivider />
-
       <ScrollReveal>
         <Style.ContentCard>
           <h3>The Roadmap: To Universum and Beyond</h3>
@@ -768,9 +861,7 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
-
       <Style.SectionDivider />
-
       <ScrollReveal>
         <Style.ContentCard>
           <h3>Final Lesson: The Grand Demonstration</h3>
@@ -784,18 +875,16 @@ export default function Cosmos() {
           </p>
 
           <Style.DefinitionBox>
-            <h4>Work in Progress</h4>
+            <h4>Active Manifold</h4>
             <p>
-              We are currently optimizing the <strong>Mesh Sharding</strong> logic. When ready, the
-              "Infinite Canvas" will open, allowing any user to navigate a live, governed universe
-              simulation powered by the global collective.
+              The Morphic Lattice above is a live demonstration of Go-orchestrated, Rust-computed,
+              and Zero-Copy-visualized topological manifold physics. It is the first stage of the
+              Planetary Computer's physical manifestation.
             </p>
           </Style.DefinitionBox>
         </Style.ContentCard>
       </ScrollReveal>
-
       <Style.SectionDivider />
-
       <ScrollReveal>
         <Style.ContentCard>
           <h3>Conclusion: The Graduation</h3>
@@ -846,7 +935,6 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
-
       <ChapterNav prev={{ title: '04. Genesis', to: '/genesis' }} />
     </Style.Container>
   );

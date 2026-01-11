@@ -451,6 +451,12 @@ type MeshMetrics struct {
 	// Storage
 	LocalChunks          uint32 `json:"local_chunks"`
 	TotalChunksAvailable uint32 `json:"total_chunks_available"`
+
+	// Global Analytics Aggregations
+	TotalStorageBytes  uint64  `json:"total_storage_bytes"`
+	TotalComputeGFLOPS float32 `json:"total_compute_gflops"`
+	GlobalOpsPerSec    float32 `json:"global_ops_per_sec"`
+	ActiveNodeCount    uint32  `json:"active_node_count"`
 }
 
 // GossipMessage represents a message propagated through the gossip protocol

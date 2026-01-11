@@ -1,5 +1,9 @@
 package supervisor
 
+import (
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+)
+
 // Shared types and constants for supervisor package
 
 // Message types
@@ -31,3 +35,17 @@ const (
 	FlagRetry       AllocFlags = 1 << 2 // Retry on failure
 	FlagOrdered     AllocFlags = 1 << 3 // Maintain order
 )
+
+// SABInterface defines the methods needed from the bridge for unit supervisors
+type SABInterface interface {
+	ReadRaw(offset uint32, size uint32) ([]byte, error)
+	ReadAt(offset uint32, dest []byte) error                                  // Zero-allocation optimized read
+	ReadAtomicI32(epochIndex uint32) int32                                    // Atomic read
+	WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} // Zero-latency wait
+	WriteRaw(offset uint32, data []byte) error
+	SignalInbox()
+	SignalEpoch(index uint32)
+	IsReady() bool                                    // Check if SAB is initialized
+	RegisterJob(jobID string) chan *foundation.Result // Register job for completion
+	WriteJob(job *foundation.Job) error               // Write job to inbox
+}

@@ -527,15 +527,15 @@ impl UnitProxy for MathUnit {
                     let matrix_info = matrix_ping_pong.write_buffer_info();
 
                     if call_num % 100 == 0 {
-                        log::info!(
-                            "[Math] compute_instance_matrices #{} | count={} | Bird Epoch={} @ 0x{:X} | Matrix Epoch={} @ 0x{:X}",
-                            call_num,
-                            count,
-                            bird_info.epoch,
-                            bird_info.offset,
-                            matrix_info.epoch,
-                            matrix_info.offset
-                        );
+                        // log::info!(
+                        //     "[Math] compute_instance_matrices #{} | count={} | Bird Epoch={} @ 0x{:X} | Matrix Epoch={} @ 0x{:X}",
+                        //     call_num,
+                        //     count,
+                        //     bird_info.epoch,
+                        //     bird_info.offset,
+                        //     matrix_info.epoch,
+                        //     matrix_info.offset
+                        // );
                     }
 
                     // ========== BULK I/O OPTIMIZATION ==========

@@ -202,6 +202,20 @@ pub extern "C" fn compute_poll() {
         return;
     }
     // High-frequency reactor for Compute
+
+    // Poll Robot Unit directly for 60Hz physics (if active)
+    // NOTE: In a real system we'd use a trait/registry for pollable units,
+    // but for this specific Moonshot integration we hardwire it for perf.
+    if let Some(engine) = get_engine().as_ref() {
+        // We know RobotUnit is registered. We could iterate or call specific.
+        // Since units are inside Engine behind Arc<dyn UnitProxy>, we can't easily
+        // call specific methods without downcasting, and UnitProxy doesn't have poll().
+        //
+        // Hack: We'll use execute("robot", "step_physics", ...) which is what we did from Go.
+        // It uses some overhead but stays within architecture.
+        // BETTER: Add poll() to UnitProxy.
+        let _ = poll_sync(engine.execute("robot", "step_physics", &[], &[]));
+    }
 }
 
 // --- GENERIC UNIT DISPATCHER ---
@@ -354,7 +368,7 @@ fn poll_sync<T>(future: impl std::future::Future<Output = T>) -> Result<T, Strin
     let waker = unsafe { Waker::from_raw(raw_waker) };
     let mut cx = Context::from_waker(&waker);
 
-    let mut pinned = Box::pin(future);
+    let mut pinned = std::pin::pin!(future);
     match pinned.as_mut().poll(&mut cx) {
         Poll::Ready(val) => Ok(val),
         Poll::Pending => {

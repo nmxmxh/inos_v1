@@ -68,7 +68,32 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       registryReader = new RegistryReader(memory, (window as any).__INOS_SAB_OFFSET__ || 0);
     }
 
+    const currentUnits = get().units;
     const modules = registryReader.scan();
+    let hasChanges = false;
+
+    // Fast check for changes
+    if (Object.keys(modules).length !== Object.keys(currentUnits).length - 1) {
+      // -1 for kernel which is manual
+      hasChanges = true;
+    }
+
+    if (!hasChanges) {
+      for (const id in modules) {
+        const data = modules[id];
+        const existing = currentUnits[id];
+        if (
+          !existing ||
+          existing.active !== data.active ||
+          existing.capabilities.length !== data.capabilities.length
+        ) {
+          hasChanges = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasChanges) return;
 
     set(state => {
       const updatedUnits = { ...state.units };

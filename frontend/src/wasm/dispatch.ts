@@ -55,6 +55,17 @@ export class Dispatcher {
     return true;
   }
 
+  private static stringCache = new Map<string, Uint8Array>();
+
+  private static getEncoded(str: string): Uint8Array {
+    let cached = this.stringCache.get(str);
+    if (!cached) {
+      cached = this.encoder.encode(str);
+      this.stringCache.set(str, cached);
+    }
+    return cached;
+  }
+
   /**
    * Execute a compute operation synchronously
    */
@@ -70,9 +81,9 @@ export class Dispatcher {
 
     const encoder = Dispatcher.encoder;
 
-    // 1. Prepare strings and JSON
-    const libBytes = encoder.encode(library);
-    const methodBytes = encoder.encode(method);
+    // 1. Prepare strings and JSON (Use cache for library and method)
+    const libBytes = Dispatcher.getEncoded(library);
+    const methodBytes = Dispatcher.getEncoded(method);
     const paramsBytes = encoder.encode(JSON.stringify(params));
 
     // 2. Allocate on WASM heap
@@ -96,8 +107,6 @@ export class Dispatcher {
 
     try {
       // 4. Run execution
-      // console.log(`[Dispatch] Executing ${library}::${method}...`);
-      // const start = performance.now();
       const resultPtr = this.exports.compute_execute(
         libPtr,
         libBytes.length,
@@ -108,8 +117,6 @@ export class Dispatcher {
         paramsPtr,
         paramsBytes.length
       );
-      // const end = performance.now();
-      // console.log(`[Dispatch] Execution ${library}::${method} took ${(end - start).toFixed(2)}ms`);
 
       if (resultPtr === 0) {
         console.warn(`[Dispatch] ${library}::${method} returned NULL result`);

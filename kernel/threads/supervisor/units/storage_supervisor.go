@@ -17,15 +17,16 @@ type StorageSupervisor struct {
 	*supervisor.UnifiedSupervisor
 
 	// SAB bridge for WASM communication
-	bridge *supervisor.SABBridge
+	bridge supervisor.SABInterface
 }
 
 // NewStorageSupervisor creates a new storage supervisor
 func NewStorageSupervisor(
-	bridge *supervisor.SABBridge,
+	bridge supervisor.SABInterface,
 	patterns *pattern.TieredPatternStorage,
 	knowledge *intelligence.KnowledgeGraph,
 	capabilities []string,
+	delegator foundation.MeshDelegator,
 ) *StorageSupervisor {
 	if len(capabilities) == 0 {
 		capabilities = []string{
@@ -35,7 +36,7 @@ func NewStorageSupervisor(
 	}
 
 	return &StorageSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge, delegator),
 		bridge:            bridge,
 	}
 }

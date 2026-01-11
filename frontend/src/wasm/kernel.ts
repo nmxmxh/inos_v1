@@ -93,7 +93,10 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
 
     // 3. Load and instantiate Go kernel using streaming (Optimized)
     const go = new window.Go();
-    const response = fetch('/kernel.wasm.br');
+    const isDev = import.meta.env.DEV;
+    const wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br';
+    console.log(`[Kernel] Fetching from ${wasmUrl}...`);
+    const response = fetch(wasmUrl);
 
     const result = await WebAssembly.instantiateStreaming(response, {
       ...go.importObject,

@@ -1,5 +1,4 @@
 use crate::js_interop;
-use once_cell::sync::Lazy;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// The context hash that was active when this module was initialized.

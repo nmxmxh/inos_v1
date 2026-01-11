@@ -1,10 +1,12 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import viteCompression from 'vite-plugin-compression';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 
 export default defineConfig({
   plugins: [
     react(),
+    basicSsl(),
     // Gzip compression for static assets
     viteCompression({
       algorithm: 'gzip',
@@ -17,15 +19,16 @@ export default defineConfig({
       name: 'serve-brotli-wasm',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
+          // Enforce COOP/COEP for all responses in dev to enable SharedArrayBuffer
+          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+
           const url = (req as any).url || '';
           if (url.endsWith('.wasm.br')) {
             res.setHeader('Content-Type', 'application/wasm');
             res.setHeader('Content-Encoding', 'br');
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           }
-          // Enforce COOP/COEP for all responses in dev
-          res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-          res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
           next();
         });
       },
@@ -34,6 +37,10 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true, // Allow external access
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
     target: 'esnext', // Modern browsers
@@ -49,7 +56,8 @@ export default defineConfig({
         assetFileNames: 'assets/[name].[hash][extname]',
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-three': ['three', '@react-three/fiber', '@react-three/drei'],
+          'vendor-three-core': ['three'],
+          'vendor-three-r3f': ['@react-three/fiber', '@react-three/drei'],
           'vendor-d3': ['d3'],
           'vendor-ui': ['framer-motion', 'styled-components'],
           'vendor-utils': ['zustand', 'react-use'],

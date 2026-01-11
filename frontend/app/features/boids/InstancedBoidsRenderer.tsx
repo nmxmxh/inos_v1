@@ -3,6 +3,7 @@ import { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { useSystemStore } from '../../../src/store/system';
 import { dispatch } from '../../../src/wasm/dispatch';
+import LeaderMarker from './LeaderMarker';
 import {
   OFFSET_BIRD_BUFFER_A,
   OFFSET_MATRIX_BUFFER_A,
@@ -162,12 +163,18 @@ export default function InstancedBoidsRenderer() {
     });
   }, [palette, sharedColors]);
 
+  // Frame Throttling (Low Heat Mode)
+  const frameRef = useRef(0);
+
   useFrame((_, delta) => {
+    frameRef.current++;
+    if (frameRef.current % 2 !== 0) return;
+
     // 1. Run physics step in WASM via Dispatcher
     if (moduleExports?.compute) {
       dispatch.execute('boids', 'step_physics', {
         bird_count: CONFIG.BIRD_COUNT,
-        dt: delta,
+        dt: delta * 2, // Compensate for 30Hz
       });
 
       // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)
@@ -241,6 +248,11 @@ export default function InstancedBoidsRenderer() {
         args={[geometries.wingTip, materials.wingTip, CONFIG.BIRD_COUNT]}
       />
       <instancedMesh ref={tailsRef} args={[geometries.tail, materials.tail, CONFIG.BIRD_COUNT]} />
+
+      {/* Leader HUD - Approach B: Minimalist Three.js Marker (Zero-Copy) */}
+      {(window as any).__INOS_SAB__ && (
+        <LeaderMarker sab={(window as any).__INOS_SAB__} birdIndex={0} offset={CONFIG.SAB_OFFSET} />
+      )}
     </>
   );
 }

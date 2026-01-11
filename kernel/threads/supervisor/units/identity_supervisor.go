@@ -1,11 +1,17 @@
-package supervisor
+//go:build wasm
+
+package units
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
+	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
+	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 )
 
 const (
@@ -22,6 +28,9 @@ const (
 
 // IdentitySupervisor manages the Identity Registry in SAB
 type IdentitySupervisor struct {
+	*supervisor.UnifiedSupervisor
+	bridge supervisor.SABInterface
+
 	sabPtr     unsafe.Pointer
 	sabSize    uint32
 	baseOffset uint32
@@ -32,13 +41,27 @@ type IdentitySupervisor struct {
 	mu sync.RWMutex
 }
 
-func NewIdentitySupervisor(sabPtr unsafe.Pointer, sabSize, offset uint32) *IdentitySupervisor {
+func NewIdentitySupervisor(
+	bridge supervisor.SABInterface,
+	patterns *pattern.TieredPatternStorage,
+	knowledge *intelligence.KnowledgeGraph,
+	sabPtr unsafe.Pointer,
+	sabSize, offset uint32,
+	delegator foundation.MeshDelegator,
+) *IdentitySupervisor {
+	capabilities := []string{"identity.resolve", "identity.register", "identity.verify", "identity.attest"}
 	return &IdentitySupervisor{
-		sabPtr:     sabPtr,
-		sabSize:    sabSize,
-		baseOffset: offset,
-		dids:       make(map[string]uint32),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("identity", capabilities, patterns, knowledge, delegator),
+		bridge:            bridge,
+		sabPtr:            sabPtr,
+		sabSize:           sabSize,
+		baseOffset:        offset,
+		dids:              make(map[string]uint32),
 	}
+}
+
+func (is *IdentitySupervisor) Start(ctx context.Context) error {
+	return is.UnifiedSupervisor.Start(ctx)
 }
 
 // ResolveDID returns the account info for a given DID, or creates a system wallet entry
@@ -99,4 +122,38 @@ func (is *IdentitySupervisor) writeEntry(offset uint32, entry *foundation.Identi
 	data[97] = entry.Status
 
 	return nil
+}
+
+// ExecuteJob overrides base ExecuteJob for identity-specific tasks
+func (is *IdentitySupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
+	switch job.Operation {
+	case "resolve":
+		did, ok := job.Parameters["did"].(string)
+		if !ok {
+			return &foundation.Result{JobID: job.ID, Error: "missing did parameter"}
+		}
+		offset, err := is.ResolveDID(did)
+		if err != nil {
+			return &foundation.Result{JobID: job.ID, Error: err.Error()}
+		}
+		return &foundation.Result{JobID: job.ID, Data: []byte(fmt.Sprintf("%d", offset))}
+
+	case "register":
+		did, ok := job.Parameters["did"].(string)
+		if !ok {
+			return &foundation.Result{JobID: job.ID, Error: "missing did parameter"}
+		}
+		publicKey, _ := job.Parameters["public_key"].([]byte)
+		offset, err := is.RegisterDID(did, publicKey)
+		if err != nil {
+			return &foundation.Result{JobID: job.ID, Error: err.Error()}
+		}
+		return &foundation.Result{JobID: job.ID, Data: []byte(fmt.Sprintf("%d", offset))}
+
+	default:
+		return &foundation.Result{
+			JobID: job.ID,
+			Error: "unsupported identity operation: " + job.Operation,
+		}
+	}
 }

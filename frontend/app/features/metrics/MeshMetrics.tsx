@@ -97,9 +97,12 @@ const Style = {
 
 import RollingCounter from '../../ui/RollingCounter';
 import { useMeshMetrics } from './useMeshMetrics';
+import { useGlobalAnalytics } from '../analytics/useGlobalAnalytics';
+import NumberFormatter from '../../ui/NumberFormatter';
 
 export function MeshMetricsBar() {
   const metrics = useMeshMetrics();
+  const global = useGlobalAnalytics();
 
   const displayMetrics = metrics || {
     opsPerSecond: 0,
@@ -113,43 +116,46 @@ export function MeshMetricsBar() {
     sectorId: 0,
   };
 
-  // Derived metrics
-  const opsPerSecond = metrics ? Math.floor(metrics.gossipRate * 100) : 0;
-  const computeCapacity = metrics
-    ? Math.floor(opsPerSecond + (metrics.connectedPeers || 0) * 1.5)
-    : 0;
+  // Derived metrics (Prioritize Global if available, fallback to local estimation)
+  const opsPerSecond = global?.globalOpsPerSec
+    ? Number(global.globalOpsPerSec)
+    : metrics
+      ? Math.floor(metrics.gossipRate * 100)
+      : 0;
+
+  const computeCapacity = global?.totalComputeGFLOPS
+    ? Number(global.totalComputeGFLOPS)
+    : metrics
+      ? Math.floor(opsPerSecond + (metrics.connectedPeers || 0) * 1.5)
+      : 0;
+
+  const activeNodes = global?.activeNodeCount || displayMetrics.connectedPeers || 1;
 
   return (
     <Style.MetricsBar initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
       <Style.Metric>
-        <Style.PulseIndicator $active={displayMetrics.meshActive} />
+        <Style.PulseIndicator $active={!!global || displayMetrics.meshActive} />
         <Style.Label>Mesh</Style.Label>
-        <Style.Value>{displayMetrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
+        <Style.Value>{global || displayMetrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
       </Style.Metric>
 
       <Style.Divider />
 
-      <Style.Metric title="Network Throughput">
+      <Style.Metric title="Global Network Throughput">
         <Style.Label>Ops/s</Style.Label>
-        <Style.Value>
-          <RollingCounter value={opsPerSecond} />
-        </Style.Value>
+        <NumberFormatter value={opsPerSecond} />
       </Style.Metric>
 
       <Style.Metric title="Distributed Compute Capacity">
         <Style.Label>Cap</Style.Label>
-        <Style.Value>
-          <RollingCounter value={computeCapacity} suffix=" GFLOPS" />
-        </Style.Value>
+        <NumberFormatter value={computeCapacity} suffix="FLOPS" />
       </Style.Metric>
 
       <Style.Divider />
 
-      <Style.Metric title="Connected Nodes">
+      <Style.Metric title="Active Mesh Nodes">
         <Style.Label>Nodes</Style.Label>
-        <Style.Value>
-          <RollingCounter value={displayMetrics.connectedPeers || 1} />
-        </Style.Value>
+        <NumberFormatter value={activeNodes} decimals={0} />
       </Style.Metric>
 
       <Style.Metric title="Network Latency (P50)">

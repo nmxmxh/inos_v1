@@ -73,6 +73,10 @@ const (
 	OFFSET_SOCIAL_GRAPH = system.OffsetSocialGraph
 	SIZE_SOCIAL_GRAPH   = system.SizeSocialGraph
 
+	// ========== GLOBAL ANALYTICS (0x010000 - 0x010100) ==========
+	OFFSET_GLOBAL_ANALYTICS = system.OffsetGlobalAnalytics
+	SIZE_GLOBAL_ANALYTICS   = system.SizeGlobalAnalytics
+
 	// ========== PATTERN EXCHANGE (0x010000 - 0x020000) ==========
 	OFFSET_PATTERN_EXCHANGE = system.OffsetPatternExchange
 	SIZE_PATTERN_EXCHANGE   = system.SizePatternExchange
@@ -133,6 +137,14 @@ const (
 	SIZE_MATRIX_BUFFER     = system.SizeMatrixBuffer
 	MATRIX_STRIDE          = system.MatrixStride
 
+	// ========== ROBOT / LATTICE STATE (Moonshot) ==========
+	OFFSET_ROBOT_STATE     = system.OffsetRobotState
+	SIZE_ROBOT_STATE       = system.SizeRobotState
+	OFFSET_ROBOT_NODES     = system.OffsetRobotNodes
+	SIZE_ROBOT_NODES       = system.SizeRobotNodes
+	OFFSET_ROBOT_FILAMENTS = system.OffsetRobotFilaments
+	SIZE_ROBOT_FILAMENTS   = system.SizeRobotFilaments
+
 	// ========== EPOCH INDEX ALLOCATION ==========
 	// Fixed system epochs (0-31 Reserved)
 	IDX_KERNEL_READY  = system.IdxKernelReady
@@ -154,12 +166,14 @@ const (
 	IDX_PINGPONG_ACTIVE = system.IdxPingpongActive
 
 	// Signal-Based Architecture Epochs (15-20)
-	IDX_REGISTRY_EPOCH  = system.IdxRegistryEpoch
-	IDX_EVOLUTION_EPOCH = system.IdxEvolutionEpoch
-	IDX_HEALTH_EPOCH    = system.IdxHealthEpoch
-	IDX_LEARNING_EPOCH  = system.IdxLearningEpoch
-	IDX_ECONOMY_EPOCH   = system.IdxEconomyEpoch
-	IDX_BIRD_COUNT      = system.IdxBirdCount // Index 20
+	IDX_REGISTRY_EPOCH       = system.IdxRegistryEpoch
+	IDX_EVOLUTION_EPOCH      = system.IdxEvolutionEpoch
+	IDX_HEALTH_EPOCH         = system.IdxHealthEpoch
+	IDX_LEARNING_EPOCH       = system.IdxLearningEpoch
+	IDX_ECONOMY_EPOCH        = system.IdxEconomyEpoch
+	IDX_BIRD_COUNT           = system.IdxBirdCount // Index 20
+	IDX_GLOBAL_METRICS_EPOCH = system.IdxGlobalMetricsEpoch
+	IDX_ROBOT_EPOCH          = system.IdxRobotEpoch
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = system.SupervisorPoolBase
@@ -300,6 +314,15 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			CanExpand: false, // Fixed size for predictable latency
 			MaxInline: 0,
 			MaxTotal:  0,
+		},
+		{
+			Name:      "RobotState",
+			Offset:    OFFSET_ROBOT_STATE,
+			Size:      SIZE_ROBOT_STATE + SIZE_ROBOT_NODES + SIZE_ROBOT_FILAMENTS,
+			Purpose:   "Moonshot Morphic Lattice simulation state",
+			CanExpand: false,
+			MaxInline: 1,
+			MaxTotal:  1,
 		},
 		{
 			Name:      "Arena",
