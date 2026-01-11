@@ -1,7 +1,7 @@
 {
   "headers": [
     {
-      "source": "/(.*).wasm.br",
+      "source": "/(.*)\\.wasm\\.br$",
       "headers": [
         {
           "key": "Content-Encoding",

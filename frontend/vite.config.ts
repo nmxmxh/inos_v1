@@ -24,7 +24,9 @@ export default defineConfig({
           res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
 
           const url = (req as any).url || '';
-          if (url.endsWith('.wasm.br')) {
+          // Remove query params to safely check extension
+          const cleanUrl = url.split('?')[0];
+          if (cleanUrl.endsWith('.wasm.br')) {
             res.setHeader('Content-Type', 'application/wasm');
             res.setHeader('Content-Encoding', 'br');
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
