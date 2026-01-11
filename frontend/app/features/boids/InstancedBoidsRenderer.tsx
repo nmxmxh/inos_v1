@@ -41,38 +41,63 @@ export default function InstancedBoidsRenderer() {
   const flagsRef = useRef<Int32Array | null>(null);
 
   // Shared geometries
-  const geometries = useMemo(
-    () => ({
-      body: new THREE.CylinderGeometry(0.03, 0.06, 0.45, 8),
-      head: new THREE.BoxGeometry(0.12, 0.12, 0.12),
-      beak: new THREE.ConeGeometry(0.03, 0.22, 6),
-      wing: new THREE.PlaneGeometry(0.45, 0.18),
-      wingTip: new THREE.PlaneGeometry(0.38, 0.12),
-      tail: new THREE.PlaneGeometry(0.08, 0.3),
-    }),
-    []
-  );
+  const geometries = useMemo(() => {
+    // Helper to orient geometries
+    const alignGeo = (
+      geo: THREE.BufferGeometry,
+      rotX = 0,
+      rotY = 0,
+      rotZ = 0,
+      scale = [1, 1, 1]
+    ) => {
+      if (rotX !== 0) geo.rotateX(rotX);
+      if (rotY !== 0) geo.rotateY(rotY);
+      if (rotZ !== 0) geo.rotateZ(rotZ);
+      geo.scale(scale[0], scale[1], scale[2]);
+      return geo;
+    };
+
+    return {
+      // Body: Slim cylinder, wireframe friendly (6 segments = hexagon)
+      body: alignGeo(new THREE.CylinderGeometry(0.025, 0.05, 0.45, 6), 0, 0, 0),
+      // Head: Smaller, geodesic (Icosahedron)
+      head: alignGeo(new THREE.IcosahedronGeometry(0.06, 0), 0, 0, 0),
+      // Beak: Sharp cone
+      beak: alignGeo(new THREE.ConeGeometry(0.02, 0.15, 4), 0, 0, 0),
+      // Wing: Segmented plane for wireframe structure (3x2 segments)
+      wing: alignGeo(new THREE.PlaneGeometry(0.45, 0.25, 3, 2), 0, 0, 0),
+      wingTip: alignGeo(new THREE.PlaneGeometry(0.38, 0.15, 3, 1), 0, 0, 0),
+      // Tail: Flattened Cone (Fan shape).
+      // Rotated 90deg X to lie flat (horizontal fan) instead of pointing up.
+      // Tip points towards body (-Z or +Z depending on logic, aligned to standard Z-forward).
+      // Scale Y (thickness) down to make it a flat fan.
+      tail: alignGeo(new THREE.ConeGeometry(0.12, 0.35, 5), Math.PI / 2, 0, 0, [1, 0.05, 1]),
+    };
+  }, []);
 
   // Materials with disposal
   const materials = useMemo(
     () => ({
-      body: new THREE.MeshBasicMaterial(),
-      head: new THREE.MeshBasicMaterial(),
-      beak: new THREE.MeshBasicMaterial(),
+      body: new THREE.MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.6 }),
+      head: new THREE.MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.6 }),
+      beak: new THREE.MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.6 }),
       wing: new THREE.MeshBasicMaterial({
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.4,
+        opacity: 0.35,
+        wireframe: true,
       }),
       wingTip: new THREE.MeshBasicMaterial({
         side: THREE.DoubleSide,
         transparent: true,
         opacity: 0.2,
+        wireframe: true,
       }),
       tail: new THREE.MeshBasicMaterial({
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.45,
+        wireframe: true,
       }),
     }),
     []
@@ -109,21 +134,23 @@ export default function InstancedBoidsRenderer() {
     };
   }, [geometries, materials]);
 
-  // Shared colors palette (Optimized: No per-bird color objects)
+  // Shared colors palette (Realistic Wireframes: Mid-Dark Slate/Stone)
+  // Lightened by one shade (e.g. 700 -> 600) to be softer but still visible
   const palette = useMemo(
     () => [
-      new THREE.Color('#6d28d9'),
-      new THREE.Color('#ec4899'),
-      new THREE.Color('#10b981'),
-      new THREE.Color('#f59e0b'),
+      new THREE.Color('#475569'), // slate-600
+      new THREE.Color('#57534e'), // stone-600
+      new THREE.Color('#71717a'), // zinc-500
+      new THREE.Color('#4b5563'), // gray-600
+      new THREE.Color('#0284c7'), // sky-600 (accent)
     ],
     []
   );
 
   const sharedColors = useMemo(
     () => ({
-      wing: new THREE.Color('#555555'),
-      tail: new THREE.Color('#888888'),
+      wing: new THREE.Color('#737373'), // neutral-500
+      tail: new THREE.Color('#64748b'), // slate-500
     }),
     []
   );

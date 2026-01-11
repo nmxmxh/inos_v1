@@ -28,6 +28,13 @@ export function PageTransition({ children }: PageTransitionProps) {
         initial="initial"
         animate="animate"
         exit="exit"
+        transition={{ duration: 0.8, ease: [0.2, 0, 0.2, 1] }} // Slower duration (was 0.5-0.6)
+        onAnimationStart={definition => {
+          // Only scroll to top when the NEW page starts entering
+          if (definition === 'animate') {
+            window.scrollTo(0, 0);
+          }
+        }}
         style={{ width: '100%' }}
       >
         {children}

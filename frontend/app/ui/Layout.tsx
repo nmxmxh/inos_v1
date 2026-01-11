@@ -7,7 +7,7 @@
 
 import styled, { ThemeProvider } from 'styled-components';
 import { MotionConfig } from 'framer-motion';
-import { Outlet } from 'react-router-dom';
+import { useOutlet } from 'react-router-dom';
 import { theme } from '../styles/theme';
 import { usePrefersReducedMotion } from '../hooks/useReducedMotion';
 import Navigation from './Navigation';
@@ -79,6 +79,7 @@ const Style = {
 
 export function Layout() {
   const prefersReducedMotion = usePrefersReducedMotion();
+  const outlet = useOutlet();
 
   return (
     <ThemeProvider theme={theme}>
@@ -91,9 +92,7 @@ export function Layout() {
           </Style.Header>
 
           <Style.Main>
-            <PageTransition>
-              <Outlet />
-            </PageTransition>
+            <PageTransition>{outlet}</PageTransition>
           </Style.Main>
 
           <Style.Footer>

@@ -5,18 +5,10 @@
  */
 
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useSystemStore } from '../src/store/system';
 import './styles/minimal.css';
-
-// Scroll to top on route change
-function ScrollToTop() {
-  const { pathname } = useLocation();
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
-  return null;
-}
 
 // Layout
 import Layout from './ui/Layout';
@@ -110,18 +102,33 @@ function SystemLoader({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (loading || !ready) {
-    return <MysticLoader status={status} />;
-  }
-
-  // System ready - render children
-  return <>{children}</>;
+  return (
+    <AnimatePresence mode="wait">
+      {loading || !ready ? (
+        <motion.div
+          key="loader"
+          exit={{ opacity: 0, transition: { duration: 0.8, ease: 'easeInOut' } }}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
+        >
+          <MysticLoader status={status} />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="app"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.2 }}
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <ScrollToTop />
       <SystemLoader>
         <Routes>
           <Route path="/" element={<Layout />}>

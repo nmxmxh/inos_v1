@@ -37,7 +37,8 @@ export const Style = {
   `,
 
   ManuscriptSection: styled.section`
-    background: ${p => p.theme.colors.paperWhite};
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(12px);
     padding: ${p => p.theme.spacing[6]} ${p => p.theme.spacing[8]};
     border-left: 2px solid ${p => p.theme.colors.accent};
     position: relative;
@@ -76,7 +77,8 @@ export const Style = {
   `,
 
   JotterSection: styled.section`
-    background: ${p => p.theme.colors.paperWhite};
+    background: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(12px);
     padding: ${p => p.theme.spacing[6]} ${p => p.theme.spacing[8]};
     border-left: 2px solid ${p => p.theme.colors.accent};
     position: relative;
@@ -117,6 +119,10 @@ export const Style = {
   `,
 
   BlogContainer: styled.main`
+    /* Glassmorphism page container */
+    background: rgba(244, 241, 234, 0.5); /* Semi-transparent paper cream */
+    backdrop-filter: blur(8px);
+    border-radius: 8px;
     max-width: ${p => p.theme.layout.maxWidth};
     margin: 0 auto;
     padding: ${p => p.theme.spacing[16]} ${p => p.theme.spacing[6]};
