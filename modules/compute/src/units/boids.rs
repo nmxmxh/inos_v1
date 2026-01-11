@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use sdk::pingpong::PingPongBuffer;
 use sdk::sab::SafeSAB;
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
@@ -55,16 +54,52 @@ const BOUND_X: f32 = 25.0;
 const BOUND_Y: f32 = 12.0;
 const BOUND_Z: f32 = 20.0;
 
-// ============= SPATIAL HASHING =============
+// ============= SPATIAL HASHING 2.0 =============
+// Fixed-size grid to eliminate HashMap overhead and fragmentation
 
-/// Hash a 3D position to a cell key
+const GRID_X: usize = 8; // ±40 units
+const GRID_Y: usize = 6; // ±30 units
+const GRID_Z: usize = 8; // ±40 units
+const GRID_TOTAL: usize = GRID_X * GRID_Y * GRID_Z;
+
+/// Hash a 3D position to a single flat grid index
 #[inline]
-fn spatial_hash(x: f32, y: f32, z: f32) -> (i32, i32, i32) {
-    (
-        (x / CELL_SIZE).floor() as i32,
-        (y / CELL_SIZE).floor() as i32,
-        (z / CELL_SIZE).floor() as i32,
-    )
+fn spatial_hash(x: f32, y: f32, z: f32) -> usize {
+    // Map -40..40 to 0..8 (X/Z) and -30..30 to 0..6 (Y)
+    let ix = (((x + 40.0) / CELL_SIZE).max(0.0) as usize).min(GRID_X - 1);
+    let iy = (((y + 30.0) / CELL_SIZE).max(0.0) as usize).min(GRID_Y - 1);
+    let iz = (((z + 40.0) / CELL_SIZE).max(0.0) as usize).min(GRID_Z - 1);
+    (ix * GRID_Y * GRID_Z) + (iy * GRID_Z) + iz
+}
+
+/// Get indices of neighboring cells
+fn neighbor_cells(idx: usize) -> Vec<usize> {
+    let mut neighbors = Vec::with_capacity(27);
+    let iz = idx % GRID_Z;
+    let iy = (idx / GRID_Z) % GRID_Y;
+    let ix = idx / (GRID_Y * GRID_Z);
+
+    for dx in -1..=1 {
+        let nx = ix as i32 + dx;
+        if nx < 0 || nx >= GRID_X as i32 {
+            continue;
+        }
+        for dy in -1..=1 {
+            let ny = iy as i32 + dy;
+            if ny < 0 || ny >= GRID_Y as i32 {
+                continue;
+            }
+            for dz in -1..=1 {
+                let nz = iz as i32 + dz;
+                if nz < 0 || nz >= GRID_Z as i32 {
+                    continue;
+                }
+                neighbors
+                    .push((nx as usize * GRID_Y * GRID_Z) + (ny as usize * GRID_Z) + nz as usize);
+            }
+        }
+    }
+    neighbors
 }
 
 // ============= FLOCKING FORCES =============
@@ -115,8 +150,9 @@ struct PersistentScratch {
     population_data: Vec<u8>,
     positions: Vec<[f32; 3]>,
     velocities: Vec<[f32; 3]>,
-    grid: HashMap<(i32, i32, i32), Vec<usize>>,
+    grid: Vec<Vec<usize>>,      // Spatial Grid 2.0
     neighbor_cache: Vec<usize>, // Reusable neighbor list
+    intensities: Vec<f32>,      // Persistent trick intensities (local-only)
 }
 
 pub struct BoidUnit {
@@ -174,6 +210,7 @@ impl BoidUnit {
             ref mut velocities,
             ref mut grid,
             ref mut neighbor_cache,
+            ref mut intensities,
         } = *scratch_guard;
 
         // Create ping-pong buffer accessor
@@ -211,6 +248,7 @@ impl BoidUnit {
         if positions.len() < n {
             positions.resize(n, [0.0; 3]);
             velocities.resize(n, [0.0; 3]);
+            intensities.resize(n, 0.0);
         }
 
         // --- STEP 2: Read from SAB ---
@@ -235,13 +273,20 @@ impl BoidUnit {
             }
         }
 
-        // --- STEP 3: Build spatial hash ---
-        grid.clear();
+        // --- STEP 3: Build spatial hash 2.0 ---
+        // Pre-allocate grid cells if empty
+        if grid.is_empty() {
+            grid.resize_with(GRID_TOTAL, || Vec::with_capacity(32));
+        }
+
+        // Clear each cell without dropping capacity
+        for cell in grid.iter_mut() {
+            cell.clear();
+        }
+
         for (idx, pos) in positions[..n].iter().enumerate() {
-            let cell = spatial_hash(pos[0], pos[1], pos[2]);
-            grid.entry(cell)
-                .or_insert_with(|| Vec::with_capacity(32))
-                .push(idx);
+            let cell_idx = spatial_hash(pos[0], pos[1], pos[2]);
+            grid[cell_idx].push(idx);
         }
 
         // --- STEP 4: Process boids behavior ---
@@ -289,23 +334,41 @@ impl BoidUnit {
                 );
             }
 
-            // Get neighbors via spatial hash (Inlined to avoid borrow issues)
+            // Get neighbors via Spatial Grid 2.0
             neighbor_cache.clear();
-            let cell = spatial_hash(pos[0], pos[1], pos[2]);
+            let center_idx = spatial_hash(pos[0], pos[1], pos[2]);
+
+            // Recompute neighboring cell indices (could be optimized with a look-up table)
+            let iz = center_idx % GRID_Z;
+            let iy = (center_idx / GRID_Z) % GRID_Y;
+            let ix = center_idx / (GRID_Y * GRID_Z);
+
             for dx in -1..=1 {
+                let nx = ix as i32 + dx;
+                if nx < 0 || nx >= GRID_X as i32 {
+                    continue;
+                }
                 for dy in -1..=1 {
+                    let ny = iy as i32 + dy;
+                    if ny < 0 || ny >= GRID_Y as i32 {
+                        continue;
+                    }
                     for dz in -1..=1 {
-                        let nc = (cell.0 + dx, cell.1 + dy, cell.2 + dz);
-                        if let Some(indices) = grid.get(&nc) {
-                            for &other_idx in indices {
-                                if other_idx != i {
-                                    let other_pos = &positions[other_idx];
-                                    let dist_sq = (pos[0] - other_pos[0]).powi(2)
-                                        + (pos[1] - other_pos[1]).powi(2)
-                                        + (pos[2] - other_pos[2]).powi(2);
-                                    if dist_sq < PERCEPTION_RADIUS * PERCEPTION_RADIUS {
-                                        neighbor_cache.push(other_idx);
-                                    }
+                        let nz = iz as i32 + dz;
+                        if nz < 0 || nz >= GRID_Z as i32 {
+                            continue;
+                        }
+
+                        let nc_idx =
+                            (nx as usize * GRID_Y * GRID_Z) + (ny as usize * GRID_Z) + nz as usize;
+                        for &other_idx in &grid[nc_idx] {
+                            if other_idx != i {
+                                let other_pos = &positions[other_idx];
+                                let dist_sq = (pos[0] - other_pos[0]).powi(2)
+                                    + (pos[1] - other_pos[1]).powi(2)
+                                    + (pos[2] - other_pos[2]).powi(2);
+                                if dist_sq < PERCEPTION_RADIUS * PERCEPTION_RADIUS {
+                                    neighbor_cache.push(other_idx);
                                 }
                             }
                         }
@@ -407,13 +470,8 @@ impl BoidUnit {
             energy = energy.clamp(0.4, 1.0); // Higher minimum = always active
 
             // ========== TRICK SYSTEM: STATE SMOOTHING & SCREW MOTION ==========
-            // Read previous Trick Intensity from Offset 36 (idx 9)
-            let mut trick_intensity = f32::from_le_bytes([
-                population_data[base + 36],
-                population_data[base + 37],
-                population_data[base + 38],
-                population_data[base + 39],
-            ]);
+            // Use local persistent storage for trick intensity
+            let mut trick_intensity = intensities[i];
 
             let is_barrel_roll = w_trick < -2.0;
             let target_intensity = if is_barrel_roll { 1.0 } else { 0.0 };
@@ -481,32 +539,32 @@ impl BoidUnit {
                     .copy_from_slice(&vel[j].to_le_bytes());
             }
 
-            // Save Trick Intensity state (Offset 36 = idx 9)
-            population_data[base + 36..base + 40].copy_from_slice(&trick_intensity.to_le_bytes());
+            // Save local intensity state
+            intensities[i] = trick_intensity;
 
             if clamped_speed > 0.005 {
                 let mut rot_y = vel[0].atan2(vel[2]);
 
                 // HEADING TURN: Gentle direction change during trick
-                // Reduced from 0.02 to 0.008 for comfortable turning
                 if trick_intensity > 0.01 {
                     rot_y += trick_intensity * 0.008 * dt * 60.0;
                 }
 
-                // Base Physics Bank
+                // Base Physics Bank + Spiral Blend
                 let physics_bank = (-vel[0] * 0.15).clamp(-0.25, 0.25);
-
-                // Target Spiral Bank (Softer turn + Organic wobble)
-                // 0.6 rad ~= 35 degrees (more natural than 70°)
-                let wobble = (time * 3.0).sin() * 0.1;
-                let spiral_bank = 0.6 + wobble;
-
-                // VISUAL BLEND: Mix Physics Bank with Spiral Bank based on intensity
-                // Smoothly transitions into the banking turn
+                let spiral_bank = 0.6 + (time * 3.0).sin() * 0.1;
                 let bank_z = physics_bank * (1.0 - trick_intensity) + spiral_bank * trick_intensity;
 
-                population_data[base + 24..base + 28].copy_from_slice(&rot_y.to_le_bytes());
-                population_data[base + 28..base + 32].copy_from_slice(&bank_z.to_le_bytes());
+                // --- PROPER QUATERNION CONVERSION ---
+                // We use Heading (Y) and Bank (Z). Pitch is handled by velocity vectors in JS if needed.
+                use nalgebra::UnitQuaternion;
+                let q = UnitQuaternion::from_euler_angles(0.0, rot_y as f64, bank_z as f64);
+
+                // Write 4 components to index 6..9 (base+24, 28, 32, 36)
+                population_data[base + 24..base + 28].copy_from_slice(&(q.i as f32).to_le_bytes());
+                population_data[base + 28..base + 32].copy_from_slice(&(q.j as f32).to_le_bytes());
+                population_data[base + 32..base + 36].copy_from_slice(&(q.k as f32).to_le_bytes());
+                population_data[base + 36..base + 40].copy_from_slice(&(q.w as f32).to_le_bytes());
             }
 
             // ========== ENERGY-BASED FLIGHT MODES ==========

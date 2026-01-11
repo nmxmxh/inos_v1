@@ -16,10 +16,26 @@ use serde_json::Value as JsonValue;
 /// - Quaternions: from_euler, to_euler, slerp, multiply
 /// - Transforms: compose, decompose, apply_to_points
 /// - Batch: batch_transform, compute_instance_matrices
-#[derive(Default)]
 struct PersistentScratch {
     input_data: Vec<u8>,
     output_data: Vec<u8>,
+    // Pre-calculated constant rotation matrices for bird parts
+    body_rot: nalgebra::Matrix4<f64>,
+    beak_rot: nalgebra::Matrix4<f64>,
+}
+
+impl Default for PersistentScratch {
+    fn default() -> Self {
+        use nalgebra::Rotation3;
+        Self {
+            input_data: Vec::new(),
+            output_data: Vec::new(),
+            body_rot: Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+                .to_homogeneous(),
+            beak_rot: Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
+                .to_homogeneous(),
+        }
+    }
 }
 
 pub struct MathUnit {
@@ -579,14 +595,23 @@ impl UnitProxy for MathUnit {
                             read_f32(1) as f64,
                             read_f32(2) as f64,
                         );
-                        let heading = read_f32(6) as f64;
-                        let bank = read_f32(7) as f64;
-                        let flap = read_f32(11) as f64;
+
+                        // --- READ QUATERNION ---
+                        use nalgebra::{Quaternion, UnitQuaternion};
+                        let q = UnitQuaternion::new_normalize(Quaternion::new(
+                            read_f32(9) as f64, // w
+                            read_f32(6) as f64, // i (x)
+                            read_f32(7) as f64, // j (y)
+                            read_f32(8) as f64, // k (z)
+                        ));
+
+                        let lw_flap = read_f32(11) as f64;
+                        let rw_flap = read_f32(12) as f64;
                         let tail_yaw = read_f32(13) as f64;
 
-                        let bird_matrix = Matrix4::new_translation(&pos)
-                            * Rotation3::from_euler_angles(0.0, heading, bank).to_homogeneous();
+                        let bird_matrix = Matrix4::new_translation(&pos) * q.to_homogeneous();
 
+                        let (body_rot, beak_rot) = (scratch.body_rot, scratch.beak_rot);
                         let scratch_view = &mut scratch.output_data;
 
                         // Write matrix to local buffer
@@ -600,9 +625,7 @@ impl UnitProxy for MathUnit {
                         };
 
                         // 0. Body
-                        let body_mat = bird_matrix
-                            * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
-                                .to_homogeneous();
+                        let body_mat = bird_matrix * body_rot;
                         write_mat(&body_mat, 0);
 
                         // 1. Head
@@ -613,13 +636,12 @@ impl UnitProxy for MathUnit {
                         // 2. Beak
                         let beak_mat = bird_matrix
                             * Matrix4::new_translation(&Vector3::new(0.0, 0.0, 0.26))
-                            * Rotation3::from_euler_angles(std::f64::consts::FRAC_PI_2, 0.0, 0.0)
-                                .to_homogeneous();
+                            * beak_rot;
                         write_mat(&beak_mat, 2);
 
                         // 3. Left Wing
                         let lw_p1 = Matrix4::new_translation(&Vector3::new(-0.04, 0.0, 0.05))
-                            * Rotation3::from_euler_angles(0.0, 0.0, flap).to_homogeneous();
+                            * Rotation3::from_euler_angles(0.0, 0.0, lw_flap).to_homogeneous();
                         let lw_p2 = Matrix4::new_translation(&Vector3::new(-0.15, 0.0, 0.0));
                         let lw_m2 = bird_matrix * lw_p1;
                         let lw_mat = lw_m2 * lw_p2;
@@ -627,14 +649,15 @@ impl UnitProxy for MathUnit {
 
                         // 4. Left Wing Tip
                         let lwt_p3 = Matrix4::new_translation(&Vector3::new(-0.3, 0.0, 0.0))
-                            * Rotation3::from_euler_angles(0.0, 0.0, flap * 0.5).to_homogeneous();
+                            * Rotation3::from_euler_angles(0.0, 0.0, lw_flap * 0.5)
+                                .to_homogeneous();
                         let lwt_p4 = Matrix4::new_translation(&Vector3::new(-0.12, 0.0, -0.05));
                         let lwt_mat = lw_m2 * lwt_p3 * lwt_p4;
                         write_mat(&lwt_mat, 4);
 
                         // 5. Right Wing
                         let rw_p1 = Matrix4::new_translation(&Vector3::new(0.04, 0.0, 0.05))
-                            * Rotation3::from_euler_angles(0.0, 0.0, -flap).to_homogeneous();
+                            * Rotation3::from_euler_angles(0.0, 0.0, rw_flap).to_homogeneous();
                         let rw_p2 = Matrix4::new_translation(&Vector3::new(0.15, 0.0, 0.0));
                         let rw_m2 = bird_matrix * rw_p1;
                         let rw_mat = rw_m2 * rw_p2;
@@ -642,7 +665,8 @@ impl UnitProxy for MathUnit {
 
                         // 6. Right Wing Tip
                         let rwt_p3 = Matrix4::new_translation(&Vector3::new(0.3, 0.0, 0.0))
-                            * Rotation3::from_euler_angles(0.0, 0.0, -flap * 0.5).to_homogeneous();
+                            * Rotation3::from_euler_angles(0.0, 0.0, rw_flap * 0.5)
+                                .to_homogeneous();
                         let rwt_p4 = Matrix4::new_translation(&Vector3::new(0.12, 0.0, -0.05));
                         let rwt_mat = rw_m2 * rwt_p3 * rwt_p4;
                         write_mat(&rwt_mat, 6);
