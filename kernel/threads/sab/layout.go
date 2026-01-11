@@ -14,12 +14,13 @@ import (
 
 const (
 	// ========== SYSTEM BASE OFFSET ==========
-	// Go Kernel binary + heap occupy 0-16MB. All SAB offsets are relative to this.
-	OFFSET_SYSTEM_BASE = system.OffsetSystemBase // 16MB
+	// All SAB offsets are now 0-based absolute addresses.
+	// No reservation zone needed.
+	OFFSET_SYSTEM_BASE = system.OffsetSystemBase // 0 (Absolute)
 
 	// ========== SAB SIZE LIMITS ==========
-	SAB_SIZE_DEFAULT = system.SabSizeDefault // 48MB (includes 16MB Go zone)
-	SAB_SIZE_MIN     = system.SabSizeMin     // 48MB minimum
+	SAB_SIZE_DEFAULT = system.SabSizeDefault // 32MB
+	SAB_SIZE_MIN     = system.SabSizeMin     // 32MB minimum
 	SAB_SIZE_MAX     = system.SabSizeMax     // 1GB
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========

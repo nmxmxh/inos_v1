@@ -31,7 +31,7 @@ const (
 	DefaultMutationRate   = 0.6             // Increased for more exploration
 	DefaultCrossoverRate  = 0.5             // Reduced for less blending
 	DefaultTournamentSize = 5               // Increased for stronger selection
-	EvolutionInterval     = 1 * time.Second // Faster updates for liveness
+	EvolutionInterval     = 3 * time.Second // Calibrated for stability
 )
 
 // BirdGenes represents the neural network weights for a bird

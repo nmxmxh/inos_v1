@@ -31,6 +31,11 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
     const key = `${typeIdx}:${offset}:${len}`;
     let view = viewCache.get(key);
     if (!view) {
+      // CAUTION: Cap viewCache to prevent memory leaks from excessive sub-views
+      if (viewCache.size > 500) {
+        console.warn('[Bridge] ViewCache limit exceeded, flushing...');
+        viewCache.clear();
+      }
       view = new type(buffer, offset, len);
       viewCache.set(key, view);
     }
