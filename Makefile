@@ -147,7 +147,7 @@ kernel-build: proto-go
 	else echo "❌ Error: wasm_exec.js not found in GOROOT ($$GOROOT)." >&2; exit 1; fi
 	@if command -v $(WASM_OPT) > /dev/null 2>&1; then \
 		echo "⚡ Optimizing kernel.wasm with wasm-opt..."; \
-		$(WASM_OPT) -O3 --enable-threads --enable-bulk-memory --strip-debug \
+		$(WASM_OPT) -Oz --enable-threads --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --strip-debug \
 			-o frontend/public/kernel.wasm frontend/public/kernel.wasm; \
 		echo "✅ WASM optimized"; \
 	else \
@@ -212,7 +212,7 @@ modules-build: proto-rust
 		for wasm_file in frontend/public/modules/*.wasm; do \
 			if [ -f "$$wasm_file" ]; then \
 				echo "Optimizing $$wasm_file..."; \
-				$(WASM_OPT) -O3 --enable-threads --enable-bulk-memory --enable-simd --strip-debug \
+				$(WASM_OPT) -Oz --enable-threads --enable-bulk-memory --enable-simd --enable-nontrapping-float-to-int --enable-sign-ext --strip-debug \
 					-o "$$wasm_file" "$$wasm_file"; \
 			fi \
 		done; \

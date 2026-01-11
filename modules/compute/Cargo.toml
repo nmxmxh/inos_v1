@@ -71,6 +71,7 @@ once_cell = "1.18"
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }
 
 # Image processing
+# Image processing
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 fast_image_resize = { version = "3.0", features = [] }
 imageproc = "0.25"
@@ -127,8 +128,8 @@ biquad = "0.4"  # Filters
 capnp = "0.19"
 
 # GPU shader validation (200KB, WASM-compatible)
-naga = { version = "0.19", features = ["wgsl-in"] }
-regex = { version = "1.10", default-features = false, features = ["std", "perf", "unicode-perl"] }
+naga = { version = "0.19", default-features = false, features = ["wgsl-in"] }
+regex = { version = "1.10", default-features = false, features = ["std", "perf", "unicode-case", "unicode-bool", "unicode-gencat"] }
 
 # Module Bridges
 # All modules removed - compute is now self-contained
