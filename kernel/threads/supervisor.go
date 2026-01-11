@@ -250,6 +250,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	go s.spawnChild("discovery_loop", s.runDiscoveryLoop, 1)
 	go s.spawnChild("signal_listener", s.runSignalListener, 100)
 	go s.spawnChild("economy_loop", s.runEconomyLoop, 10)
+	go s.spawnChild("metrics_loop", s.runMetricsLoop, 1)
 
 	return nil
 }
@@ -334,6 +335,27 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 		} else if result == 1 {
 			// Timeout - no activity, loop continues
 			continue
+		}
+	}
+}
+
+// runMetricsLoop periodically persists bridge metrics to SAB for external diagnostics
+func (s *Supervisor) runMetricsLoop(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			s.mu.RLock()
+			bridge := s.bridge
+			s.mu.RUnlock()
+
+			if bridge != nil {
+				bridge.WriteMetricsToSAB()
+			}
 		}
 	}
 }

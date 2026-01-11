@@ -14,6 +14,7 @@ fn main() {
         .file("../protocols/schemas/system/v1/syscall.capnp")
         .file("../protocols/schemas/system/v1/sab_layout.capnp")
         .file("../protocols/schemas/system/v1/resource.capnp")
+        .file("../protocols/schemas/system/v1/diagnostics.capnp")
         // Compute protocols
         .file("../protocols/schemas/compute/v1/capsule.capnp")
         // I/O protocols

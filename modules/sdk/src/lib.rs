@@ -75,11 +75,16 @@ pub mod identity_capnp {
 pub mod resource_capnp {
     include!(concat!(env!("OUT_DIR"), "/system/v1/resource_capnp.rs"));
 }
+#[allow(dead_code, unused_imports, unused_parens, clippy::match_single_binding)]
+pub mod diagnostics_capnp {
+    include!(concat!(env!("OUT_DIR"), "/system/v1/diagnostics_capnp.rs"));
+}
 
 pub mod protocols {
     pub use crate::actor_capnp as actor;
     pub use crate::base_capnp as base;
     pub use crate::capsule_capnp as compute;
+    pub use crate::diagnostics_capnp as diagnostics;
     pub use crate::identity_capnp as identity;
     pub use crate::ledger_capnp as economy;
     pub use crate::orchestration_capnp as orchestration;

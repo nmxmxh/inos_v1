@@ -8,7 +8,12 @@
 import styled from 'styled-components';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from '../../src/wasm/layout';
+import {
+  IDX_BIRD_EPOCH,
+  IDX_MATRIX_EPOCH,
+  IDX_METRICS_EPOCH,
+  OFFSET_BRIDGE_METRICS,
+} from '../../../src/wasm/layout';
 
 const HudContainer = styled(motion.div)`
   display: flex;
@@ -50,7 +55,15 @@ const StatusDot = styled.span<{ $active: boolean }>`
 interface Metrics {
   birdEpoch: number;
   matrixEpoch: number;
+  metricsEpoch: number;
   active: boolean;
+  bridge: {
+    hits: number;
+    misses: number;
+    readNs: number;
+    writeNs: number;
+    health: number;
+  };
 }
 
 interface PerformanceHUDProps {
@@ -61,7 +74,9 @@ export function PerformanceHUD({ compact = false }: PerformanceHUDProps) {
   const [metrics, setMetrics] = useState<Metrics>({
     birdEpoch: 0,
     matrixEpoch: 0,
+    metricsEpoch: 0,
     active: false,
+    bridge: { hits: 0, misses: 0, readNs: 0, writeNs: 0, health: 100 },
   });
 
   useEffect(() => {
@@ -75,13 +90,30 @@ export function PerformanceHUD({ compact = false }: PerformanceHUDProps) {
         const flags = new Int32Array(sab, 0, 32);
         const birdEpoch = Atomics.load(flags, IDX_BIRD_EPOCH);
         const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
+        const metricsEpoch = Atomics.load(flags, IDX_METRICS_EPOCH);
+
+        // Read bridge metrics (32 bytes = 4 x BigUint64)
+        const metricsView = new BigUint64Array(sab, OFFSET_BRIDGE_METRICS, 4);
+        const hits = Number(Atomics.load(metricsView, 0));
+        const misses = Number(Atomics.load(metricsView, 1));
+        const readNs = Number(Atomics.load(metricsView, 2));
+        const writeNs = Number(Atomics.load(metricsView, 3));
+
+        const total = hits + misses;
+        const health = total > 0 ? (hits / total) * 100 : 100;
 
         // Active if epoch changed since last check
         const active = birdEpoch !== lastBirdEpoch;
         lastBirdEpoch = birdEpoch;
 
-        setMetrics({ birdEpoch, matrixEpoch, active });
-      } catch {
+        setMetrics({
+          birdEpoch,
+          matrixEpoch,
+          metricsEpoch,
+          active,
+          bridge: { hits, misses, readNs, writeNs, health },
+        });
+      } catch (e) {
         // SAB not ready or invalid
       }
     }, 100);
@@ -121,6 +153,19 @@ export function PerformanceHUD({ compact = false }: PerformanceHUDProps) {
       <Metric>
         <Label>Matrix Epoch</Label>
         <Value>{metrics.matrixEpoch}</Value>
+      </Metric>
+
+      <Metric title={`Bridge Health: ${metrics.bridge.health.toFixed(1)}%`}>
+        <StatusDot $active={metrics.bridge.health > 90} />
+        <Label>Bridge</Label>
+        <Value>
+          {metrics.bridge.hits}/{metrics.bridge.misses}
+        </Value>
+      </Metric>
+
+      <Metric>
+        <Label>I/O Latency</Label>
+        <Value>{(metrics.bridge.readNs / 1000000).toFixed(2)}ms</Value>
       </Metric>
     </HudContainer>
   );

@@ -6,27 +6,49 @@ type GetBufferFn = () => ArrayBuffer;
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 
+const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
+const LOG_PREFIXES = ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
+
 export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
   const addHeapObject = (obj: any) => heap.add(obj);
   const getObject = (idx: number) => heap.get(idx);
 
+  // View cache to prevent object churn
+  const viewCache = new Map<string, any>();
+  let lastBuffer: ArrayBuffer | null = null;
+
+  function getCachedView(type: any, offset: number, len: number) {
+    const buffer = getBuffer();
+    if (buffer !== lastBuffer) {
+      viewCache.clear();
+      lastBuffer = buffer;
+    }
+    // Optimization: Use a combined numeric key for common types to avoid string concatenation
+    // Assuming offset < 2^32 and len < 2^32, we can't easily fit in 53-bit integer if concatenated.
+    // But we can use nested Maps or a simple string for now, but pre-calculating type index.
+    const typeIdx =
+      type === Uint8Array ? 0 : type === Int32Array ? 1 : type === Float32Array ? 2 : 3;
+    const key = `${typeIdx}:${offset}:${len}`;
+    let view = viewCache.get(key);
+    if (!view) {
+      view = new type(buffer, offset, len);
+      viewCache.set(key, view);
+    }
+    return view;
+  }
+
   return {
     // Logging
     host_log: (ptr: number, len: number, level: number) => {
-      const buffer = getBuffer();
-      if (!buffer || buffer.byteLength === 0) return;
-      const view = new Uint8Array(buffer, ptr, len);
-      const msg = textDecoder.decode(view); // Reuse cached decoder
-      const methods = ['error', 'warn', 'info', 'debug', 'trace'];
-      (console as any)[methods[level] || 'log'](msg);
+      const view = getCachedView(Uint8Array, ptr, len);
+      const msg = textDecoder.decode(view);
+      (console as any)[LOG_METHODS[level] || 'log'](msg);
     },
 
     inos_log: (ptr: number, len: number, level: number) => {
-      const buffer = getBuffer();
-      if (!buffer || buffer.byteLength === 0) return;
-      const view = new Uint8Array(buffer, ptr, len);
-      const msg = textDecoder.decode(view); // Reuse cached decoder
-      const prefix = ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'][level] || 'LOG';
+      const view = getCachedView(Uint8Array, ptr, len);
+      const msg = textDecoder.decode(view);
+      const prefix = LOG_PREFIXES[level] || 'LOG';
 
       if (level === 0) console.warn(`[WASM-${prefix}] ${msg}`);
       else if (level <= 2) console.log(`[WASM-${prefix}] ${msg}`);
@@ -35,7 +57,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
     // Array creation
     inos_create_u8_array: (ptr: number, len: number) => {
-      return addHeapObject(new Uint8Array(getBuffer(), ptr, len));
+      return addHeapObject(getCachedView(Uint8Array, ptr, len));
     },
 
     inos_wrap_u8_array: (valIdx: number) => {
@@ -45,12 +67,12 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
     inos_create_u8_view: (bufferIdx: number, offset: number, len: number) => {
       const buffer = getObject(bufferIdx);
-      return addHeapObject(new Uint8Array(buffer, offset, len));
+      return addHeapObject(new Uint8Array(buffer, offset, len)); // Not cached as it's a dynamic buffer object
     },
 
     inos_create_i32_view: (bufferIdx: number, offset: number, len: number) => {
       const buffer = getObject(bufferIdx);
-      return addHeapObject(new Int32Array(buffer, offset, len));
+      return addHeapObject(new Int32Array(buffer, offset, len)); // Not cached
     },
 
     // Global access
@@ -81,9 +103,7 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
     // Strings
     inos_create_string: (ptr: number, len: number) => {
-      const buffer = getBuffer();
-      if (!buffer || buffer.byteLength === 0) return addHeapObject('');
-      const view = new Uint8Array(buffer, ptr, len);
+      const view = getCachedView(Uint8Array, ptr, len);
       const str = textDecoder.decode(view); // Reuse cached decoder
       return addHeapObject(str);
     },
@@ -134,20 +154,18 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       srcPtr: number,
       len: number
     ) => {
-      const buffer = getBuffer();
+      const src = getCachedView(Uint8Array, srcPtr, len);
       const targetBuffer = getObject(targetBufferIdx);
-      if (!buffer || !targetBuffer) return;
-      const src = new Uint8Array(buffer, srcPtr, len);
+      if (!targetBuffer) return;
       const dest = new Uint8Array(targetBuffer, targetOffset, len);
       dest.set(src);
     },
 
     inos_copy_from_sab: (srcBufferIdx: number, srcOffset: number, destPtr: number, len: number) => {
-      const buffer = getBuffer();
       const srcBuffer = getObject(srcBufferIdx);
-      if (!buffer || !srcBuffer) return;
+      if (!srcBuffer) return;
       const src = new Uint8Array(srcBuffer, srcOffset, len);
-      const dest = new Uint8Array(buffer, destPtr, len);
+      const dest = getCachedView(Uint8Array, destPtr, len);
       dest.set(src);
     },
 

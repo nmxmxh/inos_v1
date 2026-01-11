@@ -44,6 +44,13 @@ type SABBridge struct {
 
 	// Optimization: Scratch buffer for headers to avoid small allocations
 	scratchBuf [8]byte
+
+	// Profiling metrics
+	profilingEnabled bool
+	waitAsyncHits    uint64
+	waitAsyncMisses  uint64
+	totalReadTime    int64 // Nanoseconds
+	totalWriteTime   int64 // Nanoseconds
 }
 
 const defaultViewCacheMax = 64
@@ -253,6 +260,7 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 
 				isAsync := result.Get("async").Bool()
 				if isAsync {
+					atomic.AddUint64(&sb.waitAsyncHits, 1)
 					promise := result.Get("value")
 
 					// Create blocking channel for the promise callback
@@ -278,6 +286,7 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 		}
 
 		// 2. Fallback: Efficient Polling (100ms) if waitAsync missing
+		atomic.AddUint64(&sb.waitAsyncMisses, 1)
 		// relaxed for "no heat" architecture
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -495,9 +504,19 @@ func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
 
 	// FORCE JS INTEROP for correct SAB access
 	// Go linear memory != SAB memory in this environment
+	var startTime time.Time
+	if sb.profilingEnabled {
+		startTime = time.Now()
+	}
+
 	subView := sb.getCachedView(offset, uint32(len(data)))
 	if !subView.IsUndefined() {
 		copied := js.CopyBytesToJS(subView, data)
+
+		if sb.profilingEnabled {
+			atomic.AddInt64(&sb.totalWriteTime, int64(time.Since(startTime)))
+		}
+
 		if copied != len(data) {
 			return fmt.Errorf("failed to copy all bytes to JS: expected %d, got %d", len(data), copied)
 		}
@@ -540,9 +559,19 @@ func (sb *SABBridge) ReadAt(offset uint32, dest []byte) error {
 	// Go's linear memory is likely distinct from the SAB in this environment.
 	// We use CopyBytesToGo to copy from the shared SAB into Go memory.
 	// Optimization: Use Cached View
+	var startTime time.Time
+	if sb.profilingEnabled {
+		startTime = time.Now()
+	}
+
 	subView := sb.getCachedView(offset, size)
 	if !subView.IsUndefined() {
 		copied := js.CopyBytesToGo(dest, subView)
+
+		if sb.profilingEnabled {
+			atomic.AddInt64(&sb.totalReadTime, int64(time.Since(startTime)))
+		}
+
 		if uint32(copied) != size {
 			return fmt.Errorf("failed to copy all bytes: expected %d, got %d", size, copied)
 		}
@@ -641,6 +670,48 @@ func (sb *SABBridge) FlushViewCache() {
 
 	sb.viewCache = make(map[uint64]js.Value)
 	sb.viewCacheKeys = sb.viewCacheKeys[:0]
+}
+
+// SetProfiling enables or disables bridge-level profiling
+func (sb *SABBridge) SetProfiling(enabled bool) {
+	sb.profilingEnabled = enabled
+}
+
+// GetProfilingStats returns current performance metrics
+func (sb *SABBridge) GetProfilingStats() map[string]interface{} {
+	return map[string]interface{}{
+		"wait_async_hits":   atomic.LoadUint64(&sb.waitAsyncHits),
+		"wait_async_misses": atomic.LoadUint64(&sb.waitAsyncMisses),
+		"total_read_ns":     atomic.LoadInt64(&sb.totalReadTime),
+		"total_write_ns":    atomic.LoadInt64(&sb.totalWriteTime),
+	}
+}
+
+// WriteMetricsToSAB writes current metrics to the designated SAB region
+func (sb *SABBridge) WriteMetricsToSAB() {
+	if !sb.IsReady() {
+		return
+	}
+
+	hits := atomic.LoadUint64(&sb.waitAsyncHits)
+	misses := atomic.LoadUint64(&sb.waitAsyncMisses)
+	readNs := atomic.LoadInt64(&sb.totalReadTime)
+	writeNs := atomic.LoadInt64(&sb.totalWriteTime)
+
+	// Layout (32 bytes):
+	// [0:8]   waitAsyncHits
+	// [8:16]  waitAsyncMisses
+	// [16:24] totalReadTime
+	// [24:32] totalWriteTime
+	data := make([]byte, 32)
+	binary.LittleEndian.PutUint64(data[0:8], hits)
+	binary.LittleEndian.PutUint64(data[8:16], misses)
+	binary.LittleEndian.PutUint64(data[16:24], uint64(readNs))
+	binary.LittleEndian.PutUint64(data[24:32], uint64(writeNs))
+
+	_ = sb.WriteRaw(sab_layout.OFFSET_BRIDGE_METRICS, data)
+	// Signal metric update
+	sb.SignalEpoch(sab_layout.IDX_METRICS_EPOCH)
 }
 
 func (sb *SABBridge) ValidateArenaOffset(offset, size uint32) error {

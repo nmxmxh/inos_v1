@@ -19,7 +19,7 @@ pub fn set_global_barrier_view(view: JsValue) {
 /// Returns None if not yet initialized.
 /// NOTE: This clones the JsValue. For hot paths, use with_global_barrier_view instead.
 pub fn get_global_barrier_view() -> Option<JsValue> {
-    GLOBAL_BARRIER_VIEW.lock().ok().and_then(|g| g.clone())
+    with_global_barrier_view(|v| v.clone())
 }
 
 /// Execute a callback with the global barrier view without cloning.
@@ -205,6 +205,23 @@ impl SafeSAB {
         self.memory_barrier_release(offset);
 
         Ok(())
+    }
+
+    /// Direct zero-copy access to the underlying memory as a slice.
+    /// ONLY SAFE if WASM linear memory is the SharedArrayBuffer.
+    pub unsafe fn as_slice(&self, offset: usize, length: usize) -> Result<&[u8], String> {
+        self.bounds_check(offset, length)?;
+        self.memory_barrier_acquire(offset);
+        let ptr = (self.base_offset + offset) as *const u8;
+        Ok(std::slice::from_raw_parts(ptr, length))
+    }
+
+    /// Direct zero-copy access to the underlying memory as a mutable slice.
+    pub unsafe fn as_slice_mut(&self, offset: usize, length: usize) -> Result<&mut [u8], String> {
+        self.bounds_check(offset, length)?;
+        self.memory_barrier_acquire(offset);
+        let ptr = (self.base_offset + offset) as *mut u8;
+        Ok(std::slice::from_raw_parts_mut(ptr, length))
     }
 
     fn bounds_check(&self, offset: usize, length: usize) -> Result<(), String> {

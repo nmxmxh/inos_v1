@@ -183,6 +183,12 @@ export const OFFSET_DIAGNOSTICS = 0x150000 as const;
 /** 4KB */
 export const SIZE_DIAGNOSTICS = 0x001000 as const;
 
+/** Performance metrics for SAB bridge */
+export const OFFSET_BRIDGE_METRICS = 0x150800 as const;
+
+/** 256 bytes */
+export const SIZE_BRIDGE_METRICS = 256 as const;
+
 /** Async allocation requests */
 export const OFFSET_ARENA_REQUEST_QUEUE = 0x151000 as const;
 
@@ -403,6 +409,8 @@ export const CONSTS = {
   SIZE_ARENA_METADATA,
   OFFSET_DIAGNOSTICS,
   SIZE_DIAGNOSTICS,
+  OFFSET_BRIDGE_METRICS,
+  SIZE_BRIDGE_METRICS,
   OFFSET_ARENA_REQUEST_QUEUE,
   OFFSET_ARENA_RESPONSE_QUEUE,
   ARENA_QUEUE_ENTRY_SIZE,

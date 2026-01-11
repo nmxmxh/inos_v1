@@ -114,6 +114,9 @@ const sizeArenaMetadata      :UInt32 = 0x010000;   # 64KB reserved for metadata
 const offsetDiagnostics      :UInt32 = 0x00150000; # Diagnostics region
 const sizeDiagnostics        :UInt32 = 0x001000;   # 4KB
 
+const offsetBridgeMetrics    :UInt32 = 0x00150800; # Performance metrics for SAB bridge
+const sizeBridgeMetrics      :UInt32 = 0x000100;   # 256 bytes
+
 const offsetArenaRequestQueue  :UInt32 = 0x00151000; # Async allocation requests
 const offsetArenaResponseQueue :UInt32 = 0x00152000; # Async allocation responses
 const arenaQueueEntrySize      :UInt32 = 64;

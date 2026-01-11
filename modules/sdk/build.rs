@@ -15,6 +15,7 @@ fn main() {
         .file("../../protocols/schemas/identity/v1/identity.capnp")
         .file("../../protocols/schemas/system/v1/syscall.capnp")
         .file("../../protocols/schemas/system/v1/resource.capnp")
+        .file("../../protocols/schemas/system/v1/diagnostics.capnp")
         .src_prefix("../../protocols/schemas")
         // Add import path so they can find each other
         .import_path("../../protocols/schemas")

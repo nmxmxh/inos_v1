@@ -77,6 +77,7 @@ type BoidsSupervisor struct {
 
 	// Optimization: Reusable buffer for population reads to avoid GC pressure
 	populationBuf []byte
+	birdChunkBuf  []byte // Reusable buffer for single bird writes
 
 	// Delegation for mesh-aware evolution
 	delegator foundation.MeshDelegator
@@ -97,6 +98,7 @@ func NewBoidsSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiered
 		mutationRate:      0.1,
 		meshNodesActive:   0,
 		evolutionInterval: EvolutionInterval,
+		birdChunkBuf:      make([]byte, 180),
 	}
 	return s
 }
@@ -284,7 +286,7 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 		defer wg.Done()
 		for i := 0; i < localCount; i++ {
 			if i%50 == 0 {
-				time.Sleep(1 * time.Nanosecond) // Yield to JS event loop to prevent blocking
+				runtime.Gosched() // Yield to JS event loop to prevent blocking
 			}
 			p1 := s.TournamentSelect(survivors)
 			p2 := s.TournamentSelect(survivors)
@@ -703,9 +705,9 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 		trickTargets[rand.Intn(s.birdCount)] = true
 	}
 
-	// Pre-allocate a reused buffer for one bird's weight data (180 bytes)
-	// Layout: Fitness (4) + Weights (44 * 4 = 176) = 180 bytes
-	chunk := make([]byte, 180)
+	s.mu.RLock()
+	chunk := s.birdChunkBuf
+	s.mu.RUnlock()
 
 	for i, bird := range population {
 		// Prepare data chunk

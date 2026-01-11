@@ -174,7 +174,7 @@ export default function InstancedBoidsRenderer() {
     if (moduleExports?.compute) {
       dispatch.execute('boids', 'step_physics', {
         bird_count: CONFIG.BIRD_COUNT,
-        dt: delta * 2, // Compensate for 30Hz
+        dt: delta, // Compensate for 30Hz
       });
 
       // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)

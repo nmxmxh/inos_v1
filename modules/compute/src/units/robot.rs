@@ -1,6 +1,5 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use async_trait::async_trait;
-use log::info;
 use sdk::layout::*;
 use std::sync::Mutex;
 

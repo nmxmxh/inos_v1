@@ -88,6 +88,9 @@ pub const OFFSET_ARENA: usize = sab::OFFSET_ARENA as usize;
 pub const OFFSET_DIAGNOSTICS: usize = sab::OFFSET_DIAGNOSTICS as usize;
 pub const SIZE_DIAGNOSTICS: usize = sab::SIZE_DIAGNOSTICS as usize;
 
+pub const OFFSET_BRIDGE_METRICS: usize = OFFSET_DIAGNOSTICS + 0x800;
+pub const SIZE_BRIDGE_METRICS: usize = 0x100;
+
 /// Async Request/Response Queues
 pub const OFFSET_ARENA_REQUEST_QUEUE: usize = sab::OFFSET_ARENA_REQUEST_QUEUE as usize;
 pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = sab::OFFSET_ARENA_RESPONSE_QUEUE as usize;

@@ -111,6 +111,9 @@ const (
 	OFFSET_DIAGNOSTICS = system.OffsetDiagnostics
 	SIZE_DIAGNOSTICS   = system.SizeDiagnostics
 
+	OFFSET_BRIDGE_METRICS = system.OffsetDiagnostics + 0x800
+	SIZE_BRIDGE_METRICS   = 0x100
+
 	// Async Request/Response Queues
 	OFFSET_ARENA_REQUEST_QUEUE  = system.OffsetArenaRequestQueue
 	OFFSET_ARENA_RESPONSE_QUEUE = system.OffsetArenaResponseQueue

@@ -7,6 +7,7 @@
 
 import styled, { css } from 'styled-components';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 
 const Style = {
   MetricsBar: styled(motion.div)`
@@ -134,9 +135,20 @@ export function MeshMetricsBar() {
   return (
     <Style.MetricsBar initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}>
       <Style.Metric>
-        <Style.PulseIndicator $active={!!global || displayMetrics.meshActive} />
-        <Style.Label>Mesh</Style.Label>
-        <Style.Value>{global || displayMetrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
+        <Link
+          to="/diagnostics"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            textDecoration: 'none',
+            color: 'inherit',
+          }}
+        >
+          <Style.PulseIndicator $active={!!global || displayMetrics.meshActive} />
+          <Style.Label>Mesh</Style.Label>
+          <Style.Value>{global || displayMetrics.meshActive ? 'LIVE' : 'SYNC'}</Style.Value>
+        </Link>
       </Style.Metric>
 
       <Style.Divider />

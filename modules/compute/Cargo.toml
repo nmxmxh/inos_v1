@@ -128,7 +128,7 @@ capnp = "0.19"
 
 # GPU shader validation (200KB, WASM-compatible)
 naga = { version = "0.19", features = ["wgsl-in"] }
-regex = "1.10"
+regex = { version = "1.10", default-features = false, features = ["std", "perf", "unicode-perl"] }
 
 # Module Bridges
 # All modules removed - compute is now self-contained

@@ -31,6 +31,7 @@ import Cosmos from './pages/Cosmos';
 
 // Deep Dives
 import { ZeroCopy, Signaling, Mesh, Economy, Threads, Graphics, Database } from './pages/DeepDives';
+import Diagnostics from './pages/Diagnostics';
 
 function SystemLoader({ children }: { children: React.ReactNode }) {
   const { status, error, initialize } = useSystemStore();
@@ -168,6 +169,7 @@ export default function App() {
             <Route path="architecture" element={<Architecture />} />
             <Route path="genesis" element={<Genesis />} />
             <Route path="cosmos" element={<Cosmos />} />
+            <Route path="diagnostics" element={<Diagnostics />} />
             {/* Deep Dives */}
             <Route path="deep-dives">
               <Route path="zero-copy" element={<ZeroCopy />} />

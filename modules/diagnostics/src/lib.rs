@@ -1,6 +1,9 @@
+use capnp::message::{Builder, ReaderOptions};
+use capnp::serialize_packed;
 use log::info;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use sdk::protocols::diagnostics::{diagnostics_request, diagnostics_response};
 use sdk::sab::SafeSAB;
 use sdk::Reactor;
 
@@ -116,6 +119,17 @@ impl DiagnosticsModule {
         let now = (sdk::js_interop::get_now() as f64 / 1000.0) as u32;
         let _ = sab.write(heart_offset, &now.to_le_bytes());
     }
+
+    /// Collect bridge performance metrics
+    pub fn collect_bridge_metrics(&self) -> Result<Vec<u8>, String> {
+        use sdk::layout::*;
+        info!("Watchdog: Collecting bridge performance metrics...");
+
+        // Read 32 bytes from bridge metrics region
+        self.sab
+            .read(OFFSET_BRIDGE_METRICS, 32)
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Standardized Memory Allocator for WebAssembly
@@ -180,9 +194,50 @@ pub extern "C" fn diagnostics_poll() {
         // 1. Check for external diagnostics requests
         if watchdog.reactor.check_inbox() {
             watchdog.reactor.ack_inbox();
-            if let Some(_req) = watchdog.reactor.read_request() {
-                // Process diagnostics request (e.g. manual scan)
-                let _ = watchdog.scan_memory();
+            if let Some(req_bytes) = watchdog.reactor.read_request() {
+                // Parse Cap'n Proto request
+                let mut slice = &req_bytes[..];
+                let reader = serialize_packed::read_message(&mut slice, ReaderOptions::new());
+
+                if let Ok(msg_reader) = reader {
+                    if let Ok(req) = msg_reader.get_root::<diagnostics_request::Reader>() {
+                        let req_id = req.get_id();
+                        let method = req.get_method().unwrap();
+
+                        let mut response_msg = Builder::new_default();
+                        {
+                            let mut resp =
+                                response_msg.init_root::<diagnostics_response::Builder>();
+                            resp.set_id(req_id);
+
+                            match method {
+                                diagnostics_request::Method::Ping => {
+                                    resp.set_status(diagnostics_response::Status::Success);
+                                    resp.set_ok(());
+                                }
+                                diagnostics_request::Method::ScanMemory => {
+                                    let _ = watchdog.scan_memory();
+                                    resp.set_status(diagnostics_response::Status::Success);
+                                    resp.set_ok(());
+                                }
+                                diagnostics_request::Method::CollectBridgeMetrics => {
+                                    if let Ok(data) = watchdog.collect_bridge_metrics() {
+                                        resp.set_status(diagnostics_response::Status::Success);
+                                        resp.set_metrics(&data);
+                                    } else {
+                                        resp.set_status(diagnostics_response::Status::Error);
+                                        resp.set_error("Failed to collect metrics");
+                                    }
+                                }
+                            }
+                        }
+
+                        let mut resp_bytes = Vec::new();
+                        if serialize_packed::write_message(&mut resp_bytes, &response_msg).is_ok() {
+                            watchdog.reactor.write_result(&resp_bytes);
+                        }
+                    }
+                }
             }
         }
 
@@ -201,6 +256,7 @@ fn register_diagnostics(sab: &sdk::sab::SafeSAB) {
     builder = builder.capability("memory_scan", false, 64);
     builder = builder.capability("epoch_pulse", false, 64);
     builder = builder.capability("signal_trace", false, 64);
+    builder = builder.capability("perf_metrics", false, 64);
 
     match builder.build() {
         Ok((mut entry, _, caps)) => {

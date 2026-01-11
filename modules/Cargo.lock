@@ -1405,13 +1405,12 @@ dependencies = [
 name = "diagnostics"
 version = "0.1.0"
 dependencies = [
+ "capnp",
  "js-sys",
  "log",
  "once_cell",
  "parking_lot 0.12.5",
  "sdk",
- "serde",
- "serde_json",
  "web-sys",
 ]
 
