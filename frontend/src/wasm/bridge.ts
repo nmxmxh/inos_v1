@@ -9,6 +9,12 @@ const textEncoder = new TextEncoder();
 const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
 const LOG_PREFIXES = ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
 
+let globalLogLevel = 1; // Default to INFO (1)
+
+export function setGlobalLogLevel(level: number) {
+  globalLogLevel = level;
+}
+
 export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
   const addHeapObject = (obj: any) => heap.add(obj);
   const getObject = (idx: number) => heap.get(idx);
@@ -55,12 +61,14 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
   return {
     // Logging
     host_log: (ptr: number, len: number, level: number) => {
+      if (level > globalLogLevel) return; // Skip if level is too high (verbose)
       const view = getCachedView(Uint8Array, ptr, len);
       const msg = textDecoder.decode(view);
       (console as any)[LOG_METHODS[level] || 'log'](msg);
     },
 
     inos_log: (ptr: number, len: number, level: number) => {
+      if (level > globalLogLevel) return; // Skip filtered logs
       const view = getCachedView(Uint8Array, ptr, len);
       const msg = textDecoder.decode(view);
       const prefix = LOG_PREFIXES[level] || 'LOG';

@@ -3,7 +3,6 @@ import { useRef, useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { useSystemStore } from '../../../src/store/system';
 import { dispatch } from '../../../src/wasm/dispatch';
-import LeaderMarker from './LeaderMarker';
 import {
   OFFSET_BIRD_BUFFER_A,
   OFFSET_MATRIX_BUFFER_A,
@@ -26,7 +25,7 @@ const CONFIG = {
 };
 
 export default function InstancedBoidsRenderer() {
-  const { moduleExports } = useSystemStore();
+  const moduleExports = useSystemStore(s => s.moduleExports);
   const moduleExportsRef = useRef(moduleExports);
   moduleExportsRef.current = moduleExports;
 
@@ -39,6 +38,7 @@ export default function InstancedBoidsRenderer() {
   const rightWingRef = useRef<THREE.InstancedMesh>(null);
   const rightWingTipRef = useRef<THREE.InstancedMesh>(null);
   const tailsRef = useRef<THREE.InstancedMesh>(null);
+  const flagsRef = useRef<Int32Array | null>(null);
 
   // Shared geometries
   const geometries = useMemo(
@@ -183,10 +183,13 @@ export default function InstancedBoidsRenderer() {
       const sab = (window as any).__INOS_SAB__;
       if (!sab) return;
 
-      // Determine active matrix buffer from epoch at IDX_MATRIX_EPOCH
-      const flags = new Int32Array(sab, 0, 16);
+      // Optimization: Cache persistent views to avoid per-frame TypedArray creation
+      if (!flagsRef.current || flagsRef.current.buffer !== sab) {
+        flagsRef.current = new Int32Array(sab, 0, 16);
+      }
+      const flags = flagsRef.current;
       const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
-      const isBufferA = matrixEpoch % 2 === 0;
+      const isBufferA = Number(matrixEpoch) % 2 === 0;
 
       // Use layout constants for buffer offsets
       const matrixBase = isBufferA ? OFFSET_MATRIX_BUFFER_A : OFFSET_MATRIX_BUFFER_B;
@@ -242,11 +245,6 @@ export default function InstancedBoidsRenderer() {
         args={[geometries.wingTip, materials.wingTip, CONFIG.BIRD_COUNT]}
       />
       <instancedMesh ref={tailsRef} args={[geometries.tail, materials.tail, CONFIG.BIRD_COUNT]} />
-
-      {/* Leader HUD - Approach B: Minimalist Three.js Marker (Zero-Copy) */}
-      {(window as any).__INOS_SAB__ && (
-        <LeaderMarker sab={(window as any).__INOS_SAB__} birdIndex={0} offset={CONFIG.SAB_OFFSET} />
-      )}
     </>
   );
 }

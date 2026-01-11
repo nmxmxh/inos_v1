@@ -7,7 +7,6 @@ pub mod gpu;
 pub mod image;
 pub mod math;
 pub mod physics;
-pub mod robot;
 pub mod storage;
 
 #[cfg(test)]
@@ -23,5 +22,4 @@ pub use gpu::GpuUnit;
 pub use image::ImageUnit;
 pub use math::MathUnit;
 pub use physics::PhysicsEngine;
-pub use robot::RobotUnit;
 // pub use storage::StorageUnit;

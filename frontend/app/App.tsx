@@ -34,7 +34,10 @@ import { ZeroCopy, Signaling, Mesh, Economy, Threads, Graphics, Database } from 
 import Diagnostics from './pages/Diagnostics';
 
 function SystemLoader({ children }: { children: React.ReactNode }) {
-  const { status, error, initialize } = useSystemStore();
+  const status = useSystemStore(s => s.status);
+  const error = useSystemStore(s => s.error);
+  const initialize = useSystemStore(s => s.initialize);
+
   const loading = status === 'booting' || status === 'initializing';
   const ready = status === 'ready';
 

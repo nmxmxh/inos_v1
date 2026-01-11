@@ -5,6 +5,7 @@ package main
 
 import (
 	"runtime"
+	"runtime/debug"
 	"syscall/js"
 )
 
@@ -51,7 +52,11 @@ func main() {
 	}))
 
 	// Signal Boot Sequence (Reactive - waits for SAB)
-	go kernelInstance.Boot()
+	go func() {
+		kernelInstance.Boot()
+		// Reclaim memory after subsystems are initialized
+		debug.FreeOSMemory()
+	}()
 
 	// Block Main Thread
 	select {}
@@ -86,6 +91,6 @@ func detectOptimalConfig() *KernelConfig {
 	return &KernelConfig{
 		EnableThreading: true,
 		MaxWorkers:      workers,
-		LogLevel:        0, // INFO
+		LogLevel:        1, // INFO
 	}
 }

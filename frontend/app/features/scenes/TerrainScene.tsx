@@ -139,7 +139,7 @@ class SimplexNoise {
 
 function TerrainMesh() {
   const sab = useSAB();
-  const { moduleExports } = useSystemStore();
+  const moduleExports = useSystemStore(s => s.moduleExports);
   const meshRef = useRef<THREE.Mesh>(null);
   const [seed] = useState(() => Math.floor(Math.random() * 10000));
   const noise = useMemo(() => new SimplexNoise(seed), [seed]);
@@ -280,7 +280,7 @@ function TerrainMesh() {
 
 function CloudLayer() {
   const sab = useSAB();
-  const { moduleExports } = useSystemStore();
+  const moduleExports = useSystemStore(s => s.moduleExports);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef(0);
 

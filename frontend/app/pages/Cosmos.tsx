@@ -2,23 +2,16 @@
  * INOS Technical Codex — Chapter 7: The Moonshot (Cosmos)
  *
  * The grand finale. Demonstrating the planetary-scale computer.
- * Integrating N-Body physics, Robotics protocols, and the Infinite Canvas.
+ * Integrating N-Body physics and the Infinite Canvas.
  */
 
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
 import GlobalDashboard from '../features/analytics/GlobalDashboard';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Float } from '@react-three/drei';
-import { EffectComposer, Bloom, Noise } from '@react-three/postprocessing';
-import { MorphicLattice } from '../features/robot/MorphicLattice';
-import { useLatticeState } from '../features/robot/useLatticeState';
-import { useGlobalAnalytics } from '../features/analytics/useGlobalAnalytics';
-import RollingCounter from '../ui/RollingCounter';
 
 const Style = {
   ...ManuscriptStyle,
@@ -439,130 +432,6 @@ function SupercomputerDensityMap() {
   return <svg ref={svgRef} viewBox="0 0 800 300" style={{ width: '100%', height: 'auto' }} />;
 }
 
-function RoboticProtocolBridge() {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const theme = useTheme();
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-    const timeouts: any[] = [];
-
-    const g = svg.append('g').attr('transform', 'translate(50, 40)');
-
-    // Vertical pipeline: Hardware -> SDK -> SAB -> Mesh -> Coordination
-    const stages = [
-      { id: 'hw', label: 'HARDWARE (SENSORS/ACTUATORS)', color: '#64748b' },
-      { id: 'proto', label: 'PROTOCOL (MAVLINK/ROS2)', color: '#64748b' },
-      { id: 'sab', label: 'SAB ZERO-COPY HUB', color: '#8b5cf6', highlight: true },
-      { id: 'mesh', label: 'GLOBAL MESH GOSSIP', color: '#10b981' },
-      { id: 'coord', label: 'SWARM COORDINATION (P2P)', color: '#f59e0b' },
-    ];
-
-    stages.forEach((s, i) => {
-      const y = i * 60;
-
-      // Box
-      g.append('rect')
-        .attr('x', 150)
-        .attr('y', y)
-        .attr('width', 300)
-        .attr('height', 40)
-        .attr('rx', 4)
-        .attr('fill', s.highlight ? `${s.color}15` : '#f8fafc')
-        .attr('stroke', s.color)
-        .attr('stroke-width', s.highlight ? 2 : 1);
-
-      g.append('text')
-        .attr('x', 300)
-        .attr('y', y + 25)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('font-weight', 800)
-        .attr('fill', s.color)
-        .text(s.label);
-
-      // Connectors
-      if (i < stages.length - 1) {
-        g.append('line')
-          .attr('x1', 300)
-          .attr('y1', y + 40)
-          .attr('x2', 300)
-          .attr('y2', i === 1 ? y + 60 : y + 60)
-          .attr('stroke', theme.colors.borderSubtle)
-          .attr('stroke-width', 1);
-      }
-    });
-
-    // Swarm Visualization (Right side)
-    const vehicles = d3.range(4).map(i => ({
-      id: i,
-      x: 550,
-      y: 50 + i * 60,
-    }));
-
-    vehicles.forEach(v => {
-      const vehicleGroup = g.append('g').attr('transform', `translate(${v.x}, ${v.y})`);
-
-      // Drone/Car Icon
-      vehicleGroup.append('path').attr('d', 'M -15 -8 L 15 -8 L 0 15 Z').attr('fill', '#1e293b');
-
-      // Sync lines to "Coordination" box
-      g.append('path')
-        .attr('d', `M ${v.x - 20} ${v.y} Q ${v.x - 50} ${v.y} 450 ${260}`)
-        .attr('fill', 'none')
-        .attr('stroke', '#f59e0b')
-        .attr('stroke-width', 1)
-        .attr('stroke-dasharray', '4,2')
-        .style('opacity', 0.4);
-
-      // Data pulse from Hardware
-      const pulse = g.append('circle').attr('r', 3).attr('fill', '#8b5cf6').style('opacity', 0);
-
-      function runPulse() {
-        pulse
-          .style('opacity', 1)
-          .attr('cx', 150)
-          .attr('cy', 20)
-          .transition()
-          .duration(2000)
-          .attr('cy', 140) // SAB
-          .transition()
-          .duration(1000)
-          .attr('cy', 200) // Mesh
-          .transition()
-          .duration(1000)
-          .attr('cx', 300)
-          .attr('cy', 260) // Coord
-          .transition()
-          .duration(1500)
-          .attr('cx', v.x)
-          .attr('cy', v.y)
-          .on('end', runPulse);
-      }
-      const timeoutId = setTimeout(runPulse, v.id * 1000);
-      timeouts.push(timeoutId);
-    });
-
-    g.append('text')
-      .attr('x', 550)
-      .attr('y', 20)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkMedium)
-      .text('DISTRIBUTED SWARM');
-
-    return () => {
-      timeouts.forEach(clearTimeout);
-      svg.selectAll('*').interrupt().remove();
-    };
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 750 350" style={{ width: '100%', height: 'auto' }} />;
-}
-
 function RoadmapTimeline() {
   const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
@@ -635,38 +504,163 @@ function RoadmapTimeline() {
   return <svg ref={svgRef} viewBox="0 0 600 150" style={{ width: '100%', height: 'auto' }} />;
 }
 
-const LatticeTelemetry = () => {
-  const { metrics } = useLatticeState();
-  const globalAnalytics = useGlobalAnalytics();
-  const activeNodes = globalAnalytics?.activeNodeCount ?? 1;
+/**
+ * Illustration: The Autonomous Stream
+ * Visualizing the flow from Sensors -> SAB -> AI -> Actuators
+ */
+function TheAutonomousStream() {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const theme = useTheme();
 
-  const phaseName = useMemo(() => {
-    switch (metrics?.phase) {
-      case 0:
-        return 'ENTROPIC (INIT)';
-      case 1:
-        return 'EMERGENT (SEEKING)';
-      case 2:
-        return 'MORPHIC (LOCKED)';
-      default:
-        return 'CONNECTING...';
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const svg = d3.select(svgRef.current);
+    svg.selectAll('*').remove();
+
+    const width = 800;
+    const height = 300;
+    const centerY = height / 2;
+
+    const g = svg.append('g');
+
+    // 1. Sources (Left)
+    const sources = [
+      { id: 'lidar', label: 'LIDAR', y: centerY - 60 },
+      { id: 'cam', label: 'VISION', y: centerY },
+      { id: 'bio', label: 'BIO-SENSORS', y: centerY + 60 },
+    ];
+
+    // 2. The Core (Center)
+    const core = { x: width / 2, y: centerY, label: 'SAB HIVE MIND' };
+
+    // 3. The Outputs (Right)
+    const outputs = [
+      { id: 'vr', label: 'HOLOGRAMS', y: centerY - 60 },
+      { id: 'drone', label: 'SWARMS', y: centerY },
+      { id: 'car', label: 'AUTONOMY', y: centerY + 60 },
+    ];
+
+    // Draw lines first (back layer)
+    sources.forEach(s => {
+      g.append('path')
+        .attr('d', `M 150 ${s.y} C 250 ${s.y}, 300 ${centerY}, ${width / 2 - 40} ${centerY}`)
+        .attr('fill', 'none')
+        .attr('stroke', '#e2e8f0')
+        .attr('stroke-width', 1);
+    });
+
+    outputs.forEach(o => {
+      g.append('path')
+        .attr('d', `M ${width / 2 + 40} ${centerY} C 500 ${centerY}, 550 ${o.y}, 650 ${o.y}`)
+        .attr('fill', 'none')
+        .attr('stroke', '#e2e8f0')
+        .attr('stroke-width', 1);
+    });
+
+    // Draw Source Nodes
+    const sourceGroups = g
+      .selectAll('.source')
+      .data(sources)
+      .enter()
+      .append('g')
+      .attr('transform', d => `translate(150, ${d.y})`);
+
+    sourceGroups.append('circle').attr('r', 4).attr('fill', '#64748b');
+    sourceGroups
+      .append('text')
+      .attr('x', -15)
+      .attr('dy', 4)
+      .attr('text-anchor', 'end')
+      .attr('font-size', 9)
+      .attr('font-weight', 700)
+      .attr('fill', '#64748b')
+      .text(d => d.label);
+
+    // Draw Output Nodes
+    const outputGroups = g
+      .selectAll('.output')
+      .data(outputs)
+      .enter()
+      .append('g')
+      .attr('transform', d => `translate(650, ${d.y})`);
+
+    outputGroups.append('circle').attr('r', 4).attr('fill', '#ec4899');
+    outputGroups
+      .append('text')
+      .attr('x', 15)
+      .attr('dy', 4)
+      .attr('text-anchor', 'start')
+      .attr('font-size', 9)
+      .attr('font-weight', 700)
+      .attr('fill', '#ec4899')
+      .text(d => d.label);
+
+    // Draw Core
+    g.append('circle')
+      .attr('cx', core.x)
+      .attr('cy', core.y)
+      .attr('r', 40)
+      .attr('fill', '#fff')
+      .attr('stroke', '#8b5cf6')
+      .attr('stroke-width', 2);
+
+    g.append('text')
+      .attr('x', core.x)
+      .attr('y', core.y + 4)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 10)
+      .attr('font-weight', 800)
+      .attr('fill', '#8b5cf6')
+      .text('INOS KERNEL');
+
+    // Particles
+    function emitParticle() {
+      const source = sources[Math.floor(Math.random() * sources.length)];
+      const output = outputs[Math.floor(Math.random() * outputs.length)];
+
+      const p = g.append('circle').attr('r', 2).attr('fill', '#8b5cf6').attr('opacity', 0);
+
+      // Path 1: Source -> Core
+      p.attr('transform', `translate(150, ${source.y})`)
+        .transition()
+        .duration(1000)
+        .ease(d3.easeLinear)
+        .attr('opacity', 1)
+        .attrTween('transform', () => t => {
+          const endX = width / 2 - 40;
+          // simplify: linear move for now to ensure robustness without path ref
+          const currX = 150 + (endX - 150) * t;
+          const currY = source.y + (centerY - source.y) * t;
+          // Add a slight curve
+          const curveY = currY + Math.sin(t * Math.PI) * (centerY - source.y) * 0.5;
+          return `translate(${currX}, ${curveY})`;
+        })
+        .on('end', () => {
+          // Path 2: Core -> Output
+          p.transition()
+            .duration(1000)
+            .ease(d3.easeQuadOut)
+            .attrTween('transform', () => t => {
+              const startX = width / 2 + 40;
+              const endX = 650;
+              const currX = startX + (endX - startX) * t;
+              const currY = centerY + (output.y - centerY) * t;
+              // Add a slight curve
+              const curveY = currY + Math.sin(t * Math.PI) * (output.y - centerY) * 0.5;
+
+              return `translate(${currX}, ${curveY})`;
+            })
+            .attr('fill', '#ec4899') // Change color to output
+            .on('end', () => p.remove());
+        });
     }
-  }, [metrics?.phase]);
 
-  return (
-    <Style.StatBadge>
-      SIMULATION: <span>{phaseName}</span>
-      {activeNodes === 1 ? 'NODE' : 'NODES'}:{' '}
-      <span>
-        <RollingCounter value={activeNodes} decimals={0} />
-      </span>
-      SYNTROPY:{' '}
-      <span>
-        <RollingCounter value={metrics ? metrics.syntropy : 0} decimals={4} />
-      </span>
-    </Style.StatBadge>
-  );
-};
+    const timer = setInterval(emitParticle, 100);
+    return () => clearInterval(timer);
+  }, [theme]);
+
+  return <svg ref={svgRef} viewBox="0 0 800 300" style={{ width: '100%', height: 'auto' }} />;
+}
 
 export default function Cosmos() {
   const theme = useTheme();
@@ -683,59 +677,7 @@ export default function Cosmos() {
         </Style.HeroSection>
       </ScrollReveal>
       <Style.SectionDivider />
-      <ScrollReveal>
-        <Style.ContentCard>
-          <h3>The Morphic Lattice</h3>
-          <p>
-            We stopped trying to build a robot that looks like a human. That was thinking too small.
-          </p>
-          <p>
-            The <strong>Morphic Lattice</strong> is the shape of this planetary computer. It
-            connects thousands of isolated devices into a single, breathing organism. No wires. Just
-            pure math holding them together in a living geometry.
-          </p>
 
-          <Style.GalaxyContainer>
-            <LatticeTelemetry />
-            <Canvas camera={{ position: [0, 8, 12], fov: 60 }} dpr={[1, 2]}>
-              <color attach="background" args={['#ffffff']} />
-              <fog attach="fog" args={['#ffffff', 10, 30]} />
-              <ambientLight intensity={0.8} />
-              <OrbitControls
-                makeDefault
-                enableZoom={true}
-                enablePan={false}
-                autoRotate
-                autoRotateSpeed={0.5}
-                minDistance={5}
-                maxDistance={18}
-                enableDamping
-                dampingFactor={0.05}
-                zoomSpeed={0.4}
-              />
-              <Float speed={2} rotationIntensity={0.5} floatIntensity={0.5}>
-                <MorphicLattice />
-              </Float>
-              <EffectComposer enableNormalPass={false}>
-                <Bloom luminanceThreshold={0.5} mipmapBlur intensity={0.8} radius={0.4} />
-                <Noise opacity={0.02} />
-              </EffectComposer>
-            </Canvas>
-          </Style.GalaxyContainer>
-
-          <Style.DefinitionBox>
-            <h4>Syntropy (The Heartbeat)</h4>
-            <p>
-              Think of Syntropy as the network's metabolism. When it's low, devices are
-              wandering—searching for peers in the dark (<strong>Red Pulse</strong>).
-            </p>
-            <p>
-              When it's high, they lock into place (<strong>Violet Pulse</strong>). They stop
-              competing and start computing together. The chaos organizes into a crystal.
-            </p>
-          </Style.DefinitionBox>
-        </Style.ContentCard>
-      </ScrollReveal>
       <Style.SectionDivider />
       <ScrollReveal>
         <Style.ContentCard>
@@ -808,32 +750,7 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
-      <ScrollReveal>
-        <Style.ContentCard>
-          <h3>Lesson 3: The Real-World Link</h3>
-          <p>
-            This isn't just about pixels. It's about the physical world. By integrating
-            <strong>MAVLink</strong> and <strong>ROS2</strong> protocols directly into our Rust
-            Muscles, INOS becomes the operating system for decentralized robotics.
-          </p>
-          <p>
-            The expansive architecture allows for <strong>Swarm Synchronization</strong>. Instead of
-            checking in with a central tower (monolith), autonomous vehicles and drones synchronize
-            directly through the mesh. The flow is instantaneous: from local hardware to the SAB
-            Hub, and out to the global coordination mesh. The swarm becomes a single, coordinated
-            organism.
-          </p>
 
-          <Style.IllustrationContainer>
-            <Style.IllustrationHeader>
-              <Style.IllustrationTitle>
-                Robotics Swarm Coordination Pipeline
-              </Style.IllustrationTitle>
-            </Style.IllustrationHeader>
-            <RoboticProtocolBridge />
-          </Style.IllustrationContainer>
-        </Style.ContentCard>
-      </ScrollReveal>
       <Style.SectionDivider />
       <ScrollReveal>
         <Style.ContentCard>
@@ -873,15 +790,39 @@ export default function Cosmos() {
             need more than code. We need a collective. Every browser that joins the mesh adds
             another TFLOP of compute power.
           </p>
+        </Style.ContentCard>
+      </ScrollReveal>
 
-          <Style.DefinitionBox>
-            <h4>Active Manifold</h4>
-            <p>
-              The Morphic Lattice above is a live demonstration of Go-orchestrated, Rust-computed,
-              and Zero-Copy-visualized topological manifold physics. It is the first stage of the
-              Planetary Computer's physical manifestation.
-            </p>
-          </Style.DefinitionBox>
+      <Style.SectionDivider />
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Epilogue: The Substrate</h3>
+          <p>
+            Long before we wrote the first line of code, the architects wondered what the computers
+            of the future would look like. Not the ones on our desks, but the ones that would power{' '}
+            <strong>flying cars</strong>, render <strong>holographic cities</strong>, and coordinate{' '}
+            <strong>swarms of intelligent robots</strong>.
+          </p>
+          <p>
+            They realized they weren't building a tool. They were building a substrate. A digital
+            nervous system capable of reacting to the physical world with the same speed and
+            intuition as biology itself.
+          </p>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>Fig_08 // The Autonomous Bridge</Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <TheAutonomousStream />
+            <Style.IllustrationCaption>
+              From Sensor to Action: The Zero-Copy Pipeline of the Future.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+
+          <p>
+            Whether it's an AI model deciding to turn a wheel, or a VR headset rendering a photon,
+            the requirement is the same: <strong>Reality must be computed in real-time.</strong>
+          </p>
         </Style.ContentCard>
       </ScrollReveal>
       <Style.SectionDivider />

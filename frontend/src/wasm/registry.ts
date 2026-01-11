@@ -11,6 +11,7 @@ import {
 } from './layout';
 
 const CAPABILITY_ENTRY_SIZE = 36;
+const textDecoder = new TextDecoder();
 
 export interface ModuleEntry {
   id: string;
@@ -35,8 +36,8 @@ export class RegistryReader {
     const bytes = new Uint8Array(this.memory.buffer, offset, length);
     let end = 0;
     while (end < length && bytes[end] !== 0) end++;
-    // SAB decoding fix: slice to create copy before decoding
-    return new TextDecoder().decode(bytes.slice(0, end));
+    // SAB decoding fix: must slice to create non-shared copy before decoding
+    return textDecoder.decode(bytes.slice(0, end));
   }
 
   private readCapabilities(arenaOffset: number, count: number): string[] {

@@ -27,17 +27,23 @@ export function useMeshMetrics() {
     if (!sab) return;
 
     let lastEpoch = -1;
+    let flagsView: Int32Array | null = null;
+    let dataView: DataView | null = null;
 
     const interval = setInterval(() => {
       try {
-        const flags = new Int32Array(sab, 0, 32);
-        const currentEpoch = Atomics.load(flags, IDX_METRICS_EPOCH);
+        if (!flagsView || flagsView.buffer !== sab) {
+          flagsView = new Int32Array(sab, 0, 32);
+          dataView = new DataView(sab, OFFSET_MESH_METRICS, 256);
+        }
 
-        if (currentEpoch === lastEpoch) return;
-        lastEpoch = currentEpoch;
+        const currentEpoch = Atomics.load(flagsView, IDX_METRICS_EPOCH);
+
+        if (Number(currentEpoch) === lastEpoch) return;
+        lastEpoch = Number(currentEpoch);
 
         // Read metrics from SAB
-        const view = new DataView(sab, OFFSET_MESH_METRICS, 256);
+        const view = dataView!;
 
         setMetrics({
           totalPeers: view.getUint32(0, true),

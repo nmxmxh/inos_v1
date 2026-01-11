@@ -70,11 +70,6 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 		loaded["analytics_supervisor"] = units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	}
 
-	// 5. EXPLICIT: Create RobotSupervisor (Moonshot)
-	if _, exists := loaded["robot_supervisor"]; !exists {
-		loaded["robot_supervisor"] = units.NewRobotSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
-	}
-
 	return loaded, bridge
 }
 
@@ -113,8 +108,6 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 		return units.NewIdentitySupervisor(bridge, ul.patterns, ul.knowledge, ul.sab, ul.sabSize, sab_layout.OFFSET_IDENTITY_REGISTRY, ul.delegator)
 	case "analytics":
 		return units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
-	case "robot":
-		return units.NewRobotSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	default:
 		// Fallback: Generic Supervisor for new/unknown modules
 		return supervisor.NewUnifiedSupervisor(name, capabilities, ul.patterns, ul.knowledge, ul.delegator)
