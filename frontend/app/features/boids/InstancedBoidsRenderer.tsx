@@ -163,18 +163,12 @@ export default function InstancedBoidsRenderer() {
     });
   }, [palette, sharedColors]);
 
-  // Frame Throttling (Low Heat Mode)
-  const frameRef = useRef(0);
-
   useFrame((_, delta) => {
-    frameRef.current++;
-    if (frameRef.current % 2 !== 0) return;
-
     // 1. Run physics step in WASM via Dispatcher
     if (moduleExports?.compute) {
       dispatch.execute('boids', 'step_physics', {
         bird_count: CONFIG.BIRD_COUNT,
-        dt: delta, // Compensate for 30Hz
+        dt: delta, // Full refresh rate timing
       });
 
       // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)
