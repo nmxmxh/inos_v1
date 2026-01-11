@@ -76,13 +76,53 @@ export async function loadModule(
     console.log(`[ModuleLoader] Reusing compiled module: ${name}`);
     compiledModule = compiledCache.get(name)!;
   } else {
-    // Fetch and compile using streaming (Optimized)
+    // Fetch and compile using streaming (Robust Loader)
     console.log(`[ModuleLoader] Streaming compilation: ${name}`);
     const isDev = import.meta.env.DEV;
-    const wasmUrl = isDev ? `/modules/${name}.wasm` : `/modules/${name}.wasm.br`;
-    console.log(`[ModuleLoader] Fetching from ${wasmUrl}...`);
-    const response = fetch(wasmUrl);
-    compiledModule = await WebAssembly.compileStreaming(response);
+
+    // Helper to attempt compilation
+    const compileWasm = async (url: string, useStreaming = true): Promise<WebAssembly.Module> => {
+      console.log(`[ModuleLoader] Attempting to load from ${url} (streaming: ${useStreaming})...`);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+
+      // iOS/Safari basic check: if streaming isn't supported or fails content-type check
+      if (useStreaming && typeof WebAssembly.compileStreaming === 'function') {
+        try {
+          return await WebAssembly.compileStreaming(response);
+        } catch (e) {
+          console.warn(
+            `[ModuleLoader] Streaming compilation failed for ${url}, falling back to ArrayBuffer`,
+            e
+          );
+          // Fallthrough to ArrayBuffer method
+        }
+      }
+
+      // ArrayBuffer Fallback
+      const bytes = await response.arrayBuffer();
+      return await WebAssembly.compile(bytes);
+    };
+
+    try {
+      // Primary Attempt: Use localized strategy with cache busting
+      // If Prod, try the Brotli file explicitly. If Dev, simple wasm.
+      const primaryUrl = isDev ? `/modules/${name}.wasm` : `/modules/${name}.wasm.br?v=2.0`;
+      compiledModule = await compileWasm(primaryUrl, true);
+    } catch (e) {
+      console.warn(`[ModuleLoader] Primary load failed for ${name}, attempting fallback...`, e);
+      // Fallback: Always try the raw uncompressed file with cache buster
+      try {
+        const fallbackUrl = `/modules/${name}.wasm?v=2.0`;
+        compiledModule = await compileWasm(fallbackUrl, false);
+      } catch (fallbackError) {
+        console.error(`[ModuleLoader] CRITICAL: All load attempts failed for ${name}.`);
+        throw fallbackError;
+      }
+    }
+
     compiledCache.set(name, compiledModule);
     console.log(`[ModuleLoader] Compiled and cached: ${name}`);
   }

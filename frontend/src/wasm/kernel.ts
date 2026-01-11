@@ -135,13 +135,14 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
     try {
       // Primary Attempt: Use localized strategy
       // If Prod, try the Brotli file explicitly. If Dev, simple wasm.
-      const primaryUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br';
+      // v=2.0 ensures we bust the cache on new deployments
+      const primaryUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
       result = await loadWasm(primaryUrl, true);
     } catch (e) {
       console.warn('[Kernel] Primary WASM load failed, attempting fallback to /kernel.wasm...', e);
       // Fallback: Always try the raw uncompressed kernel.wasm
       try {
-        result = await loadWasm('/kernel.wasm', false); // Force ArrayBuffer on fallback for max safety
+        result = await loadWasm('/kernel.wasm?v=2.0', false); // Force ArrayBuffer on fallback for max safety
       } catch (fallbackError) {
         console.error('[Kernel] CRITICAL: All WASM load attempts failed.');
         throw fallbackError;
