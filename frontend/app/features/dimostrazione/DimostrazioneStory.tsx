@@ -225,7 +225,8 @@ export function DimostrazioneStory() {
             .append('circle')
             .attr('r', size)
             .attr('fill', color)
-            .attr('filter', 'url(#glow)')
+            // Removed expensive glow filter for performance
+            // .attr('filter', 'url(#glow)')
             .attr('cx', source.x)
             .attr('cy', source.y)
             .attr('opacity', 0)
@@ -269,20 +270,21 @@ export function DimostrazioneStory() {
           .attr('opacity', 0)
           .remove();
 
-        // Targeted point effect
+        // Targeted point effect - PERFORMANCE OPTIMIZATION
+        // Only select and animate points that are actually near the ripple center
+        const cx = isWrite ? gridSize * 0.75 : gridSize * 0.25;
+        const cy = gridSize / 2; // Center Y is always middle
+
         points
+          .filter(d => {
+            // Pre-calc distance to avoid transitioning all 100 nodes
+            const dist = Math.sqrt(Math.pow(d.row - cx, 2) + Math.pow(d.col - cy, 2));
+            return dist < 3.5; // Slightly larger radius to catch edge cases
+          })
           .transition()
           .duration(300)
-          .attr('r', d => {
-            const cx = isWrite ? gridSize * 0.75 : gridSize * 0.25;
-            const dist = Math.sqrt(Math.pow(d.row - cx, 2) + Math.pow(d.col - gridSize / 2, 2));
-            return dist < 2.5 ? 2.5 : 1;
-          })
-          .attr('opacity', d => {
-            const cx = isWrite ? gridSize * 0.75 : gridSize * 0.25;
-            const dist = Math.sqrt(Math.pow(d.row - cx, 2) + Math.pow(d.col - gridSize / 2, 2));
-            return dist < 2.5 ? 0.8 : 0.2;
-          })
+          .attr('r', 2.5) // Animate directly to target size
+          .attr('opacity', 0.8)
           .transition()
           .duration(500)
           .attr('r', 1)

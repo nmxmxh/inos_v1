@@ -197,19 +197,20 @@
         },
         "kernel/threads/supervisor": {
           "capabilities": [
-            "Identity Supervisor",
             "Social Supervisor"
           ],
           "path": "kernel/threads/supervisor"
         },
         "kernel/threads/supervisor/units": {
           "capabilities": [
+            "Analytics Supervisor",
             "Audio Supervisor",
             "Boids Supervisor",
             "Crypto Supervisor",
             "Data Supervisor",
             "Driver Supervisor",
             "Gpu Supervisor",
+            "Identity Supervisor",
             "Image Supervisor",
             "Storage Supervisor"
           ],
@@ -287,17 +288,6 @@
     }
   },
   "units": {
-    "api_proxy": {
-      "capabilities": [
-        "call",
-        "chat",
-        "embeddings"
-      ],
-      "id": "api_proxy",
-      "implementation": "modules/compute/src/units/api_proxy.rs",
-      "name": "api_proxy",
-      "type": "Rust Unit"
-    },
     "audio": {
       "capabilities": [
         "decode",
@@ -311,11 +301,11 @@
         "normalize",
         "gain",
         "mix",
+        "audio.process",
+        "audio.synthesize",
+        "audio.analyze",
         "audio.encode",
-        "audio.decode",
-        "audio.fft",
-        "audio.filter",
-        "audio.resample"
+        "audio.spatial"
       ],
       "controller": "Go Supervisor",
       "id": "audio",
@@ -328,11 +318,9 @@
       "capabilities": [
         "init_population",
         "step_physics",
-        "boids.init_population",
-        "boids.step_physics",
-        "boids.step_learning",
-        "boids.evolve_generation",
-        "boids.forward_pass"
+        "evolve_batch",
+        "boids.physics",
+        "boids.evolution"
       ],
       "controller": "Go Supervisor",
       "id": "boids",
@@ -402,11 +390,11 @@
         "str_length",
         "str_to_lowercase",
         "str_to_uppercase",
-        "data.compress",
-        "data.decompress",
-        "data.parse",
         "data.transform",
-        "data.validate"
+        "data.filter",
+        "data.aggregate",
+        "data.validate",
+        "data.query"
       ],
       "controller": "Go Supervisor",
       "id": "data",
@@ -532,11 +520,11 @@
         "overlay",
         "tile",
         "adjust_levels",
-        "image.resize",
+        "image.process",
         "image.filter",
-        "image.convert",
-        "image.crop",
-        "image.optimize"
+        "image.recognize",
+        "image.segment",
+        "image.generate"
       ],
       "controller": "Go Supervisor",
       "id": "image",
@@ -738,7 +726,9 @@
       ],
       "path": "protocols/schemas/system/v1",
       "schemas": [
+        "diagnostics.capnp",
         "orchestration.capnp",
+        "resource.capnp",
         "sab_layout.capnp",
         "syscall.capnp"
       ]
@@ -891,10 +881,10 @@
       }
     },
     "metrics": {
-      "capability_count": 275,
+      "capability_count": 270,
       "layer_count": 3,
       "protocol_count": 9,
-      "unit_count": 11
+      "unit_count": 10
     },
     "one_more_thing": {
       "call_to_action": "Try the zero-copy difference.",
