@@ -16,7 +16,7 @@ import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
 
 // Import Three.js scenes
-import { TerrainScene } from '../../features/scenes';
+// import { TerrainScene } from '../../features/scenes';
 
 const Style = {
   ...ManuscriptStyle,
@@ -1234,8 +1234,6 @@ pub fn validate_shader(&self, shader_code: &str) -> Result<ShaderAnalysis> {
         prev={{ to: '/deep-dives/threads', title: 'Supervisor Threads' }}
         next={{ to: '/deep-dives/database', title: 'Database & Storage' }}
       />
-
-      <TerrainScene isBackground={true} />
     </Style.BlogContainer>
   );
 }

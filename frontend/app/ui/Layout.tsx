@@ -13,7 +13,7 @@ import { usePrefersReducedMotion } from '../hooks/useReducedMotion';
 import Navigation from './Navigation';
 import MeshMetricsBar from '../features/metrics/MeshMetrics';
 import PageTransition from './PageTransition';
-import ArchitecturalBoids from '../features/boids/ArchitecturalBoids';
+import MobileDock from './MobileDock';
 
 const Style = {
   LayoutContainer: styled.div`
@@ -41,6 +41,32 @@ const Style = {
     @media (max-width: ${p => p.theme.breakpoints.md}) {
       height: 56px;
       padding: ${p => p.theme.spacing[2]} ${p => p.theme.spacing[4]};
+      /* Center logo on mobile if desired, or keep start */
+      justify-content: center;
+    }
+  `,
+
+  // Wrapper to hide Navigation on mobile
+  DesktopNav: styled.div`
+    display: flex;
+    width: 100%;
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      display: none;
+    }
+  `,
+
+  // Mobile Title Only
+  MobileTitle: styled.div`
+    display: none;
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.15em;
+    color: ${p => p.theme.colors.inkDark};
+    text-transform: uppercase;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      display: block;
     }
   `,
 
@@ -53,7 +79,7 @@ const Style = {
 
     @media (max-width: ${p => p.theme.breakpoints.md}) {
       margin-top: 56px;
-      margin-bottom: 40px;
+      margin-bottom: 80px; /* More space for dock */
     }
   `,
 
@@ -72,7 +98,14 @@ const Style = {
     justify-content: center;
 
     @media (max-width: ${p => p.theme.breakpoints.md}) {
-      height: 40px;
+      display: none; /* Hidden on mobile, moved to dock */
+    }
+  `,
+
+  MobileDockWrapper: styled.div`
+    display: none;
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      display: block;
     }
   `,
 };
@@ -85,10 +118,11 @@ export function Layout() {
     <ThemeProvider theme={theme}>
       <MotionConfig reducedMotion={prefersReducedMotion ? 'always' : 'never'}>
         <Style.LayoutContainer>
-          <ArchitecturalBoids />
-
           <Style.Header>
-            <Navigation />
+            <Style.DesktopNav>
+              <Navigation />
+            </Style.DesktopNav>
+            <Style.MobileTitle>INOS CODEX</Style.MobileTitle>
           </Style.Header>
 
           <Style.Main>
@@ -98,6 +132,10 @@ export function Layout() {
           <Style.Footer>
             <MeshMetricsBar />
           </Style.Footer>
+
+          <Style.MobileDockWrapper>
+            <MobileDock />
+          </Style.MobileDockWrapper>
         </Style.LayoutContainer>
       </MotionConfig>
     </ThemeProvider>

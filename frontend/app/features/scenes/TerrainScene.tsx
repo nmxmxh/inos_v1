@@ -414,7 +414,7 @@ function IntegratedWorldContent() {
         <WaterPlane />
       </Float>
 
-      <InstancedBoidsRenderer />
+      <InstancedBoidsRenderer variant="fish" />
 
       <SkyContent />
     </>

@@ -25,6 +25,7 @@ import Cosmos from './pages/Cosmos';
 // Deep Dives
 import { ZeroCopy, Signaling, Mesh, Economy, Threads, Graphics, Database } from './pages/DeepDives';
 import Diagnostics from './pages/Diagnostics';
+import ArchitecturalBoids from './features/boids/ArchitecturalBoids';
 
 function SystemLoader({ children }: { children: React.ReactNode }) {
   const status = useSystemStore(s => s.status);
@@ -103,26 +104,29 @@ function SystemLoader({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AnimatePresence mode="wait">
-      {loading || !ready ? (
-        <motion.div
-          key="loader"
-          exit={{ opacity: 0, transition: { duration: 0.8, ease: 'easeInOut' } }}
-          style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
-        >
-          <MysticLoader status={status} />
-        </motion.div>
-      ) : (
-        <motion.div
-          key="app"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1.2, ease: 'easeOut', delay: 0.2 }}
-        >
-          {children}
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <>
+      <ArchitecturalBoids />
+      <AnimatePresence mode="wait">
+        {loading || !ready ? (
+          <motion.div
+            key="loader"
+            exit={{ opacity: 0, transition: { duration: 0.8, ease: 'easeInOut' } }}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
+          >
+            <MysticLoader status={status} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="app"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.2, ease: 'easeOut', delay: 0.2 }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 

@@ -6,7 +6,7 @@ import * as d3 from 'd3';
 const Style = {
   StoryContainer: styled.div`
     width: 100%;
-    height: 550px;
+    height: 640px;
     position: relative;
     overflow: hidden;
   `,
@@ -63,9 +63,14 @@ export function DimostrazioneStory() {
   const [activeBuffer, setActiveBuffer] = useState<'A' | 'B'>('A');
 
   const renderViz = useCallback(
-    (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, width: number, height: number) => {
+    (svg: d3.Selection<SVGSVGElement, unknown, null, undefined>, _domW: number, _domH: number) => {
       svg.selectAll('*').remove();
 
+      // Fixed virtual dimensions
+      const width = 800;
+      const height = 700;
+
+      // Final balanced sizing (Tiny bit smaller)
       const nodes: StoryNode[] = [
         {
           id: 'SAB',
@@ -79,37 +84,37 @@ export function DimostrazioneStory() {
           id: 'GO',
           label: 'GO ORCHESTRATOR',
           x: width / 2 - 250,
-          y: height / 2 - 150,
+          y: height / 2 - 160,
           type: 'brain',
-          desc: 'Policy & Evolutionary Control',
+          desc: 'Policy Control',
         },
         {
           id: 'RUST',
           label: 'RUST ENGINE',
           x: width / 2 + 250,
-          y: height / 2 - 150,
+          y: height / 2 - 160,
           type: 'muscle',
-          desc: 'WASM Physics & SIMD Writes',
+          desc: 'WASM Physics',
         },
         {
           id: 'TS',
           label: 'TS SENSORY LAYER',
           x: width / 2,
-          y: height / 2 + 160,
+          y: height / 2 + 200,
           type: 'vision',
-          desc: 'Concurrent Read-Only Rendering',
+          desc: 'Concurrent Rendering',
         },
       ];
 
-      // Glow filters
+      // Filters
       const defs = svg.append('defs');
       const filter = defs.append('filter').attr('id', 'glow');
-      filter.append('feGaussianBlur').attr('stdDeviation', '3.5').attr('result', 'coloredBlur');
+      filter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur'); // Reduced glow
       const feMerge = filter.append('feMerge');
       feMerge.append('feMergeNode').attr('in', 'coloredBlur');
       feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-      // Links (Data Pipelines)
+      // Links
       const links = [
         { source: 'SAB', target: 'GO' },
         { source: 'SAB', target: 'RUST' },
@@ -128,41 +133,39 @@ export function DimostrazioneStory() {
         .attr('y2', d => nodes.find(n => n.id === d.target)?.y ?? 0)
         .attr('stroke', '#6d28d9')
         .attr('stroke-width', 1.5)
-        .attr('stroke-dasharray', '4,6')
+        .attr('stroke-dasharray', '6,8')
         .attr('opacity', 0.15);
 
-      // Build Memory Lattice (The Substrate)
+      // Build Memory Lattice (Compact Size)
       const gridSize = 10;
-      const spacing = 12;
-      const hubSize = gridSize * spacing + 12;
+      const spacing = 15;
+      const totalGridW = (gridSize - 1) * spacing;
+      const padding = 18;
+      const hubSize = totalGridW + padding * 2;
+
       const latticeContainer = svg
         .append('g')
-        .attr(
-          'transform',
-          `translate(${width / 2 - (gridSize * spacing) / 2}, ${height / 2 - (gridSize * spacing) / 2})`
-        );
+        .attr('transform', `translate(${width / 2 - hubSize / 2}, ${height / 2 - hubSize / 2})`);
 
       // Hub Outer Container
       latticeContainer
         .append('rect')
         .attr('width', hubSize)
         .attr('height', hubSize)
-        .attr('x', -6)
-        .attr('y', -6)
-        .attr('rx', 12)
+        .attr('rx', 14)
         .attr('fill', 'rgba(109, 40, 217, 0.02)')
         .attr('stroke', '#6d28d9')
-        .attr('stroke-width', 0.5)
-        .attr('stroke-dasharray', '2,2')
-        .attr('opacity', 0.4);
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '4,4')
+        .attr('opacity', 0.5);
 
       const latticePoints = [];
       for (let i = 0; i < gridSize; i++) {
         for (let j = 0; j < gridSize; j++) {
           latticePoints.push({
             id: `p-${i}-${j}`,
-            x: i * spacing,
-            y: j * spacing,
+            x: padding + i * spacing,
+            y: padding + j * spacing,
             row: i,
             col: j,
           });
@@ -177,18 +180,20 @@ export function DimostrazioneStory() {
         .attr('class', 'lattice-point')
         .attr('cx', d => d.x)
         .attr('cy', d => d.y)
-        .attr('r', 1)
+        .attr('r', 1.0)
         .attr('fill', '#6d28d9')
-        .attr('opacity', 0.2);
+        .attr('opacity', 0.15);
 
-      // Buffer Bank Visuals (A and B zones)
+      // Buffer Banks
+      const halfSize = (hubSize - padding * 3) / 2;
+
       const bankA = latticeContainer
         .append('rect')
-        .attr('width', (gridSize * spacing) / 2 - 4)
-        .attr('height', gridSize * spacing - 4)
-        .attr('x', 2)
-        .attr('y', 2)
-        .attr('rx', 6)
+        .attr('width', halfSize + padding)
+        .attr('height', hubSize - padding)
+        .attr('x', padding / 2)
+        .attr('y', padding / 2)
+        .attr('rx', 8)
         .attr('fill', 'rgba(109, 40, 217, 0.05)')
         .attr('stroke', '#6d28d9')
         .attr('stroke-width', 2)
@@ -197,18 +202,31 @@ export function DimostrazioneStory() {
 
       const bankB = latticeContainer
         .append('rect')
-        .attr('width', (gridSize * spacing) / 2 - 4)
-        .attr('height', gridSize * spacing - 4)
-        .attr('x', (gridSize * spacing) / 2 + 2)
-        .attr('y', 2)
-        .attr('rx', 6)
+        .attr('width', halfSize + padding)
+        .attr('height', hubSize - padding)
+        .attr('x', hubSize / 2 + 2)
+        .attr('y', padding / 2)
+        .attr('rx', 8)
         .attr('fill', 'none')
         .attr('stroke', '#ec4899')
         .attr('stroke-width', 1)
         .attr('stroke-dasharray', '4,2')
         .attr('opacity', 0.3);
 
-      // Data pulses (Directional Flow)
+      // Correct Bank Dimensions
+      bankA
+        .attr('width', hubSize / 2 - 4)
+        .attr('height', hubSize - 8)
+        .attr('x', 4)
+        .attr('y', 4);
+
+      bankB
+        .attr('width', hubSize / 2 - 4)
+        .attr('height', hubSize - 8)
+        .attr('x', hubSize / 2)
+        .attr('y', 4);
+
+      // Data Pulses
       const pulse = (
         fromId: string,
         toId: string,
@@ -221,32 +239,29 @@ export function DimostrazioneStory() {
         if (!source || !target) return;
 
         [0, 100, 200].forEach(streamDelay => {
-          svg
+          const p = svg
             .append('circle')
             .attr('r', size)
             .attr('fill', color)
-            // Removed expensive glow filter for performance
-            // .attr('filter', 'url(#glow)')
             .attr('cx', source.x)
             .attr('cy', source.y)
-            .attr('opacity', 0)
-            .transition()
+            .attr('opacity', 0);
+
+          p.transition()
             .delay(delay + streamDelay)
             .duration(100)
             .attr('opacity', 1)
+            .on('start', function () {
+              if (fromId === 'SAB') createRipple(color, false);
+            })
             .transition()
             .duration(1200)
             .ease(d3.easeCubicInOut)
             .attr('cx', target.x)
             .attr('cy', target.y)
-            .on('start', function () {
-              if (toId === 'SAB') {
-                createRipple(width / 2, height / 2, color, true);
-              } else if (fromId === 'SAB') {
-                createRipple(width / 2, height / 2, color, false);
-              }
+            .on('end', function () {
+              if (toId === 'SAB') createRipple(color, true);
             })
-            .attr('opacity', 0.2)
             .transition()
             .duration(100)
             .attr('opacity', 0)
@@ -254,11 +269,12 @@ export function DimostrazioneStory() {
         });
       };
 
-      const createRipple = (x: number, y: number, color: string, isWrite: boolean) => {
+      const createRipple = (color: string, isWrite: boolean) => {
+        // Ripple Circle
         latticeContainer
           .append('circle')
-          .attr('cx', x - (width / 2 - (gridSize * spacing) / 2))
-          .attr('cy', y - (height / 2 - (gridSize * spacing) / 2))
+          .attr('cx', hubSize / 2)
+          .attr('cy', hubSize / 2)
           .attr('r', 0)
           .attr('fill', 'none')
           .attr('stroke', color)
@@ -266,32 +282,30 @@ export function DimostrazioneStory() {
           .attr('opacity', 0.8)
           .transition()
           .duration(800)
-          .attr('r', 70)
+          .attr('r', 50) // Reduced radius
           .attr('opacity', 0)
           .remove();
 
-        // Targeted point effect - PERFORMANCE OPTIMIZATION
-        // Only select and animate points that are actually near the ripple center
+        // Active Dots
         const cx = isWrite ? gridSize * 0.75 : gridSize * 0.25;
-        const cy = gridSize / 2; // Center Y is always middle
+        const cy = gridSize / 2;
 
         points
           .filter(d => {
-            // Pre-calc distance to avoid transitioning all 100 nodes
             const dist = Math.sqrt(Math.pow(d.row - cx, 2) + Math.pow(d.col - cy, 2));
-            return dist < 3.5; // Slightly larger radius to catch edge cases
+            return dist < 2.5;
           })
           .transition()
-          .duration(300)
-          .attr('r', 2.5) // Animate directly to target size
-          .attr('opacity', 0.8)
+          .duration(200)
+          .attr('r', 1.8) // Reduced active size
+          .attr('opacity', 0.9)
           .transition()
           .duration(500)
-          .attr('r', 1)
-          .attr('opacity', 0.2);
+          .attr('r', 1.0)
+          .attr('opacity', 0.15);
       };
 
-      // Flip interval (The Heartbeat)
+      // Animation Loop
       const flipTimer = d3.interval(() => {
         setActiveBuffer(prev => {
           const next = prev === 'A' ? 'B' : 'A';
@@ -302,7 +316,7 @@ export function DimostrazioneStory() {
             .ease(d3.easeElasticOut.amplitude(1).period(0.4))
             .attr('opacity', next === 'A' ? 1 : 0.3)
             .attr('stroke-width', next === 'A' ? 2 : 1)
-            .attr('fill', next === 'A' ? 'rgba(109, 40, 217, 0.05)' : 'none');
+            .attr('fill', next === 'A' ? 'rgba(109, 40, 217, 0.08)' : 'none');
 
           bankB
             .transition()
@@ -310,22 +324,22 @@ export function DimostrazioneStory() {
             .ease(d3.easeElasticOut.amplitude(1).period(0.4))
             .attr('opacity', next === 'B' ? 1 : 0.3)
             .attr('stroke-width', next === 'B' ? 2 : 1)
-            .attr('fill', next === 'B' ? 'rgba(236, 72, 153, 0.05)' : 'none');
+            .attr('fill', next === 'B' ? 'rgba(236, 72, 153, 0.08)' : 'none');
 
           points
             .transition()
             .duration(300)
-            .attr('opacity', 0.5)
-            .attr('r', 1.2)
+            .attr('opacity', 0.6)
+            .attr('r', 2)
             .transition()
             .duration(300)
-            .attr('r', 1)
-            .attr('opacity', 0.2);
+            .attr('r', 1.0)
+            .attr('opacity', 0.15);
 
           return next;
         });
 
-        pulse('RUST', 'SAB', '#8b5cf6', 0, 2.5);
+        pulse('RUST', 'SAB', '#8b5cf6', 0, 2);
         pulse('GO', 'SAB', '#f472b6', 400, 2);
         pulse('SAB', 'TS', '#4ade80', 800, 2);
       }, 2400);
@@ -343,9 +357,10 @@ export function DimostrazioneStory() {
         const g = d3.select(this);
 
         if (d.id === 'SAB') {
+          // Centered SAB Label
           g.append('text')
             .attr('text-anchor', 'middle')
-            .attr('dy', '85px')
+            .attr('dy', `${hubSize / 2 + 20}px`)
             .attr('font-family', theme.fonts.typewriter)
             .attr('font-size', '11px')
             .attr('font-weight', '700')
@@ -354,22 +369,25 @@ export function DimostrazioneStory() {
 
           g.append('text')
             .attr('text-anchor', 'middle')
-            .attr('dy', '100px')
+            .attr('dy', `${hubSize / 2 + 35}px`)
             .attr('font-family', theme.fonts.main)
-            .attr('font-size', '10px')
+            .attr('font-size', '9px')
             .attr('font-weight', '500')
             .attr('fill', '#737373')
             .text(d.desc);
         } else {
+          // External Nodes - Compact
+          const w = 160;
+          const h = 54;
           g.append('rect')
-            .attr('width', 160)
-            .attr('height', 50)
-            .attr('x', -80)
-            .attr('y', -25)
+            .attr('width', w)
+            .attr('height', h)
+            .attr('x', -w / 2)
+            .attr('y', -h / 2)
             .attr('rx', 8)
             .attr('fill', '#ffffff')
             .attr('stroke', d.id === 'RUST' ? '#a855f7' : d.id === 'GO' ? '#f472b6' : '#22c55e')
-            .attr('stroke-width', 1)
+            .attr('stroke-width', 2)
             .attr('filter', 'url(#glow)');
 
           g.append('text')
@@ -383,9 +401,9 @@ export function DimostrazioneStory() {
 
           g.append('text')
             .attr('text-anchor', 'middle')
-            .attr('dy', '15px')
+            .attr('dy', '12px')
             .attr('font-family', theme.fonts.main)
-            .attr('font-size', '10px')
+            .attr('font-size', '9px')
             .attr('font-weight', '500')
             .attr('fill', '#737373')
             .text(d.desc);
@@ -404,7 +422,7 @@ export function DimostrazioneStory() {
       <D3Container
         render={renderViz}
         dependencies={[renderViz]} // Stable dependnecy
-        viewBox="0 0 800 600"
+        viewBox="0 0 800 700"
         height="100%"
         preserveAspectRatio="xMidYMid meet"
       />

@@ -24,7 +24,11 @@ const CONFIG = {
   BYTES_PER_BIRD: 236,
 };
 
-export default function InstancedBoidsRenderer() {
+interface Props {
+  variant?: 'bird' | 'fish';
+}
+
+export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
   const moduleExports = useSystemStore(s => s.moduleExports);
   const moduleExportsRef = useRef(moduleExports);
   moduleExportsRef.current = moduleExports;
@@ -57,6 +61,22 @@ export default function InstancedBoidsRenderer() {
       return geo;
     };
 
+    if (variant === 'fish') {
+      return {
+        // Body: Fusiform shape (scaled sphere/capsule)
+        body: alignGeo(new THREE.CapsuleGeometry(0.1, 0.5, 4, 8), Math.PI / 2, 0, 0, [1, 1, 1]), // Horizontal capsule
+        // Head: Merged into body mostly, but can be a small snout
+        head: alignGeo(new THREE.ConeGeometry(0.08, 0.2, 5), Math.PI / 2, 0, 0, [1, 1, 1]), // Pointy nose
+        // Beak: Hidden or very small
+        beak: alignGeo(new THREE.BoxGeometry(0.01, 0.01, 0.01), 0, 0, 0),
+        // Fins (Side): Vertical-ish planes
+        wing: alignGeo(new THREE.PlaneGeometry(0.3, 0.15, 2, 2), 0, Math.PI / 4, 0, [1, 1, 1]),
+        wingTip: alignGeo(new THREE.PlaneGeometry(0.1, 0.1, 1, 1), 0, 0, 0, [0.01, 0.01, 0.01]), // Hide tips
+        // Tail: Vertical Fin
+        tail: alignGeo(new THREE.PlaneGeometry(0.3, 0.4, 3, 2), 0, Math.PI / 2, 0, [1, 1, 1]),
+      };
+    }
+
     return {
       // Body: Slim cylinder, wireframe friendly (6 segments = hexagon)
       body: alignGeo(new THREE.CylinderGeometry(0.025, 0.05, 0.45, 6), 0, 0, 0),
@@ -73,7 +93,7 @@ export default function InstancedBoidsRenderer() {
       // Scale Y (thickness) down to make it a flat fan.
       tail: alignGeo(new THREE.ConeGeometry(0.12, 0.35, 5), Math.PI / 2, 0, 0, [1, 0.05, 1]),
     };
-  }, []);
+  }, [variant]);
 
   // Materials with disposal
   const materials = useMemo(

@@ -92,7 +92,7 @@ interface NavItemType {
   label: string;
 }
 
-const NAV_ITEMS: NavItemType[] = [
+export const NAV_ITEMS: NavItemType[] = [
   { to: '/problem', label: 'Problem' },
   { to: '/insight', label: 'Insight' },
   { to: '/architecture', label: 'Architecture' },
