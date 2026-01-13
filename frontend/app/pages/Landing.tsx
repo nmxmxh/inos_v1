@@ -187,7 +187,7 @@ const CHAPTERS = [
     title: 'The Problem',
     path: '/problem',
     description:
-      'Global data centers consume 200+ TWh annually. Bitcoin mining alone drains 150 TWh for 7 transactions per second. We have accepted the Copy Tax as the cost of doing business. But what if 99% of that energy is pure waste?',
+      'Global data centers consume 200+ TWh annually. Bitcoin mining alone drains 150 TWh for 7 transactions per second. A significant fraction of modern compute is spent on coordination, translation, and duplication—not useful work. What if we could reclaim it?',
   },
   {
     number: '02',
@@ -215,7 +215,7 @@ const CHAPTERS = [
     title: 'The Cosmos',
     path: '/cosmos',
     description:
-      'The moonshot: a planetary-scale supercomputer. Our roadmap leads to a million browsers simulating galaxies in real-time. Fidelity scales with the network.',
+      'The moonshot: browsers as compute nodes. From 10–100 nodes (collaborative simulations) to 1k–10k (regional meshes) to 100k+ (global workloads). Fidelity scales with the network.',
   },
 ];
 
@@ -263,76 +263,105 @@ export function Landing() {
         <Style.Subtitle>The Internet-Native Operating System</Style.Subtitle>
         <Style.PageTitle>The Technical Codex</Style.PageTitle>
 
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* LAYER 1: WHAT IT IS (One sentence clarity) */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
         <Style.LeadParagraph>
-          The <strong>Architecture of Waste</strong> has defined the last decade of systems. We have
-          accepted high-latency serialization, expensive memory copies, and centralized computation
-          as the "cost of doing business." INOS is the <strong>rejection</strong> of that tax. A
-          distributed runtime where computing becomes a <strong>living system</strong>.
+          <strong>
+            INOS is a browser-native operating system that eliminates data copying, turning every
+            device into a peer in a global supercomputer.
+          </strong>
         </Style.LeadParagraph>
 
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* LAYER 2: WHY IT MATTERS (Problem/Solution framing) */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        <ScrollReveal variant="fade">
+          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7 }}>
+            <strong>The Villain:</strong> Modern distributed systems spend over 60% of compute
+            cycles on serialization, coordination, and redundancy. Not useful work. We call this the{' '}
+            <strong>Copy Tax</strong>.
+          </p>
+          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7, marginTop: '1rem' }}>
+            <strong>The Solution:</strong> INOS reclaims this waste through shared memory and
+            zero-copy architectures. Data flows like blood through the body. No stopping. No pumping
+            between containers. One buffer, shared by all.
+          </p>
+        </ScrollReveal>
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* LAYER 3: HOW IT WORKS (Live proof) */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
         <ScrollReveal variant="fade">
           <p style={{ fontWeight: 500, color: '#2d2d2d' }}>
             Right now, in your browser,{' '}
             <strong>{stats.birdCount.toLocaleString()} autonomous agents</strong> are performing a
-            collective ballet within a <strong>Single Unified Memory Space</strong>. No
-            serialization. No copies. Not a simulation. A <strong>Biological Runtime</strong>.
+            collective ballet within a <strong>single shared buffer</strong>. Go orchestrates. Rust
+            executes. JavaScript renders. Zero copies between them.
           </p>
         </ScrollReveal>
 
         <Style.LiveStatsGrid>
           <Style.StatBox>
-            <Style.MetricLabel>Circulatory Throughput</Style.MetricLabel>
+            <Style.MetricLabel>Throughput</Style.MetricLabel>
             <Style.MetricValue>
               <RollingCounter value={stats.opsPerSecond} />
             </Style.MetricValue>
             <Style.MetricUnit>Ops/s</Style.MetricUnit>
           </Style.StatBox>
           <Style.StatBox>
-            <Style.MetricLabel>Active Entity Fidelity</Style.MetricLabel>
+            <Style.MetricLabel>Active Entities</Style.MetricLabel>
             <Style.MetricValue>
               <RollingCounter value={stats.birdCount} />
             </Style.MetricValue>
             <Style.MetricUnit>Boids</Style.MetricUnit>
           </Style.StatBox>
           <Style.StatBox>
-            <Style.MetricLabel>Temporal Synchronization</Style.MetricLabel>
+            <Style.MetricLabel>Sync Epoch</Style.MetricLabel>
             <Style.MetricValue>
               <RollingCounter value={stats.epoch} />
             </Style.MetricValue>
-            <Style.MetricUnit>Epochs</Style.MetricUnit>
+            <Style.MetricUnit>Ticks</Style.MetricUnit>
           </Style.StatBox>
         </Style.LiveStatsGrid>
 
         <ScrollReveal variant="manuscript">
-          <h3>The Dimostrazione</h3>
+          <h3>See It Working</h3>
           <p>
-            Leonardo Da Vinci believed in <em>Sapere Vedere</em>—"Knowing How to See." The boids
-            moving in the background are live evidence: a system that rejects data redundancy in
-            favor of <strong>shared presence</strong>.
+            The diagram below shows the actual memory layout. Go, Rust, and TypeScript all read from
+            the same SharedArrayBuffer. When something changes, the system updates reality and rings
+            a bell. Everyone listening hears the same bell at the same instant.
           </p>
 
           <Style.IllustrationContainer>
             <Style.IllustrationHeader>
-              <Style.IllustrationTitle>Live_Ref_01 // The Circulatory Mesh</Style.IllustrationTitle>
+              <Style.IllustrationTitle>Live Memory Layout</Style.IllustrationTitle>
             </Style.IllustrationHeader>
             <DimostrazioneStory />
             <Style.IllustrationCaption>
-              Live visualization of the SharedArrayBuffer memory pool. Pointers are swapped between
-              Go, Rust, and TS governance layers with zero serialization overhead.
+              SharedArrayBuffer memory pool. Pointers are swapped between Go, Rust, and TypeScript
+              with zero serialization overhead.
             </Style.IllustrationCaption>
           </Style.IllustrationContainer>
 
           <p style={{ marginTop: '2rem', fontWeight: 500, color: '#2d2d2d' }}>
-            The boids are proof of concept. The full stack goes deeper: a{' '}
-            <strong>Go Orchestrator</strong> for policy and evolutionary learning, a{' '}
-            <strong>Rust Engine</strong> for SIMD-accelerated physics, and a{' '}
-            <strong>TypeScript Sensory Layer</strong> for concurrent rendering. All three run in
-            WebAssembly, wired through the same shared buffer, synchronized by atomic epochs.
+            The boids are proof of concept. The full stack includes:
           </p>
+          <ul style={{ marginTop: '0.5rem', lineHeight: 1.8, color: '#2d2d2d' }}>
+            <li>
+              <strong>Go Kernel:</strong> Policy, scheduling, evolutionary learning
+            </li>
+            <li>
+              <strong>Rust Modules:</strong> SIMD physics, cryptography, compression
+            </li>
+            <li>
+              <strong>TypeScript Renderer:</strong> WebGPU, instanced rendering, 60fps
+            </li>
+          </ul>
 
           <p style={{ marginTop: '1.5rem' }}>
-            The Technical Codex documents this journey of building a system that treats{' '}
-            <strong>computing as a living organism</strong>.
+            All three share the same buffer. All three react to the same epoch signals. The
+            Technical Codex documents how this works.
           </p>
         </ScrollReveal>
       </Style.HeroSection>

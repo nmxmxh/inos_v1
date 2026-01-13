@@ -990,6 +990,14 @@ export function Architecture() {
         </p>
       </Style.ContentCard>
 
+      {/* MENTAL MODEL */}
+      <Style.CodeNote>
+        <strong>Mental Model:</strong> INOS treats the browser as a small operating system. A shared
+        block of memory is its RAM. Go is the kernel scheduler. Rust modules are processes.
+        JavaScript is the display driver. All communication happens by mutating shared state, not by
+        sending messages.
+      </Style.CodeNote>
+
       <Style.SectionDivider />
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
@@ -1218,8 +1226,8 @@ export function Architecture() {
         </p>
         <ul>
           <li>
-            <strong>No backend required.</strong> INOS compiles to static files. Deploy to any CDN.
-            The P2P mesh handles coordination between browsers.
+            <strong>No centralized backend required.</strong> INOS compiles to static files. Deploy
+            to any CDN. The P2P mesh handles coordination between browsers.
           </li>
           <li>
             <strong>Near-native performance.</strong> SIMD physics, GPU compute, and zero-copy
@@ -1277,6 +1285,12 @@ export function Architecture() {
           </tr>
         </tbody>
       </Style.TierTable>
+
+      <Style.CodeNote>
+        <strong>Dynamic Tier Negotiation:</strong> Devices dynamically negotiate their tier based on
+        memory availability, thermals, and network reliability. A phone on WiFi power may promote to
+        Moderate; a laptop on battery may demote to Light.
+      </Style.CodeNote>
 
       <Style.SectionDivider />
 

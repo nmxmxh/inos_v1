@@ -781,20 +781,21 @@ func (cle *CollaborativeLearningEngine) SharePattern(pattern *Pattern) error {
     return nil
 }
 
+// NOTE: Simplified for illustration. Production code uses the blocking
+// epoch.WaitForChange() primitive described in the Epoch Signaling deep dive,
+// which eliminates polling entirely via futex-style atomic waits.
 func (cle *CollaborativeLearningEngine) WatchSupervisorPatterns(supervisorID string) <-chan *Pattern {
     ch := make(chan *Pattern)
     epoch := cle.supervisorEpochs[supervisorID]
     
     go func() {
         for {
-            if epoch.HasChanged() {
-                // Read new patterns from SAB
-                patterns := cle.readPatternsFromSAB(supervisorID)
-                for _, p := range patterns {
-                    ch <- p
-                }
+            epoch.WaitForChange() // Blocks until epoch changes (no polling)
+            // Read new patterns from SAB
+            patterns := cle.readPatternsFromSAB(supervisorID)
+            for _, p := range patterns {
+                ch <- p
             }
-            time.Sleep(1 * time.Millisecond)
         }
     }()
     
@@ -981,16 +982,16 @@ func (sp *SupervisorProtocol) SignalChange() {
     sp.epoch.Increment()
 }
 
+// NOTE: Simplified for illustration. Production code uses the blocking
+// WaitForChange() primitive, eliminating polling entirely via futex-style waits.
 func (sp *SupervisorProtocol) WatchSupervisor(targetID string) <-chan struct{} {
     targetEpoch := sp.getEpochForSupervisor(targetID)
     ch := make(chan struct{})
     
     go func() {
         for {
-            if targetEpoch.HasChanged() {
-                ch <- struct{}{}  // Reactive notification
-            }
-            time.Sleep(1 * time.Millisecond)
+            targetEpoch.WaitForChange() // Blocks until epoch changes (no polling)
+            ch <- struct{}{}            // Reactive notification
         }
     }()
     
@@ -1024,20 +1025,20 @@ func (pe *PatternExchange) PublishPattern(supervisorID string, pattern *Pattern)
     return nil
 }
 
+// NOTE: Simplified for illustration. Production code uses the blocking
+// WaitForChange() primitive, eliminating polling entirely.
 func (pe *PatternExchange) SubscribeToPatterns(supervisorID string) <-chan *Pattern {
     ch := make(chan *Pattern)
     epoch := NewEpoch(pe.sab, pe.getSupervisorEpochIndex(supervisorID))
     
     go func() {
         for {
-            if epoch.HasChanged() {
-                // Read new patterns from SAB
-                patterns := pe.readPatternsFromSAB(supervisorID)
-                for _, p := range patterns {
-                    ch <- p
-                }
+            epoch.WaitForChange() // Blocks until epoch changes (no polling)
+            // Read new patterns from SAB
+            patterns := pe.readPatternsFromSAB(supervisorID)
+            for _, p := range patterns {
+                ch <- p
             }
-            time.Sleep(1 * time.Millisecond)
         }
     }()
     

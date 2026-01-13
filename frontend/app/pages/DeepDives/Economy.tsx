@@ -794,6 +794,16 @@ export function Economy() {
         income, and productive work multiplies your rewards.
       </Style.LeadParagraph>
 
+      <Style.DefinitionBox>
+        <h4>⚠️ Credits Are Not Cryptocurrency</h4>
+        <p>
+          Credits are <strong>scheduler accounting units</strong>, like CPU time in mainframe days.
+          They measure resource contribution and consumption within the mesh. They are not tradeable
+          tokens, not backed by fiat, and not subject to speculative markets. Credits are
+          infrastructure, not investment.
+        </p>
+      </Style.DefinitionBox>
+
       <Style.SectionDivider />
 
       {/* LESSON 1: THE FIVE PILLARS */}

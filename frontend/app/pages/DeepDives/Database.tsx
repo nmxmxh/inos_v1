@@ -903,7 +903,8 @@ export function Database() {
               <h4>Zero-Copy Persistence</h4>
               <p>
                 INOS writes once to a shared memory region. All modules read from the same bytes.
-                Persistence is an asynchronous heartbeat, not a blocker.
+                Persistence is an asynchronous heartbeat, not a blocker. SAB represents volatile
+                truth; durability is guaranteed once a heartbeat commits to OPFS.
               </p>
             </Style.ComparisonCard>
           </Style.ComparisonGrid>
@@ -921,7 +922,8 @@ export function Database() {
           </p>
           <p>
             Whenever the Kernel (Go) or a Muscle (Rust) discovers a data pattern, it is stored
-            directly in one of the 1024 shared slots. There are no locks, only atomic signals.
+            directly in one of the 1024 shared slots. No mutexes or blocking locks—only atomic
+            coordination.
           </p>
 
           <Style.IllustrationContainer>
@@ -961,15 +963,17 @@ export function Database() {
             By running the storage engine in a <strong>Web Worker</strong>, we can perform
             synchronous reads and writes that bypass the main thread's Event Loop. This is where
             <strong> SQLite WASM</strong> lives, utilizing the OPFS VFS (Virtual File System) to
-            achieve near-native I/O performance.
+            achieve near-native I/O performance. Where synchronous OPFS handles are unavailable
+            (non-Chromium browsers), INOS degrades to async persistence without breaking
+            correctness.
           </p>
 
           <Style.ComparisonGrid>
             <Style.ComparisonCard $type="bad">
               <h4>IndexedDB Latency</h4>
               <p>
-                Every read/write requires a Promise. In a heavy compute loop, the 1-2ms delay per
-                call adds up to an insurmountable bottleneck.
+                Every read/write requires a Promise. In a heavy compute loop, the often 1–2ms or
+                more delay per call adds up to an insurmountable bottleneck.
               </p>
             </Style.ComparisonCard>
             <Style.ComparisonCard $type="good">
@@ -1082,7 +1086,9 @@ export function Database() {
             Availability is guaranteed by a <strong>Dynamic Replication Factor (RF)</strong>.
             Standard data is mirrored on 3 nodes (RF=3). Viral patterns or critical system assets
             scale automatically up to <strong>RF=50</strong>, creating a self-healing,
-            high-bandwidth CDN distributed across the globe.
+            high-bandwidth CDN distributed across the globe. All data is encrypted at rest
+            (ChaCha20); the mesh is adversarial by design—trust is earned through consistent
+            availability, not assumed.
           </p>
 
           <Style.IllustrationContainer>
@@ -1128,6 +1134,37 @@ export function Database() {
           <p>
             The web is no longer a graveyard of storage expectations. It is a world-scale database.
           </p>
+
+          <Style.HistoryCard>
+            <h4>Failure Recovery</h4>
+            <p>
+              If the browser crashes mid-write, SAB state is discarded. On restart, the Storage
+              Supervisor reconstructs hot state from the last committed OPFS heartbeat. No partial
+              writes. No corruption. Automatic reconciliation.
+            </p>
+          </Style.HistoryCard>
+
+          <Style.DefinitionBox>
+            <h4>Timing Ladder</h4>
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.875rem' }}>
+              SAB read: ~100ns
+              <br />
+              Atomic signal: ~50ns
+              <br />
+              OPFS sync write: ~10–50µs
+              <br />
+              Mesh propagation: ~10–100ms
+            </p>
+          </Style.DefinitionBox>
+
+          <Style.DefinitionBox>
+            <h4>The Unification Thesis</h4>
+            <p>
+              INOS does not distinguish between memory, disk, or network storage—only latency tiers.
+              Tier 1 (SAB) is hot memory. Tier 2 (OPFS) is warm disk. Tier 3 (Mesh) is cold network.
+              The interface is identical; only access time differs.
+            </p>
+          </Style.DefinitionBox>
         </Style.ContentCard>
       </ScrollReveal>
 

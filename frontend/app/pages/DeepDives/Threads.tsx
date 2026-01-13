@@ -1093,16 +1093,16 @@ func (sp *SupervisorProtocol) SignalChange() {
   sp.epoch.Increment()  // Atomic increment in SAB
 }
 
+// Production implementation uses WaitForChange() which blocks
+// via futex-style atomic waits—no polling required.
 func (sp *SupervisorProtocol) WatchSupervisor(targetID string) <-chan struct{} {
   targetEpoch := sp.getEpochForSupervisor(targetID)
   ch := make(chan struct{})
   
   go func() {
     for {
-      if targetEpoch.HasChanged() {
-        ch <- struct{}{}  // Reactive notification
-      }
-      time.Sleep(1 * time.Millisecond)
+      targetEpoch.WaitForChange() // Blocks until epoch changes (no polling)
+      ch <- struct{}{}            // Reactive notification
     }
   }()
   

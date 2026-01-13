@@ -64,12 +64,61 @@ async function loadGoRuntime(): Promise<void> {
 }
 
 /**
+ * Check if SharedArrayBuffer and shared WebAssembly.Memory are available.
+ * iOS Safari and some contexts lack support for these features.
+ */
+function checkSharedMemoryCapability(): { supported: boolean; reason?: string } {
+  // 1. Check if SharedArrayBuffer exists
+  if (typeof SharedArrayBuffer === 'undefined') {
+    return {
+      supported: false,
+      reason:
+        'SharedArrayBuffer is not available. This may be due to missing COOP/COEP headers or an unsupported browser.',
+    };
+  }
+
+  // 2. Check if we can create shared WebAssembly.Memory
+  try {
+    const testMemory = new WebAssembly.Memory({
+      initial: 1,
+      maximum: 1,
+      shared: true,
+    });
+    // Verify buffer is actually a SharedArrayBuffer
+    if (!(testMemory.buffer instanceof SharedArrayBuffer)) {
+      return {
+        supported: false,
+        reason: 'WebAssembly.Memory does not produce SharedArrayBuffer. Check COOP/COEP headers.',
+      };
+    }
+  } catch (e) {
+    return {
+      supported: false,
+      reason: `Shared WebAssembly.Memory is not supported: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+
+  return { supported: true };
+}
+
+/**
  * Initialize and run the Go kernel
  */
 async function initializeKernel(
   tier: 'light' | 'moderate' | 'heavy' | 'dedicated',
   wasmUrl: string
 ): Promise<{ sabOffset: number; sabSize: number }> {
+  // 0. Check shared memory capability FIRST (prevents iOS "body is distributed" error)
+  const capability = checkSharedMemoryCapability();
+  if (!capability.supported) {
+    throw new Error(
+      `INOS requires SharedArrayBuffer support.\n\n${capability.reason}\n\n` +
+        'On iOS Safari, ensure the server sends:\n' +
+        '  Cross-Origin-Opener-Policy: same-origin\n' +
+        '  Cross-Origin-Embedder-Policy: require-corp'
+    );
+  }
+
   // 1. Load Go runtime
   await loadGoRuntime();
 

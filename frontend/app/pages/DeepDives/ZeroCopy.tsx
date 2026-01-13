@@ -804,8 +804,20 @@ export function ZeroCopy() {
       <Style.LeadParagraph>
         Data copying is the silent killer of performance. Every time bytes move from one place to
         another, CPU cycles burn, caches invalidate, and garbage collectors wake up. This deep dive
-        explains how INOS eliminates copying entirely using SharedArrayBuffer.
+        explains how INOS eliminates copying across performance-critical paths using
+        SharedArrayBuffer.
       </Style.LeadParagraph>
+
+      {/* MENTAL MODEL */}
+      <Style.DefinitionBox>
+        <h4>Mental Model</h4>
+        <p>
+          Think of INOS as a tiny operating system inside the browser. The SharedArrayBuffer is its
+          RAM. Rust modules are processes. Go is the scheduler and policy engine. JavaScript is the
+          display driver. Zero-copy I/O is simply processes reading and writing the same memory
+          instead of sending messages.
+        </p>
+      </Style.DefinitionBox>
 
       <Style.SectionDivider />
 
@@ -1076,7 +1088,8 @@ func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
         <h3>Implementation: Rust SafeSAB</h3>
         <p>
           Rust modules use <code>SafeSAB</code> from <code>modules/sdk/src/sab.rs</code> for safe,
-          bounds-checked access. Memory barriers ensure visibility across threads.
+          bounds-checked access. Memory barriers ensure that writes performed by one module are
+          visible to others in the correct order, preventing torn or stale reads.
         </p>
       </Style.ContentCard>
 
@@ -1141,8 +1154,10 @@ impl SafeSAB {
           </li>
           <li>
             <strong>Go WASM Limitation:</strong> Go's WASM runtime cannot directly access SAB
-            memory. INOS uses a "Memory Twin" pattern where the kernel copies specific regions via
-            <code>js.CopyBytesToGo</code> for decision-making, then writes results back.
+            memory. The Go kernel operates outside the real-time path—its copies are sparse,
+            bounded, and decision-oriented, not frame-critical. INOS uses a "Memory Twin" pattern
+            where the kernel copies specific regions via <code>js.CopyBytesToGo</code> for
+            decision-making, then writes results back.
           </li>
           <li>
             <strong>Alignment Requirements:</strong> Atomic operations require 4-byte alignment. The
@@ -1199,6 +1214,18 @@ impl SafeSAB {
           </li>
         </ol>
       </Style.ContentCard>
+
+      {/* WHEN NOT TO USE */}
+      <Style.WarningCard>
+        <h4>⚠️ When Zero-Copy Is Not Worth It</h4>
+        <p>Zero-copy adds architectural complexity. Consider simpler approaches for:</p>
+        <ul>
+          <li>CRUD-style applications with low-frequency updates</li>
+          <li>Simple request/response APIs</li>
+          <li>Third-party-heavy embeds that cannot use COOP/COEP headers</li>
+          <li>Apps where memory layout versioning would be burdensome</li>
+        </ul>
+      </Style.WarningCard>
 
       <ChapterNav
         prev={{ to: '/architecture', title: 'Architecture' }}

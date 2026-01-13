@@ -714,9 +714,14 @@ export default function Cosmos() {
           <Style.DefinitionBox>
             <h4>The Planetary Computer</h4>
             <p>
-              A distributed system where a million browser nodes act as a single, unified
-              supercomputer. No single point of failure. No centralized bill. Just pure, emergent
-              compute.
+              A distributed system where browser nodes act as a unified supercomputer. Shared memory
+              is local and absolute per node; global coherence emerges through epoch-synchronized
+              state exchange.
+            </p>
+            <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
+              <strong>Scale Roadmap:</strong> 10–100 nodes (collaborative simulations) → 1k–10k
+              (regional meshes) → 100k+ (selective global workloads). People trust roadmaps that
+              show friction.
             </p>
           </Style.DefinitionBox>
         </Style.ContentCard>
@@ -845,6 +850,61 @@ export default function Cosmos() {
           </p>
         </Style.ContentCard>
       </ScrollReveal>
+
+      {/* WHY THIS IS NOW POSSIBLE */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Why This Is Now Possible</h3>
+          <p>
+            The technologies that make INOS feasible didn't exist a decade ago. Four convergent
+            forces unlocked this architecture:
+          </p>
+          <ul>
+            <li>
+              <strong>SharedArrayBuffer maturity (2020+):</strong> Cross-origin isolation made SAB
+              safe and stable after the Spectre crisis.
+            </li>
+            <li>
+              <strong>WASM SIMD stability:</strong> Browser VMs now support 128-bit vector
+              operations, enabling near-native physics and graphics.
+            </li>
+            <li>
+              <strong>Browser thread models:</strong> Web Workers, OffscreenCanvas, and Audio
+              Worklets provide true parallelism.
+            </li>
+            <li>
+              <strong>Cheap idle compute everywhere:</strong> Billions of devices sit unused. INOS
+              turns idle browsers into productive nodes.
+            </li>
+          </ul>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      {/* WHO SHOULD CARE */}
+      <ScrollReveal>
+        <Style.DefinitionBox>
+          <h4>Who Should Care Right Now</h4>
+          <p>INOS is currently designed for:</p>
+          <ul style={{ marginTop: '0.5rem', marginBottom: 0, paddingLeft: '1.25rem' }}>
+            <li>
+              <strong>Researchers</strong> exploring distributed compute paradigms
+            </li>
+            <li>
+              <strong>Systems thinkers</strong> studying zero-copy architectures
+            </li>
+            <li>
+              <strong>Early node operators</strong> willing to run experimental mesh nodes
+            </li>
+            <li>
+              <strong>Browser experimenters</strong> pushing WebAssembly/WebGPU limits
+            </li>
+            <li>
+              <strong>Protocol hackers</strong> interested in epoch-based consensus
+            </li>
+          </ul>
+        </Style.DefinitionBox>
+      </ScrollReveal>
+
       <Style.SectionDivider />
       <ScrollReveal>
         <Style.ContentCard>

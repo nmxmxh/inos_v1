@@ -42,6 +42,9 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
   const tailsRef = useRef<THREE.InstancedMesh>(null);
   const flagsRef = useRef<Int32Array | null>(null);
 
+  // Epoch-based stall resilience: track last seen epoch to detect stalls
+  const lastEpochRef = useRef<number>(-1);
+
   // Shared geometries
   const geometries = useMemo(() => {
     // Helper to orient geometries
@@ -215,30 +218,44 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     const sab = (window as any).__INOS_SAB__;
     if (!sab) return;
 
-    // 1. Run physics step in WASM via Dispatcher (Worker or local)
+    // Optimization: Cache persistent flags view to avoid per-frame TypedArray creation
+    if (!flagsRef.current || flagsRef.current.buffer !== sab) {
+      flagsRef.current = new Int32Array(sab, 0, 16);
+    }
+    const flags = flagsRef.current;
+    const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // STALL RESILIENCE: If epoch unchanged, skip dispatch and reuse last buffer.
+    // This provides automatic graceful degradation:
+    // - If physics/math stalls, we simply render the last valid frame
+    // - No partial frames, no jitter, no wasted CPU cycles on redundant dispatch
+    // ═══════════════════════════════════════════════════════════════════════════
+    if (matrixEpoch === lastEpochRef.current) {
+      // Epoch unchanged - physics/math hasn't produced new data
+      // GPU already has the last valid buffer, nothing to update
+      return;
+    }
+    lastEpochRef.current = matrixEpoch;
+
+    // 1. Dispatch physics step to WASM (runs in worker pool)
     dispatch.execute('boids', 'step_physics', {
       bird_count: CONFIG.BIRD_COUNT,
       dt: delta,
     });
 
-    // 2. Compute instance matrices
+    // 2. Dispatch matrix generation to WASM
     dispatch.execute('math', 'compute_instance_matrices', {
       count: CONFIG.BIRD_COUNT,
       source_offset: CONFIG.SAB_OFFSET,
       pivots: [],
     });
 
-    // Optimization: Cache persistent views to avoid per-frame TypedArray creation
-    if (!flagsRef.current || flagsRef.current.buffer !== sab) {
-      flagsRef.current = new Int32Array(sab, 0, 16);
-    }
-    const flags = flagsRef.current;
-    const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
+    // 3. Determine which ping-pong buffer to read from
     const isBufferA = Number(matrixEpoch) % 2 === 0;
-
-    // Use layout constants for buffer offsets
     const matrixBase = isBufferA ? OFFSET_MATRIX_BUFFER_A : OFFSET_MATRIX_BUFFER_B;
 
+    // 4. Zero-copy pointer swap for each bird part
     const instances = [
       bodiesRef,
       headsRef,
@@ -255,10 +272,10 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
         // OFFSET = matrixBase + partIdx * count * 64
         const matrixOffset = matrixBase + partIdx * CONFIG.BIRD_COUNT * 64;
 
-        // Architecture: Zero-Copy Pointer Swap
+        // Architecture: Zero-Copy Pointer Swap (no memcpy between CPU stages)
         const sabView = getArenaView(sab, matrixOffset, CONFIG.BIRD_COUNT * 64);
 
-        // Pointer Swap Optimization:
+        // Final GPU upload (unavoidable - WebGPU buffer ownership semantics)
         (ref.current.instanceMatrix as any).array = sabView;
         ref.current.instanceMatrix.needsUpdate = true;
       }
