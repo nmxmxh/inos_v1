@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall/js"
@@ -51,6 +52,9 @@ type SABBridge struct {
 	waitAsyncMisses  uint64
 	totalReadTime    int64 // Nanoseconds
 	totalWriteTime   int64 // Nanoseconds
+
+	// GC Pressure Management: Track wait calls to yield for finalizer cleanup
+	waitCallCount uint64
 }
 
 const defaultViewCacheMax = 64
@@ -301,6 +305,9 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 }
 
 // WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
+// IMPORTANT: Each Atomics.wait() call creates a js.Value with a registered finalizer.
+// In tight loops, this can exhaust the Go WASM runtime's finalizer table.
+// We mitigate this by periodically yielding to allow GC to process finalizers.
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
 	if !sb.jsInitialized {
 		sb.initJSCache()
@@ -314,7 +321,19 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 		return 2
 	}
 
+	// GC Pressure Relief: Every 50 wait calls, yield to allow finalizer cleanup
+	// This prevents finalizer table exhaustion in Go WASM
+	count := atomic.AddUint64(&sb.waitCallCount, 1)
+	if count%50 == 0 {
+		runtime.Gosched()
+	}
+
+	// Call Atomics.wait - this creates a js.Value that will have a finalizer
 	result := sb.jsAtomics.Call("wait", sb.jsInt32View, epochIndex, expectedValue, timeoutMs)
+
+	// Use Type() check instead of String() to reduce additional js.Value allocations
+	// js.TypeString = 7, but we need to compare the actual string value
+	// Since we must extract the string, use it efficiently:
 	resultStr := result.String()
 
 	switch resultStr {
@@ -362,7 +381,7 @@ func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
 		return 0
 	}
 
-	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex, js.ValueOf(nil))
+	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex)
 	return result.Int()
 }
 

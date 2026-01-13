@@ -8,12 +8,13 @@
  * Architecture: physics.rs → math.rs → gpu.rs → Three.js
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
 
 // Import Three.js scenes
 // import { TerrainScene } from '../../features/scenes';
@@ -400,451 +401,437 @@ interface PipelineProps {
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: ZERO-COPY DATA FLOW (FULL PIPELINE)
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: ZERO-COPY DATA FLOW (FULL PIPELINE) (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function ZeroCopyPipelineDiagram({ activeBuffer }: PipelineProps) {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const isA = activeBuffer === 'A';
+      const scale = Math.min(1, width / 700);
+      const sabX = 220 * scale + 50 * (1 - scale);
+      const sabY = 40,
+        sabW = 260 * scale,
+        sabH = 180;
 
-    const isA = activeBuffer === 'A';
-
-    // SAB coordinates
-    const sabX = 220;
-    const sabY = 40;
-    const sabW = 260;
-    const sabH = 180;
-
-    // 1. SAB Container
-    svg
-      .append('rect')
-      .attr('x', sabX)
-      .attr('y', sabY)
-      .attr('width', sabW)
-      .attr('height', sabH)
-      .attr('rx', 12)
-      .attr('fill', 'rgba(0,0,0,0.02)')
-      .attr('stroke', theme.colors.borderSubtle)
-      .attr('stroke-dasharray', '4,2');
-
-    svg
-      .append('text')
-      .attr('x', sabX + sabW / 2)
-      .attr('y', sabY - 10)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 800)
-      .attr('fill', theme.colors.inkMedium)
-      .text('SHARED ARRAY CHANNEL (SAB)');
-
-    // 2. Stages
-    const drawStage = (name: string, sub: string, x: number, y: number, color: string) => {
-      const g = svg.append('g');
-      g.append('rect')
-        .attr('x', x)
-        .attr('y', y)
-        .attr('width', 140)
-        .attr('height', 45)
-        .attr('rx', 6)
-        .attr('fill', 'white')
-        .attr('stroke', color)
-        .attr('stroke-width', 2);
-      g.append('text')
-        .attr('x', x + 10)
-        .attr('y', y + 18)
-        .attr('font-size', 10)
-        .attr('font-weight', 800)
-        .attr('fill', color)
-        .text(name);
-      g.append('text')
-        .attr('x', x + 10)
-        .attr('y', y + 33)
-        .attr('font-size', 8)
-        .attr('fill', theme.colors.inkLight)
-        .text(sub);
-      return g;
-    };
-
-    drawStage('GO SUPERVISOR', 'boids_supervisor.go', 30, 20, '#ef4444');
-    drawStage('RUST COMPUTE', 'boids.rs (Physics)', 30, 85, '#f59e0b');
-    drawStage('RUST MATH', 'math.rs (Matrices)', 30, 150, '#8b5cf6');
-    drawStage('GPU RENDER', 'Instanced Mesh', 530, 85, '#10b981');
-
-    // 3. SAB Slots (Dual Ping-Pong)
-    const drawSlot = (y: number, name: string, active: boolean, type: 'boid' | 'matrix') => {
-      const color = type === 'boid' ? '#3b82f6' : '#8b5cf6';
-      const role = active ? 'ACTIVE' : 'STAGING';
-
+      // 1. SAB Container
       svg
         .append('rect')
-        .attr('x', sabX + 20)
-        .attr('y', y)
-        .attr('width', sabW - 40)
-        .attr('height', 20)
-        .attr('rx', 4)
-        .attr('fill', active ? `${color}15` : 'white')
-        .attr('stroke', active ? color : '#eee')
-        .attr('stroke-width', active ? 2 : 1)
-        .style('transition', 'all 0.4s ease');
-
+        .attr('x', sabX)
+        .attr('y', sabY)
+        .attr('width', sabW)
+        .attr('height', sabH)
+        .attr('rx', 12)
+        .attr('fill', 'rgba(0,0,0,0.02)')
+        .attr('stroke', theme.colors.borderSubtle)
+        .attr('stroke-dasharray', '4,2');
       svg
         .append('text')
         .attr('x', sabX + sabW / 2)
-        .attr('y', y + 13)
+        .attr('y', sabY - 10)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
-        .attr('font-weight', 800)
-        .attr('fill', active ? color : '#999')
-        .text(`${name} (${role})`);
-    };
-
-    // Boid State Ping-Pong
-    drawSlot(sabY + 15, 'Boid Buffer A', isA, 'boid');
-    drawSlot(sabY + 40, 'Boid Buffer B', !isA, 'boid');
-
-    // Matrix State Ping-Pong
-    drawSlot(sabY + 80, 'Matrix Buffer A', isA, 'matrix');
-    drawSlot(sabY + 105, 'Matrix Buffer B', !isA, 'matrix');
-
-    drawSlot(sabY + 145, 'Atomic Flags / Epochs', true, 'boid');
-
-    // 4. Path Generators
-    const lineGen = d3.line().curve(d3.curveMonotoneX);
-
-    // -- DATA FLOWS --
-
-    // Go -> Boid Stable (Weights)
-    const goPath: [number, number][] = [
-      [170, 42],
-      [200, 42],
-      [200, sabY + 25],
-      [sabX + 20, sabY + 25],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(goPath)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#ef4444')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '4,2');
-
-    // Rust Physics -> Boid Back (Physics Step)
-    const physWriteY = sabY + 50;
-    const physPath: [number, number][] = [
-      [170, 107],
-      [210, 107],
-      [210, physWriteY],
-      [sabX + 20, physWriteY],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(physPath)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#f59e0b')
-      .attr('stroke-width', 2);
-
-    // Rust Math -> Matrix Back (Matrix Gen)
-    const mathWriteY = sabY + 115;
-    const mathPath: [number, number][] = [
-      [170, 172],
-      [210, 172],
-      [210, mathWriteY],
-      [sabX + 20, mathWriteY],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(mathPath)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 2);
-
-    // SAB Matrix Active -> GPU
-    const gpuReadY = sabY + 90;
-    const gpuPath: [number, number][] = [
-      [sabX + sabW - 20, gpuReadY],
-      [510, gpuReadY],
-      [510, 107],
-      [530, 107],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(gpuPath)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#10b981')
-      .attr('stroke-width', 2);
-
-    // Go -> Flags (Read Epoch)
-    const goReadSignal: [number, number][] = [
-      [sabX + 20, sabY + 155],
-      [10, sabY + 155],
-      [10, 42],
-      [30, 42],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(goReadSignal)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#ef4444')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '2,2')
-      .attr('opacity', 0.5);
-
-    // Physics -> Flags (Flip Update)
-    const physSignal: [number, number][] = [
-      [170, 115],
-      [215, 115],
-      [215, sabY + 155],
-      [sabX + 20, sabY + 155],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(physSignal)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#f59e0b')
-      .attr('stroke-width', 1)
-      .attr('stroke-dasharray', '2,2')
-      .attr('opacity', 0.6);
-
-    // Math -> Flags (Flip Update)
-    const mathSignal: [number, number][] = [
-      [170, 180],
-      [215, 180],
-      [215, sabY + 155],
-      [sabX + 20, sabY + 155],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(mathSignal)!)
-      .attr('fill', 'none')
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 1)
-      .attr('stroke-dasharray', '2,2')
-      .attr('opacity', 0.6);
-
-    // Flags -> Math (Atomics.notify wake pulse)
-    const flagsToMath: [number, number][] = [
-      [sabX + 20, sabY + 155],
-      [10, sabY + 155],
-      [10, 172],
-      [30, 172],
-    ];
-    svg
-      .append('path')
-      .attr('d', lineGen(flagsToMath)!)
-      .attr('fill', 'none')
-      .attr('stroke', theme.colors.inkLight)
-      .attr('stroke-width', 1)
-      .attr('stroke-dasharray', '1,1');
-
-    // -- ANIMATIONS --
-    const animatePulse = (path: [number, number][], color: string, dur: string, r = 3) => {
-      svg
-        .append('circle')
-        .attr('r', r)
-        .attr('fill', color)
-        .append('animateMotion')
-        .attr('path', lineGen(path)!)
-        .attr('dur', dur)
-        .attr('repeatCount', 'indefinite');
-    };
-
-    animatePulse(goPath, '#ef4444', '4s');
-    animatePulse(physPath, '#f59e0b', '1.5s');
-    animatePulse(mathPath, '#8b5cf6', '1.5s');
-    animatePulse(gpuPath, '#10b981', '0.8s');
-
-    // Signal Pulses (Atomics coordination)
-    animatePulse(goReadSignal, '#ef4444', '4s', 2);
-    animatePulse(physSignal, '#f59e0b', '1.5s', 2);
-    animatePulse(mathSignal, '#8b5cf6', '1.5s', 2);
-    animatePulse(flagsToMath, theme.colors.inkMedium, '1.5s', 1.5);
-  }, [theme, activeBuffer]);
-
-  return <svg ref={svgRef} viewBox="0 0 700 240" style={{ width: '100%', height: 'auto' }} />;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: PING-PONG BUFFERS (A/B SWAP)
-// ────────────────────────────────────────────────────────────────────────────
-function PingPongBufferDiagram({ activeBuffer }: PipelineProps) {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const theme = useTheme();
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    const isA = activeBuffer === 'A';
-    const mainColor = '#3b82f6';
-    const backColor = '#8b5cf6';
-
-    // 1. Buffer Slots
-    const drawBuffer = (name: string, y: number, color: string, active: boolean) => {
-      const g = svg.append('g');
-      g.append('rect')
-        .attr('x', 220)
-        .attr('y', y)
-        .attr('width', 260)
-        .attr('height', 40)
-        .attr('rx', 6)
-        .attr('fill', active ? `${color}15` : 'white')
-        .attr('stroke', active ? color : '#e5e7eb')
-        .attr('stroke-width', active ? 2 : 1);
-
-      g.append('text')
-        .attr('x', 240)
-        .attr('y', y + 25)
-        .attr('font-size', 12)
-        .attr('font-weight', 800)
-        .attr('fill', active ? color : '#ccc')
-        .text(`BUFFER ${name}`);
-
-      g.append('text')
-        .attr('x', 465)
-        .attr('y', y + 25)
-        .attr('text-anchor', 'end')
         .attr('font-size', 10)
-        .attr('font-weight', 600)
-        .attr('fill', active ? color : '#999')
-        .text(active ? 'READ ONLY' : 'WRITE ONLY');
-    };
-
-    drawBuffer('A', 40, mainColor, isA);
-    drawBuffer('B', 100, backColor, !isA);
-
-    // 2. Actors
-    const drawConnector = (
-      x: number,
-      color: string,
-      targetY: number,
-      label: string,
-      isLeft: boolean
-    ) => {
-      const arrowX1 = isLeft ? x + 35 : x - 35;
-      const arrowX2 = isLeft ? 215 : 485;
-
-      svg
-        .append('circle')
-        .attr('cx', x)
-        .attr('cy', 90)
-        .attr('r', 25)
-        .attr('fill', 'white')
-        .attr('stroke', color)
-        .attr('stroke-width', 2);
-      svg
-        .append('text')
-        .attr('x', x)
-        .attr('y', 94)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
         .attr('font-weight', 800)
-        .attr('fill', color)
-        .text(label);
+        .attr('fill', theme.colors.inkMedium)
+        .text('SHARED ARRAY CHANNEL (SAB)');
+
+      // 2. Stages
+      const drawStage = (name: string, sub: string, x: number, y: number, color: string) => {
+        const sx = x * scale;
+        const g = svg.append('g');
+        g.append('rect')
+          .attr('x', sx)
+          .attr('y', y)
+          .attr('width', 140 * scale)
+          .attr('height', 45)
+          .attr('rx', 6)
+          .attr('fill', 'white')
+          .attr('stroke', color)
+          .attr('stroke-width', 2);
+        g.append('text')
+          .attr('x', sx + 10)
+          .attr('y', y + 18)
+          .attr('font-size', 10 * scale + 2 * (1 - scale))
+          .attr('font-weight', 800)
+          .attr('fill', color)
+          .text(name);
+        g.append('text')
+          .attr('x', sx + 10)
+          .attr('y', y + 33)
+          .attr('font-size', 8)
+          .attr('fill', theme.colors.inkLight)
+          .text(sub);
+        return g;
+      };
+
+      drawStage('GO SUPERVISOR', 'boids_supervisor.go', 30, 20, '#ef4444');
+      drawStage('RUST COMPUTE', 'boids.rs (Physics)', 30, 85, '#f59e0b');
+      drawStage('RUST MATH', 'math.rs (Matrices)', 30, 150, '#8b5cf6');
+      drawStage('GPU RENDER', 'Instanced Mesh', 530 + 30 * (1 - scale), 85, '#10b981');
+
+      // 3. SAB Slots
+      const drawSlot = (y: number, name: string, active: boolean, type: 'boid' | 'matrix') => {
+        const color = type === 'boid' ? '#3b82f6' : '#8b5cf6';
+        svg
+          .append('rect')
+          .attr('x', sabX + 20)
+          .attr('y', y)
+          .attr('width', sabW - 40)
+          .attr('height', 20)
+          .attr('rx', 4)
+          .attr('fill', active ? `${color}15` : 'white')
+          .attr('stroke', active ? color : '#eee')
+          .attr('stroke-width', active ? 2 : 1);
+        svg
+          .append('text')
+          .attr('x', sabX + sabW / 2)
+          .attr('y', y + 13)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8 * scale + 2 * (1 - scale))
+          .attr('font-weight', 800)
+          .attr('fill', active ? color : '#999')
+          .text(`${name} (${active ? 'ACTIVE' : 'STAGING'})`);
+      };
+
+      drawSlot(sabY + 15, 'Boid Buffer A', isA, 'boid');
+      drawSlot(sabY + 40, 'Boid Buffer B', !isA, 'boid');
+      drawSlot(sabY + 80, 'Matrix Buffer A', isA, 'matrix');
+      drawSlot(sabY + 105, 'Matrix Buffer B', !isA, 'matrix');
+      drawSlot(sabY + 145, 'Atomic Flags / Epochs', true, 'boid');
+
+      // 4. Paths & Animations
+      const lineGen = d3.line().curve(d3.curveMonotoneX);
+      const animatePulse = (path: [number, number][], color: string, dur: string, r = 3) => {
+        svg
+          .append('circle')
+          .attr('r', r)
+          .attr('fill', color)
+          .append('animateMotion')
+          .attr('path', lineGen(path)!)
+          .attr('dur', dur)
+          .attr('repeatCount', 'indefinite');
+      };
+
+      const goPath: [number, number][] = [
+        [170 * scale, 42],
+        [200 * scale, 42],
+        [200 * scale, sabY + 25],
+        [sabX + 20, sabY + 25],
+      ];
+      const physPath: [number, number][] = [
+        [170 * scale, 107],
+        [210 * scale, 107],
+        [210 * scale, sabY + 50],
+        [sabX + 20, sabY + 50],
+      ];
+      const mathPath: [number, number][] = [
+        [170 * scale, 172],
+        [210 * scale, 172],
+        [210 * scale, sabY + 115],
+        [sabX + 20, sabY + 115],
+      ];
+      const gpuPath: [number, number][] = [
+        [sabX + sabW - 20, sabY + 90],
+        [510 * scale + 200 * (1 - scale), sabY + 90],
+        [510 * scale + 200 * (1 - scale), 107],
+        [530 * scale + 170 * (1 - scale), 107],
+      ];
 
       svg
         .append('path')
-        .attr(
-          'd',
-          `M${arrowX1},90 C${(arrowX1 + arrowX2) / 2},90 ${(arrowX1 + arrowX2) / 2},${targetY} ${arrowX2},${targetY}`
-        )
+        .attr('d', lineGen(goPath)!)
         .attr('fill', 'none')
-        .attr('stroke', color)
+        .attr('stroke', '#ef4444')
         .attr('stroke-width', 2)
-        .attr('stroke-dasharray', '4,2')
-        .style('transition', 'all 0.4s ease');
-    };
+        .attr('stroke-dasharray', '4,2');
+      svg
+        .append('path')
+        .attr('d', lineGen(physPath)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#f59e0b')
+        .attr('stroke-width', 2);
+      svg
+        .append('path')
+        .attr('d', lineGen(mathPath)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 2);
+      svg
+        .append('path')
+        .attr('d', lineGen(gpuPath)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#10b981')
+        .attr('stroke-width', 2);
 
-    drawConnector(100, '#f59e0b', isA ? 120 : 60, 'RUST', true);
-    drawConnector(600, '#10b981', isA ? 60 : 120, 'GPU', false);
-  }, [theme, activeBuffer]);
+      animatePulse(goPath, '#ef4444', '4s');
+      animatePulse(physPath, '#f59e0b', '1.5s');
+      animatePulse(mathPath, '#8b5cf6', '1.5s');
+      animatePulse(gpuPath, '#10b981', '0.8s');
 
-  return <svg ref={svgRef} viewBox="0 0 700 180" style={{ width: '100%', height: 'auto' }} />;
+      const goReadSignal: [number, number][] = [
+        [sabX + 20, sabY + 155],
+        [10, sabY + 155],
+        [10, 42],
+        [30 * scale, 42],
+      ];
+      const physSignal: [number, number][] = [
+        [170 * scale, 115],
+        [215 * scale, 115],
+        [215 * scale, sabY + 155],
+        [sabX + 20, sabY + 155],
+      ];
+      const mathSignal: [number, number][] = [
+        [170 * scale, 180],
+        [215 * scale, 180],
+        [215 * scale, sabY + 155],
+        [sabX + 20, sabY + 155],
+      ];
+      const flagsToMath: [number, number][] = [
+        [sabX + 20, sabY + 155],
+        [10, sabY + 155],
+        [10, 172],
+        [30 * scale, 172],
+      ];
+
+      svg
+        .append('path')
+        .attr('d', lineGen(goReadSignal)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#ef4444')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '2,2')
+        .attr('opacity', 0.5);
+      svg
+        .append('path')
+        .attr('d', lineGen(physSignal)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#f59e0b')
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '2,2')
+        .attr('opacity', 0.6);
+      svg
+        .append('path')
+        .attr('d', lineGen(mathSignal)!)
+        .attr('fill', 'none')
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '2,2')
+        .attr('opacity', 0.6);
+      svg
+        .append('path')
+        .attr('d', lineGen(flagsToMath)!)
+        .attr('fill', 'none')
+        .attr('stroke', theme.colors.inkLight)
+        .attr('stroke-width', 1)
+        .attr('stroke-dasharray', '1,1');
+
+      animatePulse(goReadSignal, '#ef4444', '4s', 2);
+      animatePulse(physSignal, '#f59e0b', '1.5s', 2);
+      animatePulse(mathSignal, '#8b5cf6', '1.5s', 2);
+      animatePulse(flagsToMath, theme.colors.inkMedium, '1.5s', 1.5);
+    },
+    [theme, activeBuffer]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 240"
+      height={240}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: PING-PONG BUFFERS (A/B SWAP) (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
+function PingPongBufferDiagram({ activeBuffer }: PipelineProps) {
+  const theme = useTheme();
+
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const isA = activeBuffer === 'A';
+      const scale = Math.min(1, width / 700);
+      const centerX = 350;
+      const mainColor = '#3b82f6',
+        backColor = '#8b5cf6';
+
+      // 1. Buffer Slots
+      const drawBuffer = (name: string, y: number, color: string, active: boolean) => {
+        const g = svg.append('g');
+        g.append('rect')
+          .attr('x', centerX - 130 * scale)
+          .attr('y', y)
+          .attr('width', 260 * scale)
+          .attr('height', 40)
+          .attr('rx', 6)
+          .attr('fill', active ? `${color}15` : 'white')
+          .attr('stroke', active ? color : '#e5e7eb')
+          .attr('stroke-width', active ? 2 : 1);
+        g.append('text')
+          .attr('x', centerX - 110 * scale)
+          .attr('y', y + 25)
+          .attr('font-size', 12 * scale + 2 * (1 - scale))
+          .attr('font-weight', 800)
+          .attr('fill', active ? color : '#ccc')
+          .text(`BUFFER ${name}`);
+        g.append('text')
+          .attr('x', centerX + 115 * scale)
+          .attr('y', y + 25)
+          .attr('text-anchor', 'end')
+          .attr('font-size', 10 * scale + 2 * (1 - scale))
+          .attr('font-weight', 600)
+          .attr('fill', active ? color : '#999')
+          .text(active ? 'READ ONLY' : 'WRITE ONLY');
+      };
+
+      drawBuffer('A', 40, mainColor, isA);
+      drawBuffer('B', 100, backColor, !isA);
+
+      // 2. Actors
+      const drawConnector = (color: string, targetY: number, label: string, isLeft: boolean) => {
+        const sx = isLeft ? 100 * scale : width - 100 * scale;
+        const arrowX1 = isLeft ? sx + 25 : sx - 25;
+        const arrowX2 = isLeft ? centerX - 135 * scale : centerX + 135 * scale;
+
+        svg
+          .append('circle')
+          .attr('cx', sx)
+          .attr('cy', 90)
+          .attr('r', 25 * scale + 5 * (1 - scale))
+          .attr('fill', 'white')
+          .attr('stroke', color)
+          .attr('stroke-width', 2);
+        svg
+          .append('text')
+          .attr('x', sx)
+          .attr('y', 94)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9 * scale + 2 * (1 - scale))
+          .attr('font-weight', 800)
+          .attr('fill', color)
+          .text(label);
+
+        const path = isLeft
+          ? `M${arrowX1},90 C${(arrowX1 + arrowX2) / 2},90 ${(arrowX1 + arrowX2) / 2},${targetY + 20} ${arrowX2},${targetY + 20}`
+          : `M${arrowX1},90 C${(arrowX1 + arrowX2) / 2},90 ${(arrowX1 + arrowX2) / 2},${targetY + 20} ${arrowX2},${targetY + 20}`;
+
+        svg
+          .append('path')
+          .attr('d', path)
+          .attr('fill', 'none')
+          .attr('stroke', color)
+          .attr('stroke-width', 2)
+          .attr('stroke-dasharray', '4,2')
+          .style('transition', 'all 0.4s ease');
+      };
+
+      drawConnector('#f59e0b', isA ? 100 : 40, 'RUST', true);
+      drawConnector('#10b981', isA ? 40 : 100, 'GPU', false);
+    },
+    [theme, activeBuffer]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 180"
+      height={180}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: GPU SHADER CATEGORIES
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: GPU SHADER CATEGORIES (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function ShaderCategoriesDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 700);
 
-    const categories = [
-      { name: 'Rendering', count: 12, color: '#3b82f6', y: 30 },
-      { name: 'Particles', count: 9, color: '#f59e0b', y: 70 },
-      { name: 'Post-Processing', count: 15, color: '#8b5cf6', y: 110 },
-      { name: 'Procedural', count: 10, color: '#10b981', y: 150 },
-      { name: 'Physics Sim', count: 8, color: '#ef4444', y: 190 },
-      { name: 'Shader Library', count: 11, color: '#6366f1', y: 230 },
-    ];
+      const categories = [
+        { name: 'Rendering', count: 12, color: '#3b82f6', y: 30 },
+        { name: 'Particles', count: 9, color: '#f59e0b', y: 70 },
+        { name: 'Post-Processing', count: 15, color: '#8b5cf6', y: 110 },
+        { name: 'Procedural', count: 10, color: '#10b981', y: 150 },
+        { name: 'Physics Sim', count: 8, color: '#ef4444', y: 190 },
+        { name: 'Shader Library', count: 11, color: '#6366f1', y: 230 },
+      ];
 
-    const maxCount = 15;
-    const barWidth = 400;
+      const maxCount = 15;
+      const barWidth = 400 * scale;
+      const startX = 150 * scale + 50 * (1 - scale);
 
-    categories.forEach(cat => {
-      // Bar background
-      svg
-        .append('rect')
-        .attr('x', 150)
-        .attr('y', cat.y)
-        .attr('width', barWidth)
-        .attr('height', 24)
-        .attr('rx', 4)
-        .attr('fill', 'rgba(0, 0, 0, 0.05)');
+      categories.forEach(cat => {
+        svg
+          .append('rect')
+          .attr('x', startX)
+          .attr('y', cat.y)
+          .attr('width', barWidth)
+          .attr('height', 24)
+          .attr('rx', 4)
+          .attr('fill', 'rgba(0, 0, 0, 0.05)');
+        svg
+          .append('rect')
+          .attr('x', startX)
+          .attr('y', cat.y)
+          .attr('width', (cat.count / maxCount) * barWidth)
+          .attr('height', 24)
+          .attr('rx', 4)
+          .attr('fill', cat.color)
+          .attr('opacity', 0.8);
+        svg
+          .append('text')
+          .attr('x', startX - 10)
+          .attr('y', cat.y + 16)
+          .attr('text-anchor', 'end')
+          .attr('font-size', 12 * scale + 2 * (1 - scale))
+          .attr('fill', theme.colors.inkDark)
+          .text(cat.name);
+        svg
+          .append('text')
+          .attr('x', startX + (cat.count / maxCount) * barWidth + 10)
+          .attr('y', cat.y + 16)
+          .attr('font-size', 12)
+          .attr('font-weight', 600)
+          .attr('fill', cat.color)
+          .text(cat.count);
+      });
 
-      // Bar fill
-      svg
-        .append('rect')
-        .attr('x', 150)
-        .attr('y', cat.y)
-        .attr('width', (cat.count / maxCount) * barWidth)
-        .attr('height', 24)
-        .attr('rx', 4)
-        .attr('fill', cat.color)
-        .attr('opacity', 0.8);
-
-      // Category name
+      const total = categories.reduce((sum, c) => sum + c.count, 0);
       svg
         .append('text')
-        .attr('x', 140)
-        .attr('y', cat.y + 16)
-        .attr('text-anchor', 'end')
-        .attr('font-size', 12)
+        .attr('x', 350)
+        .attr('y', 280)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 14)
+        .attr('font-weight', 700)
         .attr('fill', theme.colors.inkDark)
-        .text(cat.name);
+        .text(`${total} GPU Shaders Available`);
+    },
+    [theme]
+  );
 
-      // Count
-      svg
-        .append('text')
-        .attr('x', 155 + (cat.count / maxCount) * barWidth + 10)
-        .attr('y', cat.y + 16)
-        .attr('font-size', 12)
-        .attr('font-weight', 600)
-        .attr('fill', cat.color)
-        .text(cat.count);
-    });
-
-    // Total
-    const total = categories.reduce((sum, c) => sum + c.count, 0);
-    svg
-      .append('text')
-      .attr('x', 350)
-      .attr('y', 280)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 14)
-      .attr('font-weight', 700)
-      .attr('fill', theme.colors.inkDark)
-      .text(`${total} GPU Shaders Available`);
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 700 300" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 300"
+      height={300}
+    />
+  );
 }
 
 // Scenes are imported from features/scenes/

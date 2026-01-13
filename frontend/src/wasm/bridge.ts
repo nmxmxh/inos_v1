@@ -151,8 +151,17 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
     inos_atomic_wait: (typedArrayIdx: number, index: number, value: number, timeout: number) => {
       const arr = getObject(typedArrayIdx);
-      const res = Atomics.wait(arr, index, value, timeout === -1 ? undefined : timeout);
-      return res === 'ok' ? 0 : res === 'not-equal' ? 1 : 2;
+      try {
+        // NOTE: Atomics.wait() is NOT allowed on the main thread in Safari/iOS.
+        // If we're running on main thread fallback, this will throw TypeError.
+        const res = Atomics.wait(arr, index, value, timeout === -1 ? undefined : timeout);
+        return res === 'ok' ? 0 : res === 'not-equal' ? 1 : 2;
+      } catch (e) {
+        // Safari/iOS main thread: "TypeError: Atomics.wait cannot be called in this context"
+        // Return 2 (timeout) to trigger polling fallback in Go kernel
+        console.warn('[Bridge] Atomics.wait not available (main thread?), using polling fallback');
+        return 2;
+      }
     },
 
     inos_atomic_compare_exchange: (

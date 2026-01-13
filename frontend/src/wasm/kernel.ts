@@ -79,6 +79,16 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
     const isDev = import.meta.env.DEV;
     const wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
 
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1);
+
+    if (isIOS || isSafari) {
+      console.log('[Kernel] Safari/iOS detected, prioritizing main-thread initialization');
+      return await initializeKernelOnMainThread(tier, wasmUrl, contextId);
+    }
+
     // Try Worker-based initialization first, fall back to main thread
     try {
       return await initializeKernelInWorker(tier, wasmUrl, contextId);
@@ -222,16 +232,28 @@ async function initializeKernelOnMainThread(
   let result: WebAssembly.WebAssemblyInstantiatedSource;
 
   try {
-    result = await WebAssembly.instantiateStreaming(wasmResponse, {
-      ...go.importObject,
-      env: { ...go.importObject.env, memory },
-    });
-  } catch {
-    const bytes = await wasmResponse.arrayBuffer();
-    result = await WebAssembly.instantiate(bytes, {
-      ...go.importObject,
-      env: { ...go.importObject.env, memory },
-    });
+    // Clone response for fallback to avoid "Body is disturbed or locked" error in Safari
+    const fallbackResponse = wasmResponse.clone();
+    try {
+      result = await WebAssembly.instantiateStreaming(wasmResponse, {
+        ...go.importObject,
+        env: { ...go.importObject.env, memory },
+      });
+    } catch (streamingError) {
+      console.warn(
+        '[Kernel] instantiateStreaming failed, falling back to arrayBuffer:',
+        streamingError
+      );
+      const bytes = await fallbackResponse.arrayBuffer();
+      result = await WebAssembly.instantiate(bytes, {
+        ...go.importObject,
+        env: { ...go.importObject.env, memory },
+      });
+    }
+  } catch (err) {
+    throw new Error(
+      `Failed to instantiate WASM: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   // 4. Run Go kernel (non-blocking - runs async via goroutines)

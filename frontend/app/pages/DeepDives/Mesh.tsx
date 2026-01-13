@@ -7,12 +7,12 @@
  * Educational approach: Start with P2P basics (torrents), then INOS specifics.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
-import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
 
 const Style = {
   ...ManuscriptStyle,
@@ -266,193 +266,169 @@ const Style = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: CLIENT-SERVER VS P2P
+// D3 ILLUSTRATION: CLIENT-SERVER VS P2P (D3Container + interactive toggle)
 // ────────────────────────────────────────────────────────────────────────────
 function ClientServerVsP2PDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
   const [activeMode, setActiveMode] = useState<'server' | 'p2p'>('server');
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 700);
+      const centerX = 350;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    const width = 700;
-    const height = 220;
-
-    if (activeMode === 'server') {
-      // Client-Server: Central server, all clients connect to it
-      const serverX = width / 2;
-      const serverY = 50;
-
-      // Server (big)
-      svg
-        .append('rect')
-        .attr('x', serverX - 40)
-        .attr('y', serverY - 20)
-        .attr('width', 80)
-        .attr('height', 40)
-        .attr('rx', 6)
-        .attr('fill', '#dc2626')
-        .attr('stroke', '#991b1b')
-        .attr('stroke-width', 2);
-
-      svg
-        .append('text')
-        .attr('x', serverX)
-        .attr('y', serverY + 5)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
-        .attr('font-weight', 600)
-        .attr('fill', 'white')
-        .text('SERVER');
-
-      // Single point of failure indicator
-      svg
-        .append('text')
-        .attr('x', serverX)
-        .attr('y', serverY - 30)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('fill', '#dc2626')
-        .text('⚠️ Single Point of Failure');
-
-      // Clients
-      const clients = [
-        { x: 100, y: 160 },
-        { x: 250, y: 180 },
-        { x: 400, y: 180 },
-        { x: 550, y: 160 },
-      ];
-
-      clients.forEach(client => {
-        // Connection line
+      if (activeMode === 'server') {
+        const serverY = 50;
         svg
-          .append('line')
-          .attr('x1', client.x)
-          .attr('y1', client.y - 15)
-          .attr('x2', serverX)
-          .attr('y2', serverY + 20)
-          .attr('stroke', 'rgba(220, 38, 38, 0.4)')
-          .attr('stroke-width', 2)
-          .attr('stroke-dasharray', '4,2');
-
-        // Client circle
-        svg
-          .append('circle')
-          .attr('cx', client.x)
-          .attr('cy', client.y)
-          .attr('r', 18)
-          .attr('fill', 'rgba(220, 38, 38, 0.1)')
-          .attr('stroke', '#dc2626')
-          .attr('stroke-width', 1.5);
-
+          .append('rect')
+          .attr('x', centerX - 40)
+          .attr('y', serverY - 20)
+          .attr('width', 80)
+          .attr('height', 40)
+          .attr('rx', 6)
+          .attr('fill', '#dc2626')
+          .attr('stroke', '#991b1b')
+          .attr('stroke-width', 2);
         svg
           .append('text')
-          .attr('x', client.x)
-          .attr('y', client.y + 4)
+          .attr('x', centerX)
+          .attr('y', serverY + 5)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11)
+          .attr('font-weight', 600)
+          .attr('fill', 'white')
+          .text('SERVER');
+        svg
+          .append('text')
+          .attr('x', centerX)
+          .attr('y', serverY - 30)
           .attr('text-anchor', 'middle')
           .attr('font-size', 10)
           .attr('fill', '#dc2626')
-          .text('📱');
-      });
+          .text('⚠️ Single Point of Failure');
 
-      // Cost indicator
-      svg
-        .append('text')
-        .attr('x', width / 2)
-        .attr('y', height - 10)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('fill', theme.colors.inkLight)
-        .text('All bandwidth costs on server • Limited by server capacity');
-    } else {
-      // P2P: Mesh network, everyone connected to everyone
-      const nodes = [
-        { x: width / 2, y: 50 },
-        { x: 150, y: 90 },
-        { x: 550, y: 90 },
-        { x: 100, y: 160 },
-        { x: 300, y: 170 },
-        { x: 450, y: 170 },
-        { x: 600, y: 160 },
-      ];
-
-      // Draw connections between nearby nodes
-      const connections = [
-        [0, 1],
-        [0, 2],
-        [0, 4],
-        [0, 5],
-        [1, 3],
-        [1, 4],
-        [2, 5],
-        [2, 6],
-        [3, 4],
-        [4, 5],
-        [5, 6],
-      ];
-
-      connections.forEach(([i, j]) => {
-        svg
-          .append('line')
-          .attr('x1', nodes[i].x)
-          .attr('y1', nodes[i].y)
-          .attr('x2', nodes[j].x)
-          .attr('y2', nodes[j].y)
-          .attr('stroke', 'rgba(22, 163, 74, 0.3)')
-          .attr('stroke-width', 2);
-      });
-
-      // Draw nodes
-      nodes.forEach((node, i) => {
-        svg
-          .append('circle')
-          .attr('cx', node.x)
-          .attr('cy', node.y)
-          .attr('r', 20)
-          .attr('fill', 'rgba(22, 163, 74, 0.15)')
-          .attr('stroke', '#16a34a')
-          .attr('stroke-width', 2);
-
+        const clients = [
+          { x: 100 * scale + 50 * (1 - scale), y: 160 },
+          { x: 250 * scale + 100 * (1 - scale), y: 180 },
+          { x: 400 * scale + 150 * (1 - scale), y: 180 },
+          { x: 550 * scale + 100 * (1 - scale), y: 160 },
+        ];
+        clients.forEach(c => {
+          svg
+            .append('line')
+            .attr('x1', c.x)
+            .attr('y1', c.y - 15)
+            .attr('x2', centerX)
+            .attr('y2', 70)
+            .attr('stroke', 'rgba(220, 38, 38, 0.4)')
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '4,2');
+          svg
+            .append('circle')
+            .attr('cx', c.x)
+            .attr('cy', c.y)
+            .attr('r', 18 * scale + 12 * (1 - scale))
+            .attr('fill', 'rgba(220, 38, 38, 0.1)')
+            .attr('stroke', '#dc2626')
+            .attr('stroke-width', 1.5);
+          svg
+            .append('text')
+            .attr('x', c.x)
+            .attr('y', c.y + 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10)
+            .text('📱');
+        });
         svg
           .append('text')
-          .attr('x', node.x)
-          .attr('y', node.y + 5)
+          .attr('x', centerX)
+          .attr('y', 210)
           .attr('text-anchor', 'middle')
           .attr('font-size', 10)
-          .attr('font-weight', 600)
+          .attr('fill', theme.colors.inkLight)
+          .text('All bandwidth costs on server • Limited by server capacity');
+      } else {
+        const nodes = [
+          { x: centerX, y: 50 },
+          { x: 150 * scale + 80 * (1 - scale), y: 90 },
+          { x: 550 * scale + 80 * (1 - scale), y: 90 },
+          { x: 100 * scale + 60 * (1 - scale), y: 160 },
+          { x: 300 * scale + 100 * (1 - scale), y: 170 },
+          { x: 450 * scale + 100 * (1 - scale), y: 170 },
+          { x: 600 * scale + 80 * (1 - scale), y: 160 },
+        ];
+        const connections = [
+          [0, 1],
+          [0, 2],
+          [0, 4],
+          [0, 5],
+          [1, 3],
+          [1, 4],
+          [2, 5],
+          [2, 6],
+          [3, 4],
+          [4, 5],
+          [5, 6],
+        ];
+        connections.forEach(([i, j]) =>
+          svg
+            .append('line')
+            .attr('x1', nodes[i].x)
+            .attr('y1', nodes[i].y)
+            .attr('x2', nodes[j].x)
+            .attr('y2', nodes[j].y)
+            .attr('stroke', 'rgba(22, 163, 74, 0.3)')
+            .attr('stroke-width', 2)
+        );
+        nodes.forEach((n, i) => {
+          svg
+            .append('circle')
+            .attr('cx', n.x)
+            .attr('cy', n.y)
+            .attr('r', 20 * scale + 14 * (1 - scale))
+            .attr('fill', 'rgba(22, 163, 74, 0.15)')
+            .attr('stroke', '#16a34a')
+            .attr('stroke-width', 2);
+          svg
+            .append('text')
+            .attr('x', n.x)
+            .attr('y', n.y + 5)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10)
+            .attr('font-weight', 600)
+            .attr('fill', '#16a34a')
+            .text(i === 0 ? '⭐' : '🔗');
+        });
+        svg
+          .append('text')
+          .attr('x', centerX)
+          .attr('y', 25)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
           .attr('fill', '#16a34a')
-          .text(i === 0 ? '⭐' : '🔗');
-      });
-
-      // Resilience indicator
-      svg
-        .append('text')
-        .attr('x', width / 2)
-        .attr('y', 25)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('fill', '#16a34a')
-        .text('✓ No single point of failure • Self-healing');
-
-      // Cost indicator
-      svg
-        .append('text')
-        .attr('x', width / 2)
-        .attr('y', height - 10)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('fill', theme.colors.inkLight)
-        .text('Bandwidth shared across all peers • Scales with network size');
-    }
-  }, [theme, activeMode]);
+          .text('✓ No single point of failure • Self-healing');
+        svg
+          .append('text')
+          .attr('x', centerX)
+          .attr('y', 210)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
+          .attr('fill', theme.colors.inkLight)
+          .text('Bandwidth shared across all peers • Scales with network size');
+      }
+    },
+    [theme, activeMode]
+  );
 
   return (
     <div>
-      <svg ref={svgRef} viewBox="0 0 700 220" style={{ width: '100%', height: 'auto' }} />
+      <D3Container
+        render={renderDiagram}
+        dependencies={[renderDiagram]}
+        viewBox="0 0 700 220"
+        height={220}
+      />
       <div
         style={{
           display: 'flex',
@@ -498,554 +474,585 @@ function ClientServerVsP2PDiagram() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: HIERARCHICAL MESH TOPOLOGY (Multi-Flow Animation)
+// D3 ILLUSTRATION: HIERARCHICAL MESH TOPOLOGY (D3Container + D3 Transitions)
 // ────────────────────────────────────────────────────────────────────────────
 function HierarchicalMeshDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
-  const [frame, setFrame] = useState(0);
-  const animationRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    const animate = () => {
-      setFrame(f => (f + 1) % 360);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, []);
+  const renderDiagram: D3RenderFn = useCallback(
+    svg => {
+      svg.selectAll('*').remove();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+      const centerX = 350;
+      const seedY = 50,
+        hubY = 130,
+        edgeY = 210;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const seeds = [
+        { x: centerX - 100, y: seedY },
+        { x: centerX, y: seedY },
+        { x: centerX + 100, y: seedY },
+      ];
+      const hubs = [
+        { x: centerX - 160, y: hubY },
+        { x: centerX - 80, y: hubY },
+        { x: centerX, y: hubY },
+        { x: centerX + 80, y: hubY },
+        { x: centerX + 160, y: hubY },
+      ];
+      const edges: { x: number; y: number }[] = [];
+      for (let i = 0; i < 7; i++) edges.push({ x: centerX - 240 + i * 80, y: edgeY });
 
-    const width = 700;
-    const centerX = width / 2;
+      // Static connections
+      seeds.forEach(s =>
+        hubs.forEach(h => {
+          if (Math.abs(s.x - h.x) < 130)
+            svg
+              .append('line')
+              .attr('x1', s.x)
+              .attr('y1', s.y + 16)
+              .attr('x2', h.x)
+              .attr('y2', h.y - 12)
+              .attr('stroke', 'rgba(139, 92, 246, 0.12)')
+              .attr('stroke-width', 1);
+        })
+      );
+      hubs.forEach(h =>
+        edges.forEach(e => {
+          if (Math.abs(h.x - e.x) < 100)
+            svg
+              .append('line')
+              .attr('x1', h.x)
+              .attr('y1', h.y + 12)
+              .attr('x2', e.x)
+              .attr('y2', e.y - 10)
+              .attr('stroke', 'rgba(14, 165, 233, 0.1)')
+              .attr('stroke-width', 1);
+        })
+      );
 
-    // Layer definitions with MORE spacing to prevent clashing
-    const seedY = 50;
-    const hubY = 130;
-    const edgeY = 210;
+      // Labels
+      [
+        { y: seedY, color: '#8b5cf6', label: 'SEEDS' },
+        { y: hubY, color: '#0ea5e9', label: 'HUBS' },
+        { y: edgeY, color: '#16a34a', label: 'EDGES' },
+      ].forEach(l =>
+        svg
+          .append('text')
+          .attr('x', 25)
+          .attr('y', l.y + 4)
+          .attr('font-size', 8)
+          .attr('font-weight', 600)
+          .attr('fill', l.color)
+          .text(l.label)
+      );
 
-    // Node positions - centered
-    const seeds = [
-      { x: centerX - 100, y: seedY, id: 0 },
-      { x: centerX, y: seedY, id: 1 },
-      { x: centerX + 100, y: seedY, id: 2 },
-    ];
-
-    const hubs = [
-      { x: centerX - 160, y: hubY, id: 0 },
-      { x: centerX - 80, y: hubY, id: 1 },
-      { x: centerX, y: hubY, id: 2 },
-      { x: centerX + 80, y: hubY, id: 3 },
-      { x: centerX + 160, y: hubY, id: 4 },
-    ];
-
-    const edges: { x: number; y: number; id: number }[] = [];
-    const edgeCount = 7;
-    const edgeSpacing = 80;
-    const edgeStartX = centerX - ((edgeCount - 1) * edgeSpacing) / 2;
-    for (let i = 0; i < edgeCount; i++) {
-      edges.push({ x: edgeStartX + i * edgeSpacing, y: edgeY, id: i });
-    }
-
-    // Draw static connections
-    seeds.forEach(seed => {
-      hubs.forEach(hub => {
-        if (Math.abs(seed.x - hub.x) < 130) {
-          svg
-            .append('line')
-            .attr('x1', seed.x)
-            .attr('y1', seed.y + 16)
-            .attr('x2', hub.x)
-            .attr('y2', hub.y - 12)
-            .attr('stroke', 'rgba(139, 92, 246, 0.12)')
-            .attr('stroke-width', 1);
-        }
+      // Nodes
+      seeds.forEach(s => {
+        svg
+          .append('circle')
+          .attr('cx', s.x)
+          .attr('cy', s.y)
+          .attr('r', 16)
+          .attr('fill', 'rgba(139, 92, 246, 0.12)')
+          .attr('stroke', '#8b5cf6')
+          .attr('stroke-width', 2);
+        svg
+          .append('text')
+          .attr('x', s.x)
+          .attr('y', s.y + 4)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11)
+          .text('🌱');
       });
-    });
-
-    hubs.forEach(hub => {
-      edges.forEach(edge => {
-        if (Math.abs(hub.x - edge.x) < 100) {
-          svg
-            .append('line')
-            .attr('x1', hub.x)
-            .attr('y1', hub.y + 12)
-            .attr('x2', edge.x)
-            .attr('y2', edge.y - 10)
-            .attr('stroke', 'rgba(14, 165, 233, 0.1)')
-            .attr('stroke-width', 1);
-        }
+      hubs.forEach(h => {
+        svg
+          .append('circle')
+          .attr('cx', h.x)
+          .attr('cy', h.y)
+          .attr('r', 12)
+          .attr('fill', 'rgba(14, 165, 233, 0.12)')
+          .attr('stroke', '#0ea5e9')
+          .attr('stroke-width', 1.5);
+        svg
+          .append('text')
+          .attr('x', h.x)
+          .attr('y', h.y + 3)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8)
+          .text('🔷');
       });
-    });
+      edges.forEach(e =>
+        svg
+          .append('circle')
+          .attr('cx', e.x)
+          .attr('cy', e.y)
+          .attr('r', 10)
+          .attr('fill', 'rgba(22, 163, 74, 0.1)')
+          .attr('stroke', '#16a34a')
+          .attr('stroke-width', 1.5)
+      );
 
-    // Layer labels (left side) - compact
-    [
-      { y: seedY, color: '#8b5cf6', label: 'SEEDS' },
-      { y: hubY, color: '#0ea5e9', label: 'HUBS' },
-      { y: edgeY, color: '#16a34a', label: 'EDGES' },
-    ].forEach(layer => {
+      // Legend
+      const legendY = 250;
       svg
         .append('text')
-        .attr('x', 25)
-        .attr('y', layer.y + 4)
-        .attr('font-size', 8)
+        .attr('x', 70)
+        .attr('y', legendY - 15)
+        .attr('font-size', 9)
         .attr('font-weight', 600)
-        .attr('fill', layer.color)
-        .text(layer.label);
-    });
-
-    // Draw nodes
-    seeds.forEach(seed => {
-      svg
-        .append('circle')
-        .attr('cx', seed.x)
-        .attr('cy', seed.y)
-        .attr('r', 16)
-        .attr('fill', 'rgba(139, 92, 246, 0.12)')
-        .attr('stroke', '#8b5cf6')
-        .attr('stroke-width', 2);
-      svg
-        .append('text')
-        .attr('x', seed.x)
-        .attr('y', seed.y + 4)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
-        .text('🌱');
-    });
-
-    hubs.forEach(hub => {
-      svg
-        .append('circle')
-        .attr('cx', hub.x)
-        .attr('cy', hub.y)
-        .attr('r', 12)
-        .attr('fill', 'rgba(14, 165, 233, 0.12)')
-        .attr('stroke', '#0ea5e9')
-        .attr('stroke-width', 1.5);
-      svg
-        .append('text')
-        .attr('x', hub.x)
-        .attr('y', hub.y + 3)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
-        .text('🔷');
-    });
-
-    edges.forEach(edge => {
-      svg
-        .append('circle')
-        .attr('cx', edge.x)
-        .attr('cy', edge.y)
-        .attr('r', 10)
-        .attr('fill', 'rgba(22, 163, 74, 0.1)')
-        .attr('stroke', '#16a34a')
-        .attr('stroke-width', 1.5);
-    });
-
-    // Multiple simultaneous flows with different colors and types
-    const flows = [
-      // DOWN flows (data packets)
-      {
-        type: 'chunk',
-        emoji: '📦',
-        color: '#f59e0b',
-        from: seeds[0],
-        toHub: hubs[1],
-        toEdge: edges[1],
-        offset: 0,
-      },
-      {
-        type: 'model',
-        emoji: '🧠',
-        color: '#8b5cf6',
-        from: seeds[1],
-        toHub: hubs[2],
-        toEdge: edges[3],
-        offset: 60,
-      },
-      {
-        type: 'state',
-        emoji: '⚡',
-        color: '#06b6d4',
-        from: seeds[2],
-        toHub: hubs[3],
-        toEdge: edges[5],
-        offset: 120,
-      },
-    ];
-
-    // UP flows (requests)
-    const requests = [
-      {
-        type: 'query',
-        emoji: '❓',
-        color: '#10b981',
-        fromEdge: edges[0],
-        toHub: hubs[0],
-        offset: 30,
-      },
-      {
-        type: 'sync',
-        emoji: '🔄',
-        color: '#3b82f6',
-        fromEdge: edges[4],
-        toHub: hubs[3],
-        offset: 90,
-      },
-      {
-        type: 'credit',
-        emoji: '💰',
-        color: '#eab308',
-        fromEdge: edges[6],
-        toHub: hubs[4],
-        offset: 150,
-      },
-    ];
-
-    // Helper to draw a packet
-    const drawPacket = (x: number, y: number, emoji: string, color: string, size: number = 5) => {
-      svg
-        .append('circle')
-        .attr('cx', x)
-        .attr('cy', y)
-        .attr('r', size)
-        .attr('fill', color)
-        .attr('stroke', 'white')
-        .attr('stroke-width', 1);
-      svg
-        .append('text')
-        .attr('x', x)
-        .attr('y', y + 3)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 6)
-        .text(emoji);
-    };
-
-    // Animate DOWN flows
-    flows.forEach(flow => {
-      const cycleFrame = (frame + flow.offset) % 180;
-      const phase = cycleFrame / 60; // 0-3
-
-      if (phase < 1) {
-        // Seed → Hub
-        const t = phase;
-        const x = flow.from.x + (flow.toHub.x - flow.from.x) * t;
-        const y = flow.from.y + 16 + (flow.toHub.y - 12 - (flow.from.y + 16)) * t;
-        drawPacket(x, y, flow.emoji, flow.color);
-      } else if (phase < 2) {
-        // Hub → Edge
-        const t = phase - 1;
-        const x = flow.toHub.x + (flow.toEdge.x - flow.toHub.x) * t;
-        const y = flow.toHub.y + 12 + (flow.toEdge.y - 10 - (flow.toHub.y + 12)) * t;
-        drawPacket(x, y, flow.emoji, flow.color);
-      }
-    });
-
-    // Animate UP flows (requests going up)
-    requests.forEach(req => {
-      const cycleFrame = (frame + req.offset) % 180;
-      const phase = cycleFrame / 90; // 0-2
-
-      if (phase < 1) {
-        // Edge → Hub
-        const t = phase;
-        const x = req.fromEdge.x + (req.toHub.x - req.fromEdge.x) * t;
-        const y = req.fromEdge.y - 10 + (req.toHub.y + 12 - (req.fromEdge.y - 10)) * t;
-        drawPacket(x, y, req.emoji, req.color, 4);
-      }
-    });
-
-    // Legend at bottom - two clear rows
-    const legendY = 250;
-
-    // DOWN section (left half)
-    svg
-      .append('text')
-      .attr('x', 70)
-      .attr('y', legendY - 15)
-      .attr('font-size', 9)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkMedium)
-      .text('↓ DATA DOWN');
-
-    const downItems = [
-      { x: 70, label: '📦 Chunk', color: '#f59e0b' },
-      { x: 170, label: '🧠 Model', color: '#8b5cf6' },
-      { x: 270, label: '⚡ State', color: '#06b6d4' },
-    ];
-    downItems.forEach(item => {
-      svg
-        .append('circle')
-        .attr('cx', item.x)
-        .attr('cy', legendY)
-        .attr('r', 4)
-        .attr('fill', item.color);
-      svg
-        .append('text')
-        .attr('x', item.x + 10)
-        .attr('y', legendY + 4)
-        .attr('font-size', 8)
         .attr('fill', theme.colors.inkMedium)
-        .text(item.label);
-    });
-
-    // UP section (right half)
-    svg
-      .append('text')
-      .attr('x', 400)
-      .attr('y', legendY - 15)
-      .attr('font-size', 9)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkMedium)
-      .text('↑ REQUESTS UP');
-
-    const upItems = [
-      { x: 400, label: '❓ Query', color: '#10b981' },
-      { x: 490, label: '🔄 Sync', color: '#3b82f6' },
-      { x: 580, label: '💰 Credit', color: '#eab308' },
-    ];
-    upItems.forEach(item => {
-      svg
-        .append('circle')
-        .attr('cx', item.x)
-        .attr('cy', legendY)
-        .attr('r', 4)
-        .attr('fill', item.color);
+        .text('↓ DATA DOWN');
+      [
+        { x: 70, label: '📦 Chunk', color: '#f59e0b' },
+        { x: 170, label: '🧠 Model', color: '#8b5cf6' },
+        { x: 270, label: '⚡ State', color: '#06b6d4' },
+      ].forEach(i => {
+        svg.append('circle').attr('cx', i.x).attr('cy', legendY).attr('r', 4).attr('fill', i.color);
+        svg
+          .append('text')
+          .attr('x', i.x + 10)
+          .attr('y', legendY + 4)
+          .attr('font-size', 8)
+          .attr('fill', theme.colors.inkMedium)
+          .text(i.label);
+      });
       svg
         .append('text')
-        .attr('x', item.x + 10)
-        .attr('y', legendY + 4)
-        .attr('font-size', 8)
+        .attr('x', 400)
+        .attr('y', legendY - 15)
+        .attr('font-size', 9)
+        .attr('font-weight', 600)
         .attr('fill', theme.colors.inkMedium)
-        .text(item.label);
-    });
-  }, [theme, frame]);
+        .text('↑ REQUESTS UP');
+      [
+        { x: 400, label: '❓ Query', color: '#10b981' },
+        { x: 490, label: '🔄 Sync', color: '#3b82f6' },
+        { x: 580, label: '💰 Credit', color: '#eab308' },
+      ].forEach(i => {
+        svg.append('circle').attr('cx', i.x).attr('cy', legendY).attr('r', 4).attr('fill', i.color);
+        svg
+          .append('text')
+          .attr('x', i.x + 10)
+          .attr('y', legendY + 4)
+          .attr('font-size', 8)
+          .attr('fill', theme.colors.inkMedium)
+          .text(i.label);
+      });
 
-  return <svg ref={svgRef} viewBox="0 0 700 280" style={{ width: '100%', height: 'auto' }} />;
+      // Animated packets using D3 transitions (not React state)
+      const flows = [
+        {
+          emoji: '📦',
+          color: '#f59e0b',
+          path: [
+            { x: seeds[0].x, y: seeds[0].y + 16 },
+            { x: hubs[1].x, y: hubs[1].y - 12 },
+            { x: hubs[1].x, y: hubs[1].y + 12 },
+            { x: edges[1].x, y: edges[1].y - 10 },
+          ],
+          delay: 0,
+        },
+        {
+          emoji: '🧠',
+          color: '#8b5cf6',
+          path: [
+            { x: seeds[1].x, y: seeds[1].y + 16 },
+            { x: hubs[2].x, y: hubs[2].y - 12 },
+            { x: hubs[2].x, y: hubs[2].y + 12 },
+            { x: edges[3].x, y: edges[3].y - 10 },
+          ],
+          delay: 1000,
+        },
+        {
+          emoji: '⚡',
+          color: '#06b6d4',
+          path: [
+            { x: seeds[2].x, y: seeds[2].y + 16 },
+            { x: hubs[3].x, y: hubs[3].y - 12 },
+            { x: hubs[3].x, y: hubs[3].y + 12 },
+            { x: edges[5].x, y: edges[5].y - 10 },
+          ],
+          delay: 2000,
+        },
+      ];
+
+      flows.forEach(flow => {
+        const packet = svg
+          .append('circle')
+          .attr('cx', flow.path[0].x)
+          .attr('cy', flow.path[0].y)
+          .attr('r', 5)
+          .attr('fill', flow.color)
+          .attr('stroke', 'white')
+          .attr('stroke-width', 1)
+          .style('opacity', 0);
+        const label = svg
+          .append('text')
+          .attr('x', flow.path[0].x)
+          .attr('y', flow.path[0].y + 3)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 6)
+          .text(flow.emoji)
+          .style('opacity', 0);
+
+        function animateFlow() {
+          packet
+            .style('opacity', 1)
+            .attr('cx', flow.path[0].x)
+            .attr('cy', flow.path[0].y)
+            .transition()
+            .duration(1000)
+            .attr('cx', flow.path[1].x)
+            .attr('cy', flow.path[1].y)
+            .transition()
+            .duration(100)
+            .attr('cx', flow.path[2].x)
+            .attr('cy', flow.path[2].y)
+            .transition()
+            .duration(1000)
+            .attr('cx', flow.path[3].x)
+            .attr('cy', flow.path[3].y)
+            .transition()
+            .duration(500)
+            .style('opacity', 0)
+            .on('end', animateFlow);
+          label
+            .style('opacity', 1)
+            .attr('x', flow.path[0].x)
+            .attr('y', flow.path[0].y + 3)
+            .transition()
+            .duration(1000)
+            .attr('x', flow.path[1].x)
+            .attr('y', flow.path[1].y + 3)
+            .transition()
+            .duration(100)
+            .attr('x', flow.path[2].x)
+            .attr('y', flow.path[2].y + 3)
+            .transition()
+            .duration(1000)
+            .attr('x', flow.path[3].x)
+            .attr('y', flow.path[3].y + 3)
+            .transition()
+            .duration(500)
+            .style('opacity', 0);
+        }
+        setTimeout(animateFlow, flow.delay);
+      });
+
+      // Request flows (going up)
+      const requests = [
+        { emoji: '❓', color: '#10b981', from: edges[0], to: hubs[0], delay: 500 },
+        { emoji: '🔄', color: '#3b82f6', from: edges[4], to: hubs[3], delay: 1500 },
+        { emoji: '💰', color: '#eab308', from: edges[6], to: hubs[4], delay: 2500 },
+      ];
+
+      requests.forEach(req => {
+        const packet = svg
+          .append('circle')
+          .attr('cx', req.from.x)
+          .attr('cy', req.from.y - 10)
+          .attr('r', 4)
+          .attr('fill', req.color)
+          .attr('stroke', 'white')
+          .attr('stroke-width', 1)
+          .style('opacity', 0);
+        const label = svg
+          .append('text')
+          .attr('x', req.from.x)
+          .attr('y', req.from.y - 7)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 5)
+          .text(req.emoji)
+          .style('opacity', 0);
+
+        function animateReq() {
+          packet
+            .style('opacity', 1)
+            .attr('cx', req.from.x)
+            .attr('cy', req.from.y - 10)
+            .transition()
+            .duration(1500)
+            .attr('cx', req.to.x)
+            .attr('cy', req.to.y + 12)
+            .transition()
+            .duration(500)
+            .style('opacity', 0)
+            .on('end', animateReq);
+          label
+            .style('opacity', 1)
+            .attr('x', req.from.x)
+            .attr('y', req.from.y - 7)
+            .transition()
+            .duration(1500)
+            .attr('x', req.to.x)
+            .attr('y', req.to.y + 15)
+            .transition()
+            .duration(500)
+            .style('opacity', 0);
+        }
+        setTimeout(animateReq, req.delay);
+      });
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 280"
+      height={280}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: GOSSIP PROTOCOL (Properly Spaced & Centered)
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: GOSSIP PROTOCOL (D3Container + D3 Transitions)
+// ────────────────────────────────────────────────────────────────────────────
+interface GossipNode {
+  x: number;
+  y: number;
+  index: number;
+  delay: number;
+}
+
 function GossipDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
-  const [frame, setFrame] = useState(0);
-  const animationRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    const animate = () => {
-      setFrame(f => (f + 1) % 300);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, []);
+  const renderDiagram: D3RenderFn = useCallback(
+    svg => {
+      svg.selectAll('*').remove();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+      const centerX = 350;
+      const ringCenterY = 130;
+      const nodeCount = 8;
+      const rxRadius = 200;
+      const ryRadius = 80;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const nodes: GossipNode[] = [];
+      const getInformedDelay = (i: number) => Math.min(i, nodeCount - i) * 800;
 
-    const width = 700;
-    const centerX = width / 2;
-    const ringCenterY = 130; // Pushed down for more space
-
-    // Nodes - 8 nodes in a wider ellipse for better spacing
-    const nodeCount = 8;
-    const rxRadius = 200; // horizontal - wider
-    const ryRadius = 80; // vertical - taller
-    const nodes: { x: number; y: number; index: number; informed: boolean; informedAt: number }[] =
-      [];
-
-    const getInformedFrame = (nodeIndex: number): number => {
-      if (nodeIndex === 0) return 0;
-      const distance = Math.min(nodeIndex, nodeCount - nodeIndex);
-      return distance * 40;
-    };
-
-    for (let i = 0; i < nodeCount; i++) {
-      const angle = (i / nodeCount) * Math.PI * 2 - Math.PI / 2;
-      const informedAt = getInformedFrame(i);
-      nodes.push({
-        x: centerX + Math.cos(angle) * rxRadius,
-        y: ringCenterY + Math.sin(angle) * ryRadius,
-        index: i,
-        informed: frame >= informedAt,
-        informedAt,
-      });
-    }
-
-    // Draw connection lines (mesh) - connect each to 2 neighbors
-    for (let i = 0; i < nodeCount; i++) {
-      for (let offset = 1; offset <= 2; offset++) {
-        const next = (i + offset) % nodeCount;
-        const isActive =
-          (nodes[i].informed &&
-            !nodes[next].informed &&
-            frame >= nodes[i].informedAt &&
-            frame < nodes[i].informedAt + 40) ||
-          (nodes[next].informed &&
-            !nodes[i].informed &&
-            frame >= nodes[next].informedAt &&
-            frame < nodes[next].informedAt + 40);
-
-        svg
-          .append('line')
-          .attr('x1', nodes[i].x)
-          .attr('y1', nodes[i].y)
-          .attr('x2', nodes[next].x)
-          .attr('y2', nodes[next].y)
-          .attr('stroke', isActive ? 'rgba(249, 115, 22, 0.5)' : 'rgba(139, 92, 246, 0.1)')
-          .attr('stroke-width', isActive ? 2 : 1);
+      for (let i = 0; i < nodeCount; i++) {
+        const angle = (i / nodeCount) * Math.PI * 2 - Math.PI / 2;
+        nodes.push({
+          x: centerX + Math.cos(angle) * rxRadius,
+          y: ringCenterY + Math.sin(angle) * ryRadius,
+          index: i,
+          delay: getInformedDelay(i),
+        });
       }
-    }
 
-    // Draw nodes
-    nodes.forEach(node => {
-      const recentlyInformed = node.informed && frame - node.informedAt < 30;
+      // 1. Static connections (background)
+      for (let i = 0; i < nodeCount; i++) {
+        for (let offset = 1; offset <= 2; offset++) {
+          const next = (i + offset) % nodeCount;
+          svg
+            .append('line')
+            .attr('x1', nodes[i].x)
+            .attr('y1', nodes[i].y)
+            .attr('x2', nodes[next].x)
+            .attr('y2', nodes[next].y)
+            .attr('stroke', 'rgba(139, 92, 246, 0.1)')
+            .attr('stroke-width', 1);
+        }
+      }
 
-      // Glow effect
-      if (recentlyInformed) {
-        svg
+      // 2. Nodes
+      const nodeGroups = nodes.map(n => {
+        const g = svg.append('g').style('opacity', 1);
+        const circle = g
           .append('circle')
-          .attr('cx', node.x)
-          .attr('cy', node.y)
+          .attr('cx', n.x)
+          .attr('cy', n.y)
+          .attr('r', 18)
+          .attr('fill', 'rgba(200, 200, 200, 0.12)')
+          .attr('stroke', '#9ca3af')
+          .attr('stroke-width', 2);
+        const label = g
+          .append('text')
+          .attr('x', n.x)
+          .attr('y', n.y + 5)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11)
+          .attr('font-weight', 600)
+          .attr('fill', '#9ca3af')
+          .text(n.index);
+        const glow = g
+          .append('circle')
+          .attr('cx', n.x)
+          .attr('cy', n.y)
           .attr('r', 24)
           .attr('fill', 'none')
           .attr('stroke', 'rgba(249, 115, 22, 0.35)')
-          .attr('stroke-width', 3);
-      }
+          .attr('stroke-width', 3)
+          .style('opacity', 0);
+        return { g, circle, label, glow };
+      });
 
-      // Node circle
-      svg
-        .append('circle')
-        .attr('cx', node.x)
-        .attr('cy', node.y)
-        .attr('r', 18)
-        .attr('fill', node.informed ? 'rgba(22, 163, 74, 0.15)' : 'rgba(200, 200, 200, 0.12)')
-        .attr('stroke', node.informed ? '#16a34a' : '#9ca3af')
-        .attr('stroke-width', 2);
-
-      // Node number
-      svg
+      // 3. Stats & Progress Bar
+      const statsY = 260;
+      const counterText = svg
         .append('text')
-        .attr('x', node.x)
-        .attr('y', node.y + 5)
+        .attr('x', centerX)
+        .attr('y', statsY)
         .attr('text-anchor', 'middle')
         .attr('font-size', 11)
         .attr('font-weight', 600)
-        .attr('fill', node.informed ? '#16a34a' : '#9ca3af')
-        .text(node.index);
-    });
+        .attr('fill', '#9ca3af')
+        .text(`Nodes informed: 0 / ${nodeCount}`);
+      const barWidth = 200,
+        barX = centerX - barWidth / 2;
+      svg
+        .append('rect')
+        .attr('x', barX)
+        .attr('y', statsY + 10)
+        .attr('width', barWidth)
+        .attr('height', 10)
+        .attr('rx', 5)
+        .attr('fill', 'rgba(200, 200, 200, 0.25)');
+      const progressBar = svg
+        .append('rect')
+        .attr('x', barX)
+        .attr('y', statsY + 10)
+        .attr('width', 0)
+        .attr('height', 10)
+        .attr('rx', 5)
+        .attr('fill', '#16a34a');
 
-    // Animated gossip packets
-    nodes.forEach(source => {
-      if (!source.informed) return;
-
-      [1, -1].forEach(offset => {
-        const targetIndex = (source.index + offset + nodeCount) % nodeCount;
-        const target = nodes[targetIndex];
-        const travelStart = source.informedAt + 8;
-        const travelEnd = target.informedAt;
-
-        if (frame >= travelStart && frame < travelEnd && !target.informed) {
-          const progress = (frame - travelStart) / (travelEnd - travelStart);
-          if (progress >= 0 && progress <= 1) {
-            const px = source.x + (target.x - source.x) * progress;
-            const py = source.y + (target.y - source.y) * progress;
-
-            svg
-              .append('circle')
-              .attr('cx', px)
-              .attr('cy', py)
-              .attr('r', 7)
-              .attr('fill', '#f97316')
-              .attr('stroke', 'white')
-              .attr('stroke-width', 1.5);
-            svg
-              .append('text')
-              .attr('x', px)
-              .attr('y', py + 4)
-              .attr('text-anchor', 'middle')
-              .attr('font-size', 8)
-              .text('📨');
-          }
-        }
+      // 4. Legend
+      const legendY = statsY + 45;
+      const legendItems = [
+        { label: '● Has chunk', color: '#16a34a', xOffset: -130 },
+        { label: '● Waiting', color: '#9ca3af', xOffset: -10 },
+        { label: '● Gossip packet', color: '#f97316', xOffset: 100 },
+      ];
+      legendItems.forEach(item => {
+        svg
+          .append('circle')
+          .attr('cx', centerX + item.xOffset)
+          .attr('cy', legendY)
+          .attr('r', 5)
+          .attr('fill', item.color);
+        svg
+          .append('text')
+          .attr('x', centerX + item.xOffset + 10)
+          .attr('y', legendY + 4)
+          .attr('font-size', 9)
+          .attr('fill', theme.colors.inkMedium)
+          .text(item.label);
       });
-    });
 
-    // Stats section - CENTERED below ring with MUCH more space
-    const statsY = 260; // Pushed way down to avoid ring
-    const informedCount = nodes.filter(n => n.informed).length;
+      function startCycle() {
+        // Reset state
+        nodeGroups.forEach(ng => {
+          ng.circle
+            .transition()
+            .duration(0)
+            .attr('fill', 'rgba(200, 200, 200, 0.12)')
+            .attr('stroke', '#9ca3af');
+          ng.label.transition().duration(0).attr('fill', '#9ca3af');
+          ng.glow.style('opacity', 0);
+        });
+        progressBar.transition().duration(0).attr('width', 0);
+        counterText.text(`Nodes informed: 0 / ${nodeCount}`).attr('fill', '#9ca3af');
 
-    // Counter text - centered
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', statsY)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 11)
-      .attr('font-weight', 600)
-      .attr('fill', '#16a34a')
-      .text(`Nodes informed: ${informedCount} / ${nodeCount}`);
+        // Animate infection
+        let informedCount = 0;
+        nodes.forEach((n, i) => {
+          setTimeout(() => {
+            nodeGroups[i].circle
+              .transition()
+              .duration(300)
+              .attr('fill', 'rgba(22, 163, 74, 0.15)')
+              .attr('stroke', '#16a34a');
+            nodeGroups[i].label.transition().duration(300).attr('fill', '#16a34a');
+            nodeGroups[i].glow.style('opacity', 1).transition().duration(600).style('opacity', 0);
 
-    // Progress bar - centered
-    const barWidth = 200;
-    const barX = centerX - barWidth / 2;
-    svg
-      .append('rect')
-      .attr('x', barX)
-      .attr('y', statsY + 10)
-      .attr('width', barWidth)
-      .attr('height', 10)
-      .attr('rx', 5)
-      .attr('fill', 'rgba(200, 200, 200, 0.25)');
-    svg
-      .append('rect')
-      .attr('x', barX)
-      .attr('y', statsY + 10)
-      .attr('width', (informedCount / nodeCount) * barWidth)
-      .attr('height', 10)
-      .attr('rx', 5)
-      .attr('fill', '#16a34a');
+            informedCount++;
+            counterText
+              .text(`Nodes informed: ${informedCount} / ${nodeCount}`)
+              .attr('fill', '#16a34a');
+            progressBar
+              .transition()
+              .duration(300)
+              .attr('width', (informedCount / nodeCount) * barWidth);
 
-    // Legend - centered at bottom with more space
-    const legendY = statsY + 45;
-    const legendItems = [
-      { label: '● Has chunk', color: '#16a34a', xOffset: -130 },
-      { label: '● Waiting', color: '#9ca3af', xOffset: -10 },
-      { label: '● Gossip packet', color: '#f97316', xOffset: 100 },
-    ];
+            // Send packets to neighbors
+            [1, -1].forEach(offset => {
+              const targetIdx = (i + offset + nodeCount) % nodeCount;
+              const target = nodes[targetIdx];
+              if (target.delay > n.delay) {
+                const packet = svg
+                  .append('circle')
+                  .attr('cx', n.x)
+                  .attr('cy', n.y)
+                  .attr('r', 7)
+                  .attr('fill', '#f97316')
+                  .attr('stroke', 'white')
+                  .attr('stroke-width', 1.5)
+                  .style('opacity', 0);
+                const emoji = svg
+                  .append('text')
+                  .attr('x', n.x)
+                  .attr('y', n.y + 4)
+                  .attr('text-anchor', 'middle')
+                  .attr('font-size', 8)
+                  .text('📨')
+                  .style('opacity', 0);
 
-    legendItems.forEach(item => {
-      svg
-        .append('circle')
-        .attr('cx', centerX + item.xOffset)
-        .attr('cy', legendY)
-        .attr('r', 5)
-        .attr('fill', item.color);
-      svg
-        .append('text')
-        .attr('x', centerX + item.xOffset + 10)
-        .attr('y', legendY + 4)
-        .attr('font-size', 9)
-        .attr('fill', theme.colors.inkMedium)
-        .text(item.label);
-    });
-  }, [theme, frame]);
+                packet
+                  .transition()
+                  .delay(100)
+                  .duration(0)
+                  .style('opacity', 1)
+                  .transition()
+                  .duration(600)
+                  .attr('cx', target.x)
+                  .attr('cy', target.y)
+                  .transition()
+                  .duration(100)
+                  .style('opacity', 0)
+                  .remove();
 
-  return <svg ref={svgRef} viewBox="0 0 700 340" style={{ width: '100%', height: 'auto' }} />;
+                emoji
+                  .transition()
+                  .delay(100)
+                  .duration(0)
+                  .style('opacity', 1)
+                  .transition()
+                  .duration(600)
+                  .attr('x', target.x)
+                  .attr('y', target.y + 4)
+                  .transition()
+                  .duration(100)
+                  .style('opacity', 0)
+                  .remove();
+              }
+            });
+          }, n.delay);
+        });
+
+        // Loop cycle
+        setTimeout(startCycle, 5000);
+      }
+
+      startCycle();
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 340"
+      height={340}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────

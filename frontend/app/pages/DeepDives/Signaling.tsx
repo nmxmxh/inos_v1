@@ -7,12 +7,13 @@
  * Educational approach: Compare paradigms visually with animated diagrams.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
 
 const Style = {
   ...ManuscriptStyle,
@@ -302,458 +303,310 @@ const Style = {
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: PARADIGM COMPARISON (Truly Animated)
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: PARADIGM COMPARISON (D3Container + Transitions)
+// ────────────────────────────────────────────────────────────────────────────
 function ParadigmComparisonDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
   const [activeParadigm, setActiveParadigm] = useState<'polling' | 'callback' | 'epoch'>('polling');
   const [isPlaying, setIsPlaying] = useState(true);
-  const animationRef = useRef<number | null>(null);
-  const frameRef = useRef(0);
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').interrupt();
+      svg.selectAll('*').remove();
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 700);
+      const timelineY = 120;
+      const cpuY = 45;
+      const colors = { polling: '#dc2626', callback: '#f59e0b', epoch: '#16a34a' };
 
-    const width = 700;
-    const timelineY = 120;
-    const cpuY = 45;
-
-    // Colors
-    const colors = {
-      polling: '#dc2626',
-      callback: '#f59e0b',
-      epoch: '#16a34a',
-    };
-
-    // Static elements
-    // Timeline
-    svg
-      .append('line')
-      .attr('x1', 50)
-      .attr('y1', timelineY)
-      .attr('x2', width - 50)
-      .attr('y2', timelineY)
-      .attr('stroke', theme.colors.borderSubtle)
-      .attr('stroke-width', 2);
-
-    // Time labels
-    svg
-      .append('text')
-      .attr('x', 50)
-      .attr('y', timelineY + 20)
-      .attr('font-size', 9)
-      .attr('fill', theme.colors.inkLight)
-      .text('0ms');
-    svg
-      .append('text')
-      .attr('x', width - 50)
-      .attr('y', timelineY + 20)
-      .attr('text-anchor', 'end')
-      .attr('font-size', 9)
-      .attr('fill', theme.colors.inkLight)
-      .text('100ms');
-
-    // Title
-    const titles = {
-      polling: 'Polling: Constant CPU checks (wastes cycles)',
-      callback: 'Callbacks: Queue → Process → Deliver (delayed)',
-      epoch: 'Epochs: Sleep → Instant wake (efficient)',
-    };
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 20)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 600)
-      .attr('fill', colors[activeParadigm])
-      .attr('font-family', "'Inter', sans-serif")
-      .text(titles[activeParadigm]);
-
-    // CPU meter background
-    svg
-      .append('rect')
-      .attr('x', 50)
-      .attr('y', cpuY - 12)
-      .attr('width', 100)
-      .attr('height', 20)
-      .attr('rx', 3)
-      .attr('fill', 'rgba(0,0,0,0.05)')
-      .attr('stroke', theme.colors.borderSubtle);
-    svg
-      .append('text')
-      .attr('x', 100)
-      .attr('y', cpuY - 18)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', theme.colors.inkLight)
-      .text('CPU');
-
-    // CPU meter fill (animated)
-    const cpuBar = svg
-      .append('rect')
-      .attr('x', 52)
-      .attr('y', cpuY - 10)
-      .attr('width', 0)
-      .attr('height', 16)
-      .attr('rx', 2)
-      .attr('fill', colors[activeParadigm]);
-
-    // Status text
-    const statusText = svg
-      .append('text')
-      .attr('x', 165)
-      .attr('y', cpuY + 3)
-      .attr('font-size', 10)
-      .attr('font-weight', 500)
-      .attr('fill', colors[activeParadigm])
-      .attr('font-family', "'JetBrains Mono', monospace");
-
-    // Data change marker (appears during animation)
-    const dataChangeX = 50 + (width - 100) * 0.45;
-    const dataMarker = svg.append('g').attr('opacity', 0);
-    dataMarker
-      .append('line')
-      .attr('x1', dataChangeX)
-      .attr('y1', timelineY - 35)
-      .attr('x2', dataChangeX)
-      .attr('y2', timelineY + 5)
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '3,2');
-    dataMarker
-      .append('text')
-      .attr('x', dataChangeX)
-      .attr('y', timelineY - 40)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 9)
-      .attr('fill', '#8b5cf6')
-      .text('⚡ DATA CHANGED');
-
-    // Animation elements based on paradigm
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const animatedElements: any[] = [];
-
-    if (activeParadigm === 'polling') {
-      // Create poll check circles
-      for (let i = 0; i < 11; i++) {
-        const circle = svg
-          .append('circle')
-          .attr('cx', -20)
-          .attr('cy', timelineY - 25)
-          .attr('r', 8)
-          .attr('fill', 'rgba(220, 38, 38, 0.2)')
-          .attr('stroke', colors.polling)
-          .attr('stroke-width', 2)
-          .attr('opacity', 0);
-        animatedElements.push(circle);
-      }
-      // Poll label
-      const pollLabel = svg
+      // 1. Static Layout
+      svg
+        .append('line')
+        .attr('x1', 50 * scale)
+        .attr('y1', timelineY)
+        .attr('x2', width - 50 * scale)
+        .attr('y2', timelineY)
+        .attr('stroke', theme.colors.borderSubtle)
+        .attr('stroke-width', 2);
+      svg
         .append('text')
-        .attr('x', 350)
-        .attr('y', timelineY - 50)
+        .attr('x', 50 * scale)
+        .attr('y', timelineY + 20)
+        .attr('font-size', 9)
+        .attr('fill', theme.colors.inkLight)
+        .text('0ms');
+      svg
+        .append('text')
+        .attr('x', width - 50 * scale)
+        .attr('y', timelineY + 20)
+        .attr('text-anchor', 'end')
+        .attr('font-size', 9)
+        .attr('fill', theme.colors.inkLight)
+        .text('100ms');
+
+      const titles = {
+        polling: 'Polling: Constant CPU checks (wastes cycles)',
+        callback: 'Callbacks: Queue → Process → Deliver (delayed)',
+        epoch: 'Epochs: Sleep → Instant wake (efficient)',
+      };
+      svg
+        .append('text')
+        .attr('x', width / 2)
+        .attr('y', 20)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 500)
-        .attr('fill', colors.polling)
-        .attr('opacity', 0);
-      animatedElements.push(pollLabel);
-    } else if (activeParadigm === 'callback') {
-      // Event packet
-      const eventPacket = svg
+        .attr('font-size', 12 * scale + 2 * (1 - scale))
+        .attr('font-weight', 600)
+        .attr('fill', colors[activeParadigm])
+        .text(titles[activeParadigm]);
+
+      svg
         .append('rect')
-        .attr('x', -30)
-        .attr('y', timelineY - 35)
-        .attr('width', 25)
+        .attr('x', 50 * scale)
+        .attr('y', cpuY - 12)
+        .attr('width', 100 * scale)
         .attr('height', 20)
         .attr('rx', 3)
-        .attr('fill', colors.callback)
-        .attr('opacity', 0);
-      animatedElements.push(eventPacket);
-
-      // Queue box
-      svg
-        .append('rect')
-        .attr('x', 280)
-        .attr('y', timelineY - 45)
-        .attr('width', 80)
-        .attr('height', 30)
-        .attr('rx', 4)
-        .attr('fill', 'rgba(234, 179, 8, 0.1)')
-        .attr('stroke', colors.callback);
+        .attr('fill', 'rgba(0,0,0,0.05)')
+        .attr('stroke', theme.colors.borderSubtle);
       svg
         .append('text')
-        .attr('x', 320)
-        .attr('y', timelineY - 26)
+        .attr('x', 100 * scale)
+        .attr('y', cpuY - 18)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('fill', colors.callback)
-        .text('EVENT QUEUE');
+        .attr('font-size', 8)
+        .attr('fill', theme.colors.inkLight)
+        .text('CPU');
 
-      // Process box
-      svg
+      const cpuBar = svg
         .append('rect')
-        .attr('x', 420)
-        .attr('y', timelineY - 45)
-        .attr('width', 70)
-        .attr('height', 30)
-        .attr('rx', 4)
-        .attr('fill', 'rgba(234, 179, 8, 0.1)')
-        .attr('stroke', colors.callback);
-      svg
+        .attr('x', 52 * scale)
+        .attr('y', cpuY - 10)
+        .attr('width', 0)
+        .attr('height', 16)
+        .attr('rx', 2)
+        .attr('fill', colors[activeParadigm]);
+      const statusText = svg
         .append('text')
-        .attr('x', 455)
-        .attr('y', timelineY - 26)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('fill', colors.callback)
-        .text('PROCESS');
+        .attr('x', 165 * scale)
+        .attr('y', cpuY + 3)
+        .attr('font-size', 10 * scale + 2 * (1 - scale))
+        .attr('font-weight', 500)
+        .attr('fill', colors[activeParadigm])
+        .attr('font-family', "'JetBrains Mono', monospace");
 
-      // Callback indicator
-      const callbackIndicator = svg
-        .append('circle')
-        .attr('cx', 550)
-        .attr('cy', timelineY - 30)
-        .attr('r', 12)
-        .attr('fill', 'rgba(234, 179, 8, 0.3)')
-        .attr('stroke', colors.callback)
+      const dataChangeX = 50 * scale + (width - 100 * scale) * 0.45;
+      const dataMarker = svg.append('g').attr('opacity', 0);
+      dataMarker
+        .append('line')
+        .attr('x1', dataChangeX)
+        .attr('y1', timelineY - 35)
+        .attr('x2', dataChangeX)
+        .attr('y2', timelineY + 5)
+        .attr('stroke', '#8b5cf6')
         .attr('stroke-width', 2)
-        .attr('opacity', 0);
-      animatedElements.push(callbackIndicator);
-    } else if (activeParadigm === 'epoch') {
-      // Sleeping thread representation
-      const sleepingThread = svg.append('g');
-      sleepingThread
-        .append('circle')
-        .attr('cx', 350)
-        .attr('cy', timelineY - 30)
-        .attr('r', 25)
-        .attr('fill', 'rgba(22, 163, 74, 0.1)')
-        .attr('stroke', colors.epoch)
-        .attr('stroke-width', 2);
-      const sleepText = sleepingThread
+        .attr('stroke-dasharray', '3,2');
+      dataMarker
         .append('text')
-        .attr('x', 350)
-        .attr('y', timelineY - 25)
+        .attr('x', dataChangeX)
+        .attr('y', timelineY - 40)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
-        .attr('font-weight', 600)
-        .attr('fill', colors.epoch)
-        .text('💤');
-      animatedElements.push(sleepText);
+        .attr('font-size', 9)
+        .attr('fill', '#8b5cf6')
+        .text('⚡ DATA CHANGED');
 
-      // Epoch counter
-      const epochCounter = svg
-        .append('text')
-        .attr('x', 350)
-        .attr('y', timelineY - 55)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 600)
-        .attr('fill', colors.epoch)
-        .attr('font-family', "'JetBrains Mono', monospace")
-        .text('epoch = 0');
-      animatedElements.push(epochCounter);
-
-      // Wake burst
-      const wakeBurst = svg
+      const progressDot = svg
         .append('circle')
-        .attr('cx', 350)
-        .attr('cy', timelineY - 30)
-        .attr('r', 0)
-        .attr('fill', 'none')
-        .attr('stroke', colors.epoch)
-        .attr('stroke-width', 3)
-        .attr('opacity', 0);
-      animatedElements.push(wakeBurst);
-    }
+        .attr('cx', 50 * scale)
+        .attr('cy', timelineY)
+        .attr('r', 5)
+        .attr('fill', colors[activeParadigm]);
 
-    // Animation progress indicator (moving dot on timeline)
-    const progressDot = svg
-      .append('circle')
-      .attr('cx', 50)
-      .attr('cy', timelineY)
-      .attr('r', 5)
-      .attr('fill', colors[activeParadigm]);
-
-    // Animation loop
-    const totalFrames = 300; // ~5 seconds at 60fps
-    const dataChangeFrame = Math.floor(totalFrames * 0.45); // Data changes at 45%
-
-    const animate = () => {
+      // 2. Animation Sequences
       if (!isPlaying) return;
 
-      frameRef.current = (frameRef.current + 1) % totalFrames;
-      const frame = frameRef.current;
-      const progress = frame / totalFrames;
-      const progressX = 50 + (width - 100) * progress;
+      function loop() {
+        progressDot
+          .attr('cx', 50 * scale)
+          .transition()
+          .duration(5000)
+          .ease(d3.easeLinear)
+          .attr('cx', width - 50 * scale)
+          .on('end', loop);
 
-      // Move progress dot
-      progressDot.attr('cx', progressX);
+        dataMarker.style('opacity', 0).transition().delay(2250).duration(0).style('opacity', 1);
 
-      // Show data marker when we reach that point
-      dataMarker.attr('opacity', frame >= dataChangeFrame ? 1 : 0);
+        if (activeParadigm === 'polling') {
+          cpuBar
+            .transition()
+            .duration(5000)
+            .ease(d3.easeLinear)
+            .attrTween('width', () => t => String((70 + Math.sin(t * 30) * 20) * scale));
+          statusText
+            .text('Checking...')
+            .transition()
+            .delay(2250)
+            .duration(0)
+            .text('HIT! (5ms delay)');
 
-      if (activeParadigm === 'polling') {
-        // Polling: constant CPU activity, checks every ~30 frames
-        const cpuLevel = 70 + Math.sin(frame * 0.5) * 20; // 50-90%
-        cpuBar.attr('width', cpuLevel);
-
-        // Show poll checks
-        const pollInterval = Math.floor(totalFrames / 10);
-        const currentPoll = Math.floor(frame / pollInterval);
-
-        animatedElements.forEach((el, i) => {
-          if (i < 11) {
-            const pollX = 50 + (width - 100) * (i / 10);
-            const isPast = frame >= i * pollInterval;
-            const isHit = i * pollInterval >= dataChangeFrame && isPast;
-
-            el.attr('cx', pollX)
+          for (let i = 0; i < 11; i++) {
+            const pollX = 50 * scale + (width - 100 * scale) * (i / 10);
+            svg
+              .append('circle')
+              .attr('cx', pollX)
               .attr('cy', timelineY - 25)
-              .attr('opacity', isPast ? 1 : 0)
-              .attr('fill', isHit ? colors.polling : 'rgba(220, 38, 38, 0.3)');
-          } else {
-            // Poll label
-            const labelI = currentPoll % 10;
-            const labelX = 50 + (width - 100) * (labelI / 10);
-            if (frame % pollInterval < 10) {
-              el.attr('x', labelX)
-                .attr('opacity', 1)
-                .text(frame >= dataChangeFrame ? '✓ HIT!' : '? check...');
-            } else {
-              el.attr('opacity', 0);
-            }
+              .attr('r', 8 * scale)
+              .attr('fill', 'rgba(220, 38, 38, 0.3)')
+              .attr('stroke', colors.polling)
+              .attr('stroke-width', 2)
+              .style('opacity', 0)
+              .transition()
+              .delay(i * 500)
+              .duration(200)
+              .style('opacity', 1)
+              .attr('fill', i >= 5 ? colors.polling : 'rgba(220, 38, 38, 0.3)');
           }
-        });
+        } else if (activeParadigm === 'callback') {
+          cpuBar
+            .attr('width', 5 * scale)
+            .transition()
+            .delay(2250)
+            .duration(200)
+            .attr('width', 40 * scale)
+            .transition()
+            .delay(400)
+            .duration(200)
+            .attr('width', 60 * scale)
+            .transition()
+            .delay(500)
+            .duration(200)
+            .attr('width', 20 * scale);
+          statusText
+            .text('Idle...')
+            .transition()
+            .delay(2250)
+            .duration(0)
+            .text('Queueing...')
+            .transition()
+            .delay(600)
+            .duration(0)
+            .text('Processing...')
+            .transition()
+            .delay(900)
+            .duration(0)
+            .text('Callback fired! (8ms)');
 
-        statusText.text(frame >= dataChangeFrame ? 'DETECTED (5ms delay)' : 'Checking...');
-      } else if (activeParadigm === 'callback') {
-        // Callbacks: low CPU until event, then queue processing
-        const afterEvent = frame >= dataChangeFrame;
-        const queuePhase = afterEvent ? Math.min((frame - dataChangeFrame) / 40, 1) : 0;
-        const processPhase = queuePhase >= 1 ? Math.min((frame - dataChangeFrame - 40) / 50, 1) : 0;
+          const packet = svg
+            .append('rect')
+            .attr('x', dataChangeX)
+            .attr('y', timelineY - 35)
+            .attr('width', 25 * scale)
+            .attr('height', 20)
+            .attr('rx', 3)
+            .attr('fill', colors.callback)
+            .style('opacity', 0);
+          packet
+            .transition()
+            .delay(2250)
+            .duration(200)
+            .style('opacity', 1)
+            .transition()
+            .duration(600)
+            .attr('x', 320 * scale)
+            .transition()
+            .duration(500)
+            .attr('x', 455 * scale)
+            .style('opacity', 0);
 
-        const cpuLevel = afterEvent ? (queuePhase < 1 ? 40 : processPhase < 1 ? 60 : 20) : 5;
-        cpuBar.attr('width', cpuLevel);
+          svg
+            .append('circle')
+            .attr('cx', 550 * scale)
+            .attr('cy', timelineY - 30)
+            .attr('r', 12 * scale)
+            .attr('fill', 'rgba(234, 179, 8, 0.3)')
+            .attr('stroke', colors.callback)
+            .attr('stroke-width', 2)
+            .style('opacity', 0)
+            .transition()
+            .delay(3750)
+            .duration(300)
+            .style('opacity', 1);
+        } else if (activeParadigm === 'epoch') {
+          cpuBar
+            .attr('width', 2 * scale)
+            .transition()
+            .delay(2250)
+            .duration(100)
+            .attr('width', 80 * scale)
+            .transition()
+            .duration(100)
+            .attr('width', 2 * scale);
+          statusText
+            .text('Sleeping (0% CPU)...')
+            .transition()
+            .delay(2250)
+            .duration(0)
+            .text('INSTANT WAKE! (<10µs)');
 
-        // Event packet animation
-        if (animatedElements[0]) {
-          if (afterEvent && queuePhase < 1) {
-            const packetX = dataChangeX + (280 - dataChangeX) * queuePhase;
-            animatedElements[0].attr('x', packetX).attr('opacity', 1);
-          } else if (afterEvent && processPhase < 1 && processPhase > 0) {
-            const packetX = 320 + (455 - 320) * processPhase;
-            animatedElements[0].attr('x', packetX);
-          } else if (processPhase >= 1) {
-            animatedElements[0].attr('opacity', 0);
-          } else {
-            animatedElements[0].attr('opacity', 0);
-          }
+          const thread = svg
+            .append('text')
+            .attr('x', width / 2)
+            .attr('y', timelineY - 25)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 16 * scale)
+            .text('💤');
+          thread.transition().delay(2250).duration(0).text('⚡');
+
+          svg
+            .append('circle')
+            .attr('cx', width / 2)
+            .attr('cy', timelineY - 30)
+            .attr('r', 0)
+            .attr('fill', 'none')
+            .attr('stroke', colors.epoch)
+            .attr('stroke-width', 3)
+            .style('opacity', 0)
+            .transition()
+            .delay(2250)
+            .duration(500)
+            .attr('r', 60 * scale)
+            .style('opacity', 0);
         }
-
-        // Callback indicator
-        if (animatedElements[1]) {
-          animatedElements[1]
-            .attr('opacity', processPhase >= 1 ? 1 : 0)
-            .attr('r', processPhase >= 1 ? 12 + Math.sin(frame * 0.3) * 3 : 12);
-        }
-
-        statusText.text(
-          !afterEvent
-            ? 'Idle...'
-            : queuePhase < 1
-              ? 'Queueing...'
-              : processPhase < 1
-                ? 'Processing...'
-                : 'Callback fired! (8ms)'
-        );
-      } else if (activeParadigm === 'epoch') {
-        // Epochs: near-zero CPU until instant wake
-        const afterEvent = frame >= dataChangeFrame;
-        const wakePhase = afterEvent ? Math.min((frame - dataChangeFrame) / 5, 1) : 0; // Very fast!
-
-        const cpuLevel = afterEvent && wakePhase < 1 ? 80 : 2;
-        cpuBar.attr('width', cpuLevel);
-
-        // Sleep text
-        if (animatedElements[0]) {
-          animatedElements[0].text(afterEvent ? '⚡' : '💤');
-        }
-
-        // Epoch counter
-        if (animatedElements[1]) {
-          animatedElements[1].text(afterEvent ? 'epoch = 1' : 'epoch = 0');
-        }
-
-        // Wake burst
-        if (animatedElements[2]) {
-          if (afterEvent && wakePhase <= 1) {
-            animatedElements[2]
-              .attr('r', 25 + wakePhase * 30)
-              .attr('opacity', 1 - wakePhase)
-              .attr('stroke-width', 3 - wakePhase * 2);
-          } else {
-            animatedElements[2].attr('opacity', 0);
-          }
-        }
-
-        statusText.text(afterEvent ? 'INSTANT WAKE! (<10µs)' : 'Sleeping (0% CPU)...');
       }
 
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    if (isPlaying) {
-      animationRef.current = requestAnimationFrame(animate);
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, [theme, activeParadigm, isPlaying]);
-
-  // Reset animation when paradigm changes
-  useEffect(() => {
-    frameRef.current = 0;
-  }, [activeParadigm]);
+      loop();
+    },
+    [theme, activeParadigm, isPlaying]
+  );
 
   return (
     <div>
-      <svg ref={svgRef} viewBox="0 0 700 200" style={{ width: '100%', height: 'auto' }} />
+      <D3Container
+        render={renderDiagram}
+        dependencies={[renderDiagram]}
+        viewBox="0 0 700 200"
+        height={200}
+      />
       <Style.AnimationControls>
         <Style.ControlButton $active={isPlaying} onClick={() => setIsPlaying(!isPlaying)}>
           {isPlaying ? '⏸ Pause' : '▶ Play'}
         </Style.ControlButton>
         <Style.ControlButton
           $active={activeParadigm === 'polling'}
-          onClick={() => {
-            setActiveParadigm('polling');
-            frameRef.current = 0;
-          }}
+          onClick={() => setActiveParadigm('polling')}
         >
           Polling
         </Style.ControlButton>
         <Style.ControlButton
           $active={activeParadigm === 'callback'}
-          onClick={() => {
-            setActiveParadigm('callback');
-            frameRef.current = 0;
-          }}
+          onClick={() => setActiveParadigm('callback')}
         >
           Callbacks
         </Style.ControlButton>
         <Style.ControlButton
           $active={activeParadigm === 'epoch'}
-          onClick={() => {
-            setActiveParadigm('epoch');
-            frameRef.current = 0;
-          }}
+          onClick={() => setActiveParadigm('epoch')}
         >
           Epochs
         </Style.ControlButton>
@@ -765,442 +618,454 @@ function ParadigmComparisonDiagram() {
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: CPU USAGE COMPARISON
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: CPU USAGE COMPARISON (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function CpuUsageDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 660);
+      const barHeight = 35;
+      const startX = 150 * scale + 50 * (1 - scale);
+      const barWidth = 400 * scale;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      const data = [
+        { label: 'Polling (10ms)', value: 85, color: '#dc2626', cpu: '85% CPU' },
+        { label: 'Callbacks/Events', value: 25, color: '#f59e0b', cpu: '25% CPU' },
+        { label: 'Epoch Signaling', value: 2, color: '#16a34a', cpu: '2% CPU' },
+      ];
 
-    const width = 660;
-    const barHeight = 35;
-    const startX = 150;
-    const barWidth = 400;
-
-    const data = [
-      { label: 'Polling (10ms)', value: 85, color: '#dc2626', cpu: '85% CPU' },
-      { label: 'Callbacks/Events', value: 25, color: '#f59e0b', cpu: '25% CPU' },
-      { label: 'Epoch Signaling', value: 2, color: '#16a34a', cpu: '2% CPU' },
-    ];
-
-    // Title
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 25)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('CPU Usage: Waiting for Data Change');
-
-    data.forEach((d, i) => {
-      const y = 50 + i * (barHeight + 15);
-
-      // Label
       svg
         .append('text')
-        .attr('x', startX - 10)
-        .attr('y', y + barHeight / 2 + 4)
-        .attr('text-anchor', 'end')
-        .attr('font-size', 11)
-        .attr('fill', theme.colors.inkDark)
-        .attr('font-family', "'Inter', sans-serif")
-        .text(d.label);
-
-      // Background bar
-      svg
-        .append('rect')
-        .attr('x', startX)
-        .attr('y', y)
-        .attr('width', barWidth)
-        .attr('height', barHeight)
-        .attr('rx', 4)
-        .attr('fill', 'rgba(0, 0, 0, 0.05)');
-
-      // Value bar
-      svg
-        .append('rect')
-        .attr('x', startX)
-        .attr('y', y)
-        .attr('width', (barWidth * d.value) / 100)
-        .attr('height', barHeight)
-        .attr('rx', 4)
-        .attr('fill', d.color);
-
-      // Value label
-      svg
-        .append('text')
-        .attr('x', startX + barWidth + 10)
-        .attr('y', y + barHeight / 2 + 4)
-        .attr('font-size', 11)
+        .attr('x', width / 2)
+        .attr('y', 25)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 12 * scale + 2 * (1 - scale))
         .attr('font-weight', 600)
-        .attr('fill', d.color)
-        .attr('font-family', "'JetBrains Mono', monospace")
-        .text(d.cpu);
-    });
+        .attr('fill', theme.colors.inkDark)
+        .text('CPU Usage: Waiting for Data Change');
 
-    // Annotation - with more spacing
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 210)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('fill', theme.colors.inkLight)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Lower is better. Epoch signaling sleeps until data changes.');
-  }, [theme]);
+      data.forEach((d, i) => {
+        const y = 50 + i * (barHeight + 15);
+        svg
+          .append('text')
+          .attr('x', startX - 10)
+          .attr('y', y + barHeight / 2 + 4)
+          .attr('text-anchor', 'end')
+          .attr('font-size', 11 * scale + 1 * (1 - scale))
+          .attr('fill', theme.colors.inkDark)
+          .text(d.label);
+        svg
+          .append('rect')
+          .attr('x', startX)
+          .attr('y', y)
+          .attr('width', barWidth)
+          .attr('height', barHeight)
+          .attr('rx', 4)
+          .attr('fill', 'rgba(0, 0, 0, 0.05)');
+        svg
+          .append('rect')
+          .attr('x', startX)
+          .attr('y', y)
+          .attr('width', (barWidth * d.value) / 100)
+          .attr('height', barHeight)
+          .attr('rx', 4)
+          .attr('fill', d.color);
+        svg
+          .append('text')
+          .attr('x', startX + barWidth + 10)
+          .attr('y', y + barHeight / 2 + 4)
+          .attr('font-size', 11 * scale)
+          .attr('font-weight', 600)
+          .attr('fill', d.color)
+          .attr('font-family', "'JetBrains Mono', monospace")
+          .text(d.cpu);
+      });
 
-  return <svg ref={svgRef} viewBox="0 0 660 235" style={{ width: '100%', height: 'auto' }} />;
+      svg
+        .append('text')
+        .attr('x', width / 2)
+        .attr('y', 210)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('fill', theme.colors.inkLight)
+        .text('Lower is better. Epoch signaling sleeps until data changes.');
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 660 235"
+      height={235}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: EPOCH FLOW
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: EPOCH FLOW (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function EpochFlowDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 660);
+      const centerX = width / 2;
+      const spacing = 180 * scale;
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    const width = 660;
-
-    // Title
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 25)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Epoch Signaling: Mutate → Signal → React');
-
-    // Three stages - centered within 660px width (padding 80 each side = 500 usable, divide by 2 = 250 spacing)
-    const centerX = width / 2;
-    const spacing = 180;
-    const stages = [
-      {
-        x: centerX - spacing,
-        label: 'MUTATE',
-        sublabel: 'Write data to SAB',
-        color: '#8b5cf6',
-        icon: '✎',
-      },
-      {
-        x: centerX,
-        label: 'SIGNAL',
-        sublabel: 'Atomics.store(epoch++)',
-        color: '#16a34a',
-        icon: '⚡',
-      },
-      {
-        x: centerX + spacing,
-        label: 'REACT',
-        sublabel: 'Waiters wake instantly',
-        color: '#0ea5e9',
-        icon: '↻',
-      },
-    ];
-
-    stages.forEach((stage, i) => {
-      // Circle
-      svg
-        .append('circle')
-        .attr('cx', stage.x)
-        .attr('cy', 80)
-        .attr('r', 35)
-        .attr('fill', `${stage.color}15`)
-        .attr('stroke', stage.color)
-        .attr('stroke-width', 2);
-
-      // Icon
       svg
         .append('text')
-        .attr('x', stage.x)
-        .attr('y', 88)
+        .attr('x', width / 2)
+        .attr('y', 25)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 24)
-        .attr('fill', stage.color)
-        .text(stage.icon);
-
-      // Label
-      svg
-        .append('text')
-        .attr('x', stage.x)
-        .attr('y', 135)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
+        .attr('font-size', 12 * scale + 2 * (1 - scale))
         .attr('font-weight', 600)
-        .attr('fill', stage.color)
-        .attr('font-family', "'Inter', sans-serif")
-        .text(stage.label);
+        .attr('fill', theme.colors.inkDark)
+        .text('Epoch Signaling: Mutate → Signal → React');
 
-      // Sublabel
+      const stages = [
+        {
+          x: centerX - spacing,
+          label: 'MUTATE',
+          sublabel: 'Write data to SAB',
+          color: '#8b5cf6',
+          icon: '✎',
+        },
+        {
+          x: centerX,
+          label: 'SIGNAL',
+          sublabel: 'Atomics.store(epoch++)',
+          color: '#16a34a',
+          icon: '⚡',
+        },
+        {
+          x: centerX + spacing,
+          label: 'REACT',
+          sublabel: 'Waiters wake instantly',
+          color: '#0ea5e9',
+          icon: '↻',
+        },
+      ];
+
+      stages.forEach((stage, i) => {
+        svg
+          .append('circle')
+          .attr('cx', stage.x)
+          .attr('cy', 80)
+          .attr('r', 35 * scale)
+          .attr('fill', `${stage.color}15`)
+          .attr('stroke', stage.color)
+          .attr('stroke-width', 2);
+        svg
+          .append('text')
+          .attr('x', stage.x)
+          .attr('y', 88 * scale + (1 - scale) * 85)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 24 * scale)
+          .attr('fill', stage.color)
+          .text(stage.icon);
+        svg
+          .append('text')
+          .attr('x', stage.x)
+          .attr('y', 135)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11 * scale + 1 * (1 - scale))
+          .attr('font-weight', 600)
+          .attr('fill', stage.color)
+          .text(stage.label);
+        svg
+          .append('text')
+          .attr('x', stage.x)
+          .attr('y', 150)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9 * scale)
+          .attr('fill', theme.colors.inkLight)
+          .attr('font-family', "'JetBrains Mono', monospace")
+          .text(stage.sublabel);
+
+        if (i < stages.length - 1) {
+          const nextX = stages[i + 1].x;
+          svg
+            .append('line')
+            .attr('x1', stage.x + 40 * scale)
+            .attr('y1', 80)
+            .attr('x2', nextX - 40 * scale)
+            .attr('y2', 80)
+            .attr('stroke', theme.colors.inkLight)
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '4,4');
+          svg
+            .append('polygon')
+            .attr(
+              'points',
+              `${nextX - 40 * scale},80 ${nextX - 48 * scale},75 ${nextX - 48 * scale},85`
+            )
+            .attr('fill', theme.colors.inkLight);
+        }
+      });
+
+      svg
+        .append('rect')
+        .attr('x', centerX - 200 * scale)
+        .attr('y', 175)
+        .attr('width', 400 * scale)
+        .attr('height', 30)
+        .attr('rx', 4)
+        .attr('fill', 'rgba(22, 163, 74, 0.1)')
+        .attr('stroke', 'rgba(22, 163, 74, 0.3)');
       svg
         .append('text')
-        .attr('x', stage.x)
-        .attr('y', 150)
+        .attr('x', width / 2)
+        .attr('y', 195)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('fill', theme.colors.inkLight)
-        .attr('font-family', "'JetBrains Mono', monospace")
-        .text(stage.sublabel);
+        .attr('font-size', 10 * scale)
+        .attr('font-weight', 500)
+        .attr('fill', '#16a34a')
+        .text('Total latency: <10µs (100x faster than callbacks)');
+    },
+    [theme]
+  );
 
-      // Arrow to next
-      if (i < stages.length - 1) {
-        const nextX = stages[i + 1].x;
-        svg
-          .append('line')
-          .attr('x1', stage.x + 40)
-          .attr('y1', 80)
-          .attr('x2', nextX - 40)
-          .attr('y2', 80)
-          .attr('stroke', theme.colors.inkLight)
-          .attr('stroke-width', 2)
-          .attr('stroke-dasharray', '4,4');
-
-        svg
-          .append('polygon')
-          .attr('points', `${nextX - 40},80 ${nextX - 48},75 ${nextX - 48},85`)
-          .attr('fill', theme.colors.inkLight);
-      }
-    });
-
-    // Bottom annotation
-    svg
-      .append('rect')
-      .attr('x', 130)
-      .attr('y', 175)
-      .attr('width', 400)
-      .attr('height', 30)
-      .attr('rx', 4)
-      .attr('fill', 'rgba(22, 163, 74, 0.1)')
-      .attr('stroke', 'rgba(22, 163, 74, 0.3)');
-
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 195)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 500)
-      .attr('fill', '#16a34a')
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Total latency: <10µs (100x faster than callbacks)');
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 660 220" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 660 220"
+      height={220}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // D3 ILLUSTRATION: ANIMATED LOOP COMPARISON
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: ANIMATED LOOP COMPARISON (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function AnimatedLoopDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
-  const animationRef = useRef<number | null>(null);
   const [isRunning, setIsRunning] = useState(true);
 
-  useEffect(() => {
-    if (!svgRef.current) return;
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').interrupt();
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 660);
 
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      svg
+        .append('text')
+        .attr('x', width / 2)
+        .attr('y', 20)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 11 * scale + 1 * (1 - scale))
+        .attr('font-weight', 600)
+        .attr('fill', theme.colors.inkDark)
+        .text('Live Animation: Polling vs Sleeping');
 
-    const width = 660;
+      // Polling side
+      const pollingX = 165 * scale;
+      const pollingY = 100;
+      svg
+        .append('text')
+        .attr('x', pollingX)
+        .attr('y', 45)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .attr('fill', '#dc2626')
+        .text('Polling Loop');
+      svg
+        .append('rect')
+        .attr('x', pollingX - 60 * scale)
+        .attr('y', 55)
+        .attr('width', 120 * scale)
+        .attr('height', 20)
+        .attr('rx', 3)
+        .attr('fill', 'rgba(220, 38, 38, 0.1)')
+        .attr('stroke', 'rgba(220, 38, 38, 0.3)');
+      const pollingCpuBar = svg
+        .append('rect')
+        .attr('x', pollingX - 58 * scale)
+        .attr('y', 57)
+        .attr('width', 0)
+        .attr('height', 16)
+        .attr('rx', 2)
+        .attr('fill', '#dc2626');
+      svg
+        .append('text')
+        .attr('x', pollingX)
+        .attr('y', 69)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 8)
+        .attr('fill', '#dc2626')
+        .attr('font-family', "'JetBrains Mono', monospace")
+        .text('CPU: always busy');
+      const pollingCircle = svg
+        .append('circle')
+        .attr('cx', pollingX)
+        .attr('cy', pollingY)
+        .attr('r', 25 * scale)
+        .attr('fill', 'rgba(220, 38, 38, 0.2)')
+        .attr('stroke', '#dc2626')
+        .attr('stroke-width', 2);
+      const pollingText = svg
+        .append('text')
+        .attr('x', pollingX)
+        .attr('y', pollingY + 5)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .attr('fill', '#dc2626')
+        .attr('font-family', "'JetBrains Mono', monospace")
+        .text('CHECK');
 
-    // Title
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 20)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 11)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .attr('font-family', "'Inter', sans-serif")
-      .text('Live Animation: Polling vs Sleeping');
+      // Epoch side
+      const epochX = width - 165 * scale;
+      const epochY = 100;
+      svg
+        .append('text')
+        .attr('x', epochX)
+        .attr('y', 45)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .attr('fill', '#16a34a')
+        .text('Epoch Wait');
+      svg
+        .append('rect')
+        .attr('x', epochX - 60 * scale)
+        .attr('y', 55)
+        .attr('width', 120 * scale)
+        .attr('height', 20)
+        .attr('rx', 3)
+        .attr('fill', 'rgba(22, 163, 74, 0.1)')
+        .attr('stroke', 'rgba(22, 163, 74, 0.3)');
+      const epochCpuBar = svg
+        .append('rect')
+        .attr('x', epochX - 58 * scale)
+        .attr('y', 57)
+        .attr('width', 0)
+        .attr('height', 16)
+        .attr('rx', 2)
+        .attr('fill', '#16a34a');
+      svg
+        .append('text')
+        .attr('x', epochX)
+        .attr('y', 69)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 8)
+        .attr('fill', '#16a34a')
+        .attr('font-family', "'JetBrains Mono', monospace")
+        .text('CPU: sleeping');
+      const epochCircle = svg
+        .append('circle')
+        .attr('cx', epochX)
+        .attr('cy', epochY)
+        .attr('r', 25 * scale)
+        .attr('fill', 'rgba(22, 163, 74, 0.2)')
+        .attr('stroke', '#16a34a')
+        .attr('stroke-width', 2);
+      const epochText = svg
+        .append('text')
+        .attr('x', epochX)
+        .attr('y', epochY + 5)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .attr('fill', '#16a34a')
+        .attr('font-family', "'JetBrains Mono', monospace")
+        .text('SLEEP');
 
-    // Polling side (left)
-    const pollingX = 165;
-    const pollingY = 100;
-
-    svg
-      .append('text')
-      .attr('x', pollingX)
-      .attr('y', 45)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', '#dc2626')
-      .text('Polling Loop');
-
-    // Polling CPU indicator
-    svg
-      .append('rect')
-      .attr('x', pollingX - 60)
-      .attr('y', 55)
-      .attr('width', 120)
-      .attr('height', 20)
-      .attr('rx', 3)
-      .attr('fill', 'rgba(220, 38, 38, 0.1)')
-      .attr('stroke', 'rgba(220, 38, 38, 0.3)');
-
-    const pollingCpuBar = svg
-      .append('rect')
-      .attr('x', pollingX - 58)
-      .attr('y', 57)
-      .attr('width', 0)
-      .attr('height', 16)
-      .attr('rx', 2)
-      .attr('fill', '#dc2626');
-
-    svg
-      .append('text')
-      .attr('x', pollingX)
-      .attr('y', 69)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', '#dc2626')
-      .attr('font-family', "'JetBrains Mono', monospace")
-      .text('CPU: always busy');
-
-    // Polling circle animation
-    const pollingCircle = svg
-      .append('circle')
-      .attr('cx', pollingX)
-      .attr('cy', pollingY)
-      .attr('r', 25)
-      .attr('fill', 'rgba(220, 38, 38, 0.2)')
-      .attr('stroke', '#dc2626')
-      .attr('stroke-width', 2);
-
-    const pollingText = svg
-      .append('text')
-      .attr('x', pollingX)
-      .attr('y', pollingY + 5)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', '#dc2626')
-      .attr('font-family', "'JetBrains Mono', monospace")
-      .text('CHECK');
-
-    // Epoch side (right)
-    const epochX = 495;
-    const epochY = 100;
-
-    svg
-      .append('text')
-      .attr('x', epochX)
-      .attr('y', 45)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', '#16a34a')
-      .text('Epoch Wait');
-
-    // Epoch CPU indicator
-    svg
-      .append('rect')
-      .attr('x', epochX - 60)
-      .attr('y', 55)
-      .attr('width', 120)
-      .attr('height', 20)
-      .attr('rx', 3)
-      .attr('fill', 'rgba(22, 163, 74, 0.1)')
-      .attr('stroke', 'rgba(22, 163, 74, 0.3)');
-
-    const epochCpuBar = svg
-      .append('rect')
-      .attr('x', epochX - 58)
-      .attr('y', 57)
-      .attr('width', 0)
-      .attr('height', 16)
-      .attr('rx', 2)
-      .attr('fill', '#16a34a');
-
-    svg
-      .append('text')
-      .attr('x', epochX)
-      .attr('y', 69)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', '#16a34a')
-      .attr('font-family', "'JetBrains Mono', monospace")
-      .text('CPU: sleeping');
-
-    // Epoch circle
-    const epochCircle = svg
-      .append('circle')
-      .attr('cx', epochX)
-      .attr('cy', epochY)
-      .attr('r', 25)
-      .attr('fill', 'rgba(22, 163, 74, 0.2)')
-      .attr('stroke', '#16a34a')
-      .attr('stroke-width', 2);
-
-    const epochText = svg
-      .append('text')
-      .attr('x', epochX)
-      .attr('y', epochY + 5)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', '#16a34a')
-      .attr('font-family', "'JetBrains Mono', monospace")
-      .text('SLEEP');
-
-    // Animation loop
-    let frame = 0;
-    const animate = () => {
       if (!isRunning) return;
 
-      frame++;
+      function animate() {
+        // Polling loop
+        pollingCpuBar
+          .attr('width', 0)
+          .transition()
+          .duration(200)
+          .attr('width', 116 * scale)
+          .transition()
+          .duration(200)
+          .attr('width', 60 * scale)
+          .transition()
+          .duration(200)
+          .attr('width', 100 * scale)
+          .on('end', animate);
+        pollingCircle
+          .transition()
+          .duration(200)
+          .attr('r', 30 * scale)
+          .transition()
+          .duration(200)
+          .attr('r', 25 * scale);
 
-      // Polling animation - constant activity
-      const pollingPulse = Math.sin(frame * 0.3) * 0.3 + 0.7;
-      pollingCircle.attr('opacity', pollingPulse);
-      pollingCpuBar.attr('width', 100 * pollingPulse);
+        const pollingStates = ['CHECK', 'WAIT', 'CHECK', 'LOOP'];
+        let stateIdx = 0;
+        const updateText = () => {
+          pollingText.text(pollingStates[stateIdx]);
+          stateIdx = (stateIdx + 1) % pollingStates.length;
+          pollingText.transition().duration(500).on('end', updateText);
+        };
+        updateText();
 
-      // Polling text changes
-      const pollingStates = ['CHECK', 'WAIT', 'CHECK', 'LOOP'];
-      pollingText.text(pollingStates[Math.floor(frame / 15) % pollingStates.length]);
-
-      // Epoch animation - mostly sleeping
-      const epochActive = frame % 120 < 10;
-      epochCircle.attr('fill', epochActive ? 'rgba(22, 163, 74, 0.5)' : 'rgba(22, 163, 74, 0.1)');
-      epochCpuBar.attr('width', epochActive ? 100 : 3);
-      epochText.text(epochActive ? 'WAKE!' : 'SLEEP');
-
-      animationRef.current = requestAnimationFrame(animate);
-    };
-
-    if (isRunning) {
-      animationRef.current = requestAnimationFrame(animate);
-    }
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+        // Epoch loop
+        function epochLoop() {
+          epochCpuBar
+            .attr('width', 3 * scale)
+            .transition()
+            .delay(2000)
+            .duration(100)
+            .attr('width', 116 * scale)
+            .transition()
+            .duration(100)
+            .attr('width', 3 * scale)
+            .on('end', epochLoop);
+          epochCircle
+            .transition()
+            .delay(2000)
+            .duration(100)
+            .attr('fill', 'rgba(22, 163, 74, 0.6)')
+            .transition()
+            .duration(100)
+            .attr('fill', 'rgba(22, 163, 74, 0.2)');
+          epochText
+            .text('SLEEP')
+            .transition()
+            .delay(2000)
+            .duration(0)
+            .text('WAKE!')
+            .transition()
+            .delay(200)
+            .duration(0)
+            .text('SLEEP');
+        }
+        epochLoop();
       }
-    };
-  }, [theme, isRunning]);
+
+      animate();
+    },
+    [theme, isRunning]
+  );
 
   return (
     <div>
-      <svg ref={svgRef} viewBox="0 0 660 145" style={{ width: '100%', height: 'auto' }} />
+      <D3Container
+        render={renderDiagram}
+        dependencies={[isRunning]}
+        viewBox="0 0 660 160"
+        height={160}
+      />
       <Style.AnimationControls>
         <Style.ControlButton $active={isRunning} onClick={() => setIsRunning(!isRunning)}>
           {isRunning ? '⏸ Pause' : '▶ Play'}

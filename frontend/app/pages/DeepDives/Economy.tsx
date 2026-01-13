@@ -6,12 +6,13 @@
  * sustainable value creation and distribution.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState, useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
 
 const Style = {
   ...ManuscriptStyle,
@@ -260,398 +261,432 @@ const Style = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: ECONOMIC FLYWHEEL
+// D3 ILLUSTRATION: ECONOMIC FLYWHEEL (D3Container + D3 transitions)
 // ────────────────────────────────────────────────────────────────────────────
 function EconomicFlywheelDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
-  const [frame, setFrame] = useState(0);
-  const animationRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    const animate = () => {
-      setFrame(f => (f + 1) % 360);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, []);
+  const renderFlywheel: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+      // Responsive: scale based on container width, min 280px
+      const scale = Math.min(1, width / 700);
+      const centerX = 350;
+      const centerY = 140;
+      const radius = 100 * scale + 50 * (1 - scale); // Shrinks on mobile
 
-    const width = 700;
-    const centerX = width / 2;
-    const centerY = 140;
+      // Flywheel nodes
+      const nodes = [
+        { angle: -90, label: 'Worker', icon: '👷', color: '#10b981' },
+        { angle: -30, label: 'Treasury', icon: '🏦', color: '#8b5cf6' },
+        { angle: 30, label: 'UBI', icon: '💰', color: '#f59e0b' },
+        { angle: 90, label: 'Consumer', icon: '🛒', color: '#3b82f6' },
+        { angle: 150, label: 'Jobs', icon: '⚡', color: '#ef4444' },
+        { angle: 210, label: 'Mesh', icon: '🌐', color: '#06b6d4' },
+      ];
 
-    // Flywheel nodes
-    const nodes = [
-      { angle: -90, label: 'Worker', icon: '👷', color: '#10b981' },
-      { angle: -30, label: 'Treasury', icon: '🏦', color: '#8b5cf6' },
-      { angle: 30, label: 'UBI', icon: '💰', color: '#f59e0b' },
-      { angle: 90, label: 'Consumer', icon: '🛒', color: '#3b82f6' },
-      { angle: 150, label: 'Jobs', icon: '⚡', color: '#ef4444' },
-      { angle: 210, label: 'Mesh', icon: '🌐', color: '#06b6d4' },
-    ];
+      // Draw connections
+      nodes.forEach((node, i) => {
+        const next = nodes[(i + 1) % nodes.length];
+        const angle1 = (node.angle * Math.PI) / 180;
+        const angle2 = (next.angle * Math.PI) / 180;
+        svg
+          .append('line')
+          .attr('x1', centerX + Math.cos(angle1) * radius)
+          .attr('y1', centerY + Math.sin(angle1) * radius)
+          .attr('x2', centerX + Math.cos(angle2) * radius)
+          .attr('y2', centerY + Math.sin(angle2) * radius)
+          .attr('stroke', 'rgba(139, 92, 246, 0.2)')
+          .attr('stroke-width', 2);
+      });
 
-    const radius = 100;
+      // Draw nodes
+      const nodeRadius = 28 * scale + 14 * (1 - scale);
+      nodes.forEach(node => {
+        const angle = (node.angle * Math.PI) / 180;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
 
-    // Draw connections
-    nodes.forEach((node, i) => {
-      const next = nodes[(i + 1) % nodes.length];
-      const angle1 = (node.angle * Math.PI) / 180;
-      const angle2 = (next.angle * Math.PI) / 180;
-      svg
-        .append('line')
-        .attr('x1', centerX + Math.cos(angle1) * radius)
-        .attr('y1', centerY + Math.sin(angle1) * radius)
-        .attr('x2', centerX + Math.cos(angle2) * radius)
-        .attr('y2', centerY + Math.sin(angle2) * radius)
-        .attr('stroke', 'rgba(139, 92, 246, 0.2)')
-        .attr('stroke-width', 2);
-    });
-
-    // Draw nodes
-    nodes.forEach(node => {
-      const angle = (node.angle * Math.PI) / 180;
-      const x = centerX + Math.cos(angle) * radius;
-      const y = centerY + Math.sin(angle) * radius;
-
-      svg
-        .append('circle')
-        .attr('cx', x)
-        .attr('cy', y)
-        .attr('r', 28)
-        .attr('fill', `${node.color}15`)
-        .attr('stroke', node.color)
-        .attr('stroke-width', 2);
-
-      svg
-        .append('text')
-        .attr('x', x)
-        .attr('y', y + 5)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 18)
-        .text(node.icon);
-
-      // Label outside
-      const labelRadius = radius + 45;
-      const lx = centerX + Math.cos(angle) * labelRadius;
-      const ly = centerY + Math.sin(angle) * labelRadius;
-      svg
-        .append('text')
-        .attr('x', lx)
-        .attr('y', ly + 4)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('font-weight', 600)
-        .attr('fill', node.color)
-        .text(node.label);
-    });
-
-    // Animated credit token moving around
-    const tokenAngle = ((frame / 60) * 360 - 90) * (Math.PI / 180);
-    const tokenX = centerX + Math.cos(tokenAngle) * radius;
-    const tokenY = centerY + Math.sin(tokenAngle) * radius;
-
-    svg
-      .append('circle')
-      .attr('cx', tokenX)
-      .attr('cy', tokenY)
-      .attr('r', 10)
-      .attr('fill', '#f59e0b')
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2);
-
-    svg
-      .append('text')
-      .attr('x', tokenX)
-      .attr('y', tokenY + 4)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', 'white')
-      .text('₵');
-
-    // Center label
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', centerY - 5)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 11)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .text('INOS');
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', centerY + 10)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 9)
-      .attr('fill', theme.colors.inkLight)
-      .text('Economy');
-  }, [theme, frame]);
-
-  return <svg ref={svgRef} viewBox="0 0 700 280" style={{ width: '100%', height: 'auto' }} />;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: FEE DISTRIBUTION
-// ────────────────────────────────────────────────────────────────────────────
-function FeeDistributionDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
-  const theme = useTheme();
-  const [frame, setFrame] = useState(0);
-  const animationRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const animate = () => {
-      setFrame(f => (f + 1) % 180);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    animationRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animationRef.current) cancelAnimationFrame(animationRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
-
-    // Source: Job Payment
-    svg
-      .append('rect')
-      .attr('x', 50)
-      .attr('y', 60)
-      .attr('width', 100)
-      .attr('height', 50)
-      .attr('rx', 8)
-      .attr('fill', '#3b82f620')
-      .attr('stroke', '#3b82f6')
-      .attr('stroke-width', 2);
-    svg
-      .append('text')
-      .attr('x', 100)
-      .attr('y', 82)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 600)
-      .attr('fill', '#3b82f6')
-      .text('Job: 1000₵');
-    svg
-      .append('text')
-      .attr('x', 100)
-      .attr('y', 95)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
-      .attr('fill', theme.colors.inkLight)
-      .text('+5% fee = 1050₵');
-
-    // Distribution targets
-    const targets = [
-      { x: 250, label: 'Worker', amount: '950₵', pct: '95%', color: '#10b981', icon: '👷' },
-      { x: 370, label: 'Treasury', amount: '35₵', pct: '3.5%', color: '#8b5cf6', icon: '🏦' },
-      { x: 470, label: 'Creator', amount: '5₵', pct: '0.5%', color: '#f59e0b', icon: '👑' },
-      { x: 550, label: 'Referrer', amount: '5₵', pct: '0.5%', color: '#3b82f6', icon: '🔗' },
-      { x: 630, label: 'Close IDs', amount: '5₵', pct: '0.5%', color: '#06b6d4', icon: '👥' },
-    ];
-
-    // Draw lines and animate
-    const progress = (frame % 60) / 60;
-
-    targets.forEach((target, i) => {
-      const startX = 150;
-      const startY = 85;
-      const endX = target.x;
-      const endY = 85;
-
-      // Line
-      svg
-        .append('line')
-        .attr('x1', startX)
-        .attr('y1', startY)
-        .attr('x2', endX - 30)
-        .attr('y2', endY)
-        .attr('stroke', `${target.color}40`)
-        .attr('stroke-width', 2);
-
-      // Animated token
-      if (Math.floor((frame / 30) % targets.length) === i) {
-        const tx = startX + (endX - 30 - startX) * progress;
         svg
           .append('circle')
-          .attr('cx', tx)
-          .attr('cy', startY)
-          .attr('r', 6)
-          .attr('fill', target.color);
-      }
+          .attr('cx', x)
+          .attr('cy', y)
+          .attr('r', nodeRadius)
+          .attr('fill', `${node.color}15`)
+          .attr('stroke', node.color)
+          .attr('stroke-width', 2);
 
-      // Target box
-      svg
-        .append('rect')
-        .attr('x', target.x - 35)
-        .attr('y', 50)
-        .attr('width', 70)
-        .attr('height', 70)
-        .attr('rx', 8)
-        .attr('fill', `${target.color}10`)
-        .attr('stroke', target.color)
-        .attr('stroke-width', 1.5);
+        svg
+          .append('text')
+          .attr('x', x)
+          .attr('y', y + 5)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 18 * scale + 10 * (1 - scale))
+          .text(node.icon);
 
+        const labelRadius = radius + 40 * scale + 25 * (1 - scale);
+        const lx = centerX + Math.cos(angle) * labelRadius;
+        const ly = centerY + Math.sin(angle) * labelRadius;
+        svg
+          .append('text')
+          .attr('x', lx)
+          .attr('y', ly + 4)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9)
+          .attr('font-weight', 600)
+          .attr('fill', node.color)
+          .text(node.label);
+      });
+
+      // Center label
       svg
         .append('text')
-        .attr('x', target.x)
-        .attr('y', 70)
+        .attr('x', centerX)
+        .attr('y', centerY - 5)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 14)
-        .text(target.icon);
-
+        .attr('font-size', 11)
+        .attr('font-weight', 600)
+        .attr('fill', theme.colors.inkDark)
+        .text('INOS');
       svg
         .append('text')
-        .attr('x', target.x)
-        .attr('y', 90)
+        .attr('x', centerX)
+        .attr('y', centerY + 10)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9)
+        .attr('fill', theme.colors.inkLight)
+        .text('Economy');
+
+      // Animated credit token
+      const token = svg
+        .append('circle')
+        .attr('r', 10)
+        .attr('fill', '#f59e0b')
+        .attr('stroke', 'white')
+        .attr('stroke-width', 2);
+      const tokenText = svg
+        .append('text')
         .attr('text-anchor', 'middle')
         .attr('font-size', 8)
-        .attr('font-weight', 600)
-        .attr('fill', target.color)
-        .text(target.label);
+        .attr('fill', 'white')
+        .attr('dy', 4)
+        .text('₵');
 
-      svg
-        .append('text')
-        .attr('x', target.x)
-        .attr('y', 103)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 700)
-        .attr('fill', theme.colors.inkDark)
-        .text(target.amount);
+      function animateToken() {
+        const startAngle = -90;
+        const startRad = (startAngle * Math.PI) / 180;
+        token
+          .attr('cx', centerX + Math.cos(startRad) * radius)
+          .attr('cy', centerY + Math.sin(startRad) * radius);
+        tokenText
+          .attr('x', centerX + Math.cos(startRad) * radius)
+          .attr('y', centerY + Math.sin(startRad) * radius);
 
-      svg
-        .append('text')
-        .attr('x', target.x)
-        .attr('y', 115)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 7)
-        .attr('fill', theme.colors.inkLight)
-        .text(target.pct);
-    });
-  }, [theme, frame]);
+        token
+          .transition()
+          .duration(6000)
+          .ease(d3.easeLinear)
+          .attrTween(
+            'cx',
+            () => t => String(centerX + Math.cos(((startAngle + t * 360) * Math.PI) / 180) * radius)
+          )
+          .attrTween(
+            'cy',
+            () => t => String(centerY + Math.sin(((startAngle + t * 360) * Math.PI) / 180) * radius)
+          )
+          .on('end', animateToken);
 
-  return <svg ref={svgRef} viewBox="0 0 700 150" style={{ width: '100%', height: 'auto' }} />;
+        tokenText
+          .transition()
+          .duration(6000)
+          .ease(d3.easeLinear)
+          .attrTween(
+            'x',
+            () => t => String(centerX + Math.cos(((startAngle + t * 360) * Math.PI) / 180) * radius)
+          )
+          .attrTween(
+            'y',
+            () => t => String(centerY + Math.sin(((startAngle + t * 360) * Math.PI) / 180) * radius)
+          );
+      }
+      animateToken();
+
+      return () => {
+        token.interrupt();
+        tokenText.interrupt();
+      };
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderFlywheel}
+      dependencies={[renderFlywheel]}
+      viewBox="0 0 700 280"
+      height={280}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: DEVICE GRAPH UBI
+// D3 ILLUSTRATION: FEE DISTRIBUTION (D3Container + D3 transitions)
+// ────────────────────────────────────────────────────────────────────────────
+function FeeDistributionDiagram() {
+  const theme = useTheme();
+
+  const renderFee: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+
+      // Responsive scaling
+      const scale = Math.min(1, width / 700);
+      const offsetX = width < 500 ? -20 : 0; // Shift left on mobile
+
+      // Source Job Payment
+      svg
+        .append('rect')
+        .attr('x', 50 + offsetX)
+        .attr('y', 60)
+        .attr('width', 100 * scale + 50 * (1 - scale))
+        .attr('height', 50)
+        .attr('rx', 8)
+        .attr('fill', '#3b82f620')
+        .attr('stroke', '#3b82f6')
+        .attr('stroke-width', 2);
+      svg
+        .append('text')
+        .attr('x', 100 + offsetX)
+        .attr('y', 82)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('font-weight', 600)
+        .attr('fill', '#3b82f6')
+        .text('Job: 1000₵');
+      svg
+        .append('text')
+        .attr('x', 100 + offsetX)
+        .attr('y', 95)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 8)
+        .attr('fill', theme.colors.inkLight)
+        .text('+5% fee = 1050₵');
+
+      // Distribution targets - responsive positions
+      const baseTargets = [
+        { label: 'Worker', amount: '950₵', pct: '95%', color: '#10b981', icon: '👷' },
+        { label: 'Treasury', amount: '35₵', pct: '3.5%', color: '#8b5cf6', icon: '🏦' },
+        { label: 'Creator', amount: '5₵', pct: '0.5%', color: '#f59e0b', icon: '👑' },
+        { label: 'Referrer', amount: '5₵', pct: '0.5%', color: '#3b82f6', icon: '🔗' },
+        { label: 'Close IDs', amount: '5₵', pct: '0.5%', color: '#06b6d4', icon: '👥' },
+      ];
+
+      // Calculate responsive x positions
+      const startX = 150 + offsetX;
+      const spacing = width < 500 ? 80 : 95;
+      const targets = baseTargets.map((t, i) => ({ ...t, x: 220 + i * spacing + offsetX }));
+      const startY = 85;
+
+      // Draw lines and boxes
+      targets.forEach(target => {
+        svg
+          .append('line')
+          .attr('x1', startX)
+          .attr('y1', startY)
+          .attr('x2', target.x - 25)
+          .attr('y2', startY)
+          .attr('stroke', `${target.color}40`)
+          .attr('stroke-width', 2);
+
+        const boxW = width < 500 ? 55 : 70;
+        svg
+          .append('rect')
+          .attr('x', target.x - boxW / 2)
+          .attr('y', 50)
+          .attr('width', boxW)
+          .attr('height', 70)
+          .attr('rx', 8)
+          .attr('fill', `${target.color}10`)
+          .attr('stroke', target.color)
+          .attr('stroke-width', 1.5);
+
+        svg
+          .append('text')
+          .attr('x', target.x)
+          .attr('y', 70)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 12 : 14)
+          .text(target.icon);
+        svg
+          .append('text')
+          .attr('x', target.x)
+          .attr('y', 90)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 7 : 8)
+          .attr('font-weight', 600)
+          .attr('fill', target.color)
+          .text(target.label);
+        svg
+          .append('text')
+          .attr('x', target.x)
+          .attr('y', 103)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 9 : 10)
+          .attr('font-weight', 700)
+          .attr('fill', theme.colors.inkDark)
+          .text(target.amount);
+        svg
+          .append('text')
+          .attr('x', target.x)
+          .attr('y', 115)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 7)
+          .attr('fill', theme.colors.inkLight)
+          .text(target.pct);
+      });
+
+      // Animated token
+      const token = svg
+        .append('circle')
+        .attr('r', 6)
+        .attr('cx', startX)
+        .attr('cy', startY)
+        .attr('fill', targets[0].color);
+
+      let currentIndex = 0;
+      function animateToken() {
+        const target = targets[currentIndex];
+        token
+          .attr('fill', target.color)
+          .attr('cx', startX)
+          .transition()
+          .duration(1000)
+          .ease(d3.easeQuadInOut)
+          .attr('cx', target.x - 25)
+          .on('end', () => {
+            currentIndex = (currentIndex + 1) % targets.length;
+            animateToken();
+          });
+      }
+      animateToken();
+
+      return () => token.interrupt();
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container render={renderFee} dependencies={[renderFee]} viewBox="0 0 700 150" height={150} />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: DEVICE GRAPH UBI (D3Container + interactive controls)
 // ────────────────────────────────────────────────────────────────────────────
 function DeviceGraphDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
   const [deviceCount, setDeviceCount] = useState(3);
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderDevices: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
 
-    const width = 700;
-    const centerX = width / 2;
-    const centerY = 120; // Pushed down for more spacing
+      const centerX = 350;
+      const centerY = 120;
+      const scale = Math.min(1, width / 700);
+      const orbitRadius = 80 * scale + 50 * (1 - scale);
 
-    // Central DID
-    svg
-      .append('circle')
-      .attr('cx', centerX)
-      .attr('cy', centerY)
-      .attr('r', 30)
-      .attr('fill', 'rgba(139, 92, 246, 0.15)')
-      .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 3);
-
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', centerY + 5)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 11)
-      .attr('font-weight', 600)
-      .attr('fill', '#8b5cf6')
-      .text('Your DID');
-
-    // Device icons
-    const devices = ['💻', '📱', '🖥️', '📟', '⌚'];
-
-    for (let i = 0; i < deviceCount; i++) {
-      const angle = ((i / deviceCount) * 360 - 90) * (Math.PI / 180);
-      const x = centerX + Math.cos(angle) * 80;
-      const y = centerY + Math.sin(angle) * 80;
-
-      // Connection line
-      svg
-        .append('line')
-        .attr('x1', centerX)
-        .attr('y1', centerY)
-        .attr('x2', x)
-        .attr('y2', y)
-        .attr('stroke', '#10b981')
-        .attr('stroke-width', 2)
-        .attr('stroke-dasharray', '4,4');
-
-      // Device circle
+      // Central DID
       svg
         .append('circle')
-        .attr('cx', x)
-        .attr('cy', y)
-        .attr('r', 22)
-        .attr('fill', 'rgba(16, 185, 129, 0.1)')
-        .attr('stroke', '#10b981')
-        .attr('stroke-width', 2);
-
+        .attr('cx', centerX)
+        .attr('cy', centerY)
+        .attr('r', 30 * scale + 20 * (1 - scale))
+        .attr('fill', 'rgba(139, 92, 246, 0.15)')
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 3);
       svg
         .append('text')
-        .attr('x', x)
-        .attr('y', y + 5)
+        .attr('x', centerX)
+        .attr('y', centerY + 5)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 16)
-        .text(devices[i % devices.length]);
-    }
+        .attr('font-size', 11)
+        .attr('font-weight', 600)
+        .attr('fill', '#8b5cf6')
+        .text('Your DID');
 
-    // UBI Multiplier display - pushed down for spacing
-    const multiplier = 1.0 + deviceCount * 0.001;
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', 250)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 13)
-      .attr('font-weight', 600)
-      .attr('fill', theme.colors.inkDark)
-      .text(`UBI Multiplier: ${multiplier.toFixed(3)}x`);
+      // Device icons
+      const devices = ['💻', '📱', '🖥️', '📟', '⌚'];
+      for (let i = 0; i < deviceCount; i++) {
+        const angle = ((i / deviceCount) * 360 - 90) * (Math.PI / 180);
+        const x = centerX + Math.cos(angle) * orbitRadius;
+        const y = centerY + Math.sin(angle) * orbitRadius;
 
-    svg
-      .append('text')
-      .attr('x', centerX)
-      .attr('y', 270)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('fill', theme.colors.inkLight)
-      .text(`+0.1% per verified device (no cap)`);
-  }, [theme, deviceCount]);
+        svg
+          .append('line')
+          .attr('x1', centerX)
+          .attr('y1', centerY)
+          .attr('x2', x)
+          .attr('y2', y)
+          .attr('stroke', '#10b981')
+          .attr('stroke-width', 2)
+          .attr('stroke-dasharray', '4,4');
+        svg
+          .append('circle')
+          .attr('cx', x)
+          .attr('cy', y)
+          .attr('r', 22 * scale + 14 * (1 - scale))
+          .attr('fill', 'rgba(16, 185, 129, 0.1)')
+          .attr('stroke', '#10b981')
+          .attr('stroke-width', 2);
+        svg
+          .append('text')
+          .attr('x', x)
+          .attr('y', y + 5)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 16 * scale + 12 * (1 - scale))
+          .text(devices[i % devices.length]);
+      }
+
+      // UBI Multiplier display
+      const multiplier = 1.0 + deviceCount * 0.001;
+      svg
+        .append('text')
+        .attr('x', centerX)
+        .attr('y', 250)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 13)
+        .attr('font-weight', 600)
+        .attr('fill', theme.colors.inkDark)
+        .text(`UBI Multiplier: ${multiplier.toFixed(3)}x`);
+      svg
+        .append('text')
+        .attr('x', centerX)
+        .attr('y', 270)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('fill', theme.colors.inkLight)
+        .text('+0.1% per verified device (no cap)');
+    },
+    [theme, deviceCount]
+  );
 
   return (
     <div>
-      <svg ref={svgRef} viewBox="0 0 700 300" style={{ width: '100%', height: 'auto' }} />
+      <D3Container
+        render={renderDevices}
+        dependencies={[renderDevices]}
+        viewBox="0 0 700 300"
+        height={300}
+      />
       <div
         style={{
           display: 'flex',
           gap: '8px',
           justifyContent: 'center',
           marginTop: '12px',
+          flexWrap: 'wrap',
         }}
       >
         {[1, 2, 3, 4, 5].map(n => (
@@ -678,105 +713,102 @@ function DeviceGraphDiagram() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// D3 ILLUSTRATION: GAMIFICATION TIERS
+// D3 ILLUSTRATION: GAMIFICATION TIERS (D3Container)
 // ────────────────────────────────────────────────────────────────────────────
 function GamificationTiersDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderTiers: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
 
-    const width = 700;
+      const spacing = width < 500 ? 85 : 140;
+      const startX = width < 500 ? 60 : 90;
 
-    const tiers = [
-      { name: 'Light', mult: '1.0x', sab: '32MB', storage: '5GB', color: '#9ca3af', x: 90 },
-      { name: 'Moderate', mult: '1.1x', sab: '64MB', storage: '20GB', color: '#3b82f6', x: 230 },
-      { name: 'Heavy', mult: '1.5x', sab: '128MB', storage: '100GB', color: '#8b5cf6', x: 370 },
-      {
-        name: 'Dedicated',
-        mult: '2.0x',
-        sab: '256MB+',
-        storage: '500GB+',
-        color: '#f59e0b',
-        x: 510,
-      },
-    ];
+      const tiers = [
+        { name: 'Light', mult: '1.0x', sab: '32MB', storage: '5GB', color: '#9ca3af' },
+        { name: 'Moderate', mult: '1.1x', sab: '64MB', storage: '20GB', color: '#3b82f6' },
+        { name: 'Heavy', mult: '1.5x', sab: '128MB', storage: '100GB', color: '#8b5cf6' },
+        { name: 'Dedicated', mult: '2.0x', sab: '256MB+', storage: '500GB+', color: '#f59e0b' },
+      ].map((t, i) => ({ ...t, x: startX + i * spacing }));
 
-    // Progress arrow at bottom - pushed way down for breathing room
-    svg
-      .append('line')
-      .attr('x1', 60)
-      .attr('y1', 260)
-      .attr('x2', 640)
-      .attr('y2', 260)
-      .attr('stroke', '#e5e7eb')
-      .attr('stroke-width', 3);
-
-    svg.append('polygon').attr('points', '640,260 630,255 630,265').attr('fill', '#e5e7eb');
-
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 285)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('fill', theme.colors.inkLight)
-      .text('More Resources → Higher Rewards');
-
-    tiers.forEach((tier, i) => {
-      // Bars: base height 60, +25 per tier (Light=60, Moderate=85, Heavy=110, Dedicated=135)
-      const barHeight = 60 + i * 25;
-      const barY = 230 - barHeight; // Position from baseline at y=230
-
+      // Progress arrow
       svg
-        .append('rect')
-        .attr('x', tier.x - 55)
-        .attr('y', barY)
-        .attr('width', 110)
-        .attr('height', barHeight)
-        .attr('rx', 8)
-        .attr('fill', `${tier.color}20`)
-        .attr('stroke', tier.color)
-        .attr('stroke-width', 2);
-
-      // Tier name - positioned at top of bar with padding
+        .append('line')
+        .attr('x1', 30)
+        .attr('y1', 260)
+        .attr('x2', width < 500 ? 370 : 640)
+        .attr('y2', 260)
+        .attr('stroke', '#e5e7eb')
+        .attr('stroke-width', 3);
+      const arrowX = width < 500 ? 370 : 640;
+      svg
+        .append('polygon')
+        .attr('points', `${arrowX},260 ${arrowX - 10},255 ${arrowX - 10},265`)
+        .attr('fill', '#e5e7eb');
       svg
         .append('text')
-        .attr('x', tier.x)
-        .attr('y', barY + 18)
+        .attr('x', 350)
+        .attr('y', 285)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
-        .attr('font-weight', 600)
-        .attr('fill', tier.color)
-        .text(tier.name);
-
-      // Multiplier - centered in bar
-      svg
-        .append('text')
-        .attr('x', tier.x)
-        .attr('y', barY + barHeight / 2 + 8)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 22)
-        .attr('font-weight', 700)
-        .attr('fill', tier.color)
-        .text(tier.mult);
-
-      // Specs below the bar - with good separation
-      svg
-        .append('text')
-        .attr('x', tier.x)
-        .attr('y', 245)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
+        .attr('font-size', width < 500 ? 9 : 10)
         .attr('fill', theme.colors.inkLight)
-        .text(`${tier.sab} SAB | ${tier.storage}`);
-    });
-  }, [theme]);
+        .text('More Resources → Higher Rewards');
 
-  return <svg ref={svgRef} viewBox="0 0 700 310" style={{ width: '100%', height: 'auto' }} />;
+      const barWidth = width < 500 ? 70 : 110;
+      tiers.forEach((tier, i) => {
+        const barHeight = 60 + i * 25;
+        const barY = 230 - barHeight;
+
+        svg
+          .append('rect')
+          .attr('x', tier.x - barWidth / 2)
+          .attr('y', barY)
+          .attr('width', barWidth)
+          .attr('height', barHeight)
+          .attr('rx', 8)
+          .attr('fill', `${tier.color}20`)
+          .attr('stroke', tier.color)
+          .attr('stroke-width', 2);
+        svg
+          .append('text')
+          .attr('x', tier.x)
+          .attr('y', barY + 18)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 9 : 11)
+          .attr('font-weight', 600)
+          .attr('fill', tier.color)
+          .text(tier.name);
+        svg
+          .append('text')
+          .attr('x', tier.x)
+          .attr('y', barY + barHeight / 2 + 8)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 18 : 22)
+          .attr('font-weight', 700)
+          .attr('fill', tier.color)
+          .text(tier.mult);
+        svg
+          .append('text')
+          .attr('x', tier.x)
+          .attr('y', 245)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', width < 500 ? 7 : 9)
+          .attr('fill', theme.colors.inkLight)
+          .text(`${tier.sab} | ${tier.storage}`);
+      });
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderTiers}
+      dependencies={[renderTiers]}
+      viewBox="0 0 700 310"
+      height={310}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────

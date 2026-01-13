@@ -138,17 +138,27 @@ async function initializeKernel(
   let result: WebAssembly.WebAssemblyInstantiatedSource;
 
   try {
-    result = await WebAssembly.instantiateStreaming(response, {
-      ..._go.importObject,
-      env: { ..._go.importObject.env, memory: _memory },
-    });
-  } catch {
-    // Fallback for Safari/iOS
-    const bytes = await response.arrayBuffer();
-    result = await WebAssembly.instantiate(bytes, {
-      ..._go.importObject,
-      env: { ..._go.importObject.env, memory: _memory },
-    });
+    const fallbackResponse = response.clone();
+    try {
+      result = await WebAssembly.instantiateStreaming(response, {
+        ..._go.importObject,
+        env: { ..._go.importObject.env, memory: _memory },
+      });
+    } catch (streamingError) {
+      console.warn(
+        '[KernelWorker] instantiateStreaming failed, falling back to arrayBuffer:',
+        streamingError
+      );
+      const bytes = await fallbackResponse.arrayBuffer();
+      result = await WebAssembly.instantiate(bytes, {
+        ..._go.importObject,
+        env: { ..._go.importObject.env, memory: _memory },
+      });
+    }
+  } catch (err) {
+    throw new Error(
+      `Failed to instantiate WASM in worker: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   // 4. Run Go kernel (this starts the Go runtime)

@@ -5,12 +5,13 @@
  * Focusing on 1MB Hashing, Double Compression, and Tiered Persistence.
  */
 
-import { useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import styled, { useTheme } from 'styled-components';
 import * as d3 from 'd3';
 import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
 
 const Style = {
   ...ManuscriptStyle,
@@ -247,26 +248,28 @@ const Style = {
 // D3 ILLUSTRATIONS
 // ────────────────────────────────────────────────────────────────────────────
 
-function SabMemoryMap() {
-  const svgRef = useRef<SVGSVGElement>(null);
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATIONS (D3Container Patterns)
+// ────────────────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+function SabMemoryMap() {
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
     svg.selectAll('*').remove();
 
-    const width = 700;
     const height = 240;
+    const scale = Math.min(1, width / 700);
     const margin = { top: 40, right: 40, bottom: 40, left: 40 };
 
     const g = svg.append('g');
 
     // Draw SAB Container
-    const containerW = width - margin.left - margin.right;
+    const containerW = (700 - margin.left - margin.right) * scale;
     const containerH = height - margin.top - margin.bottom;
+    const startX = (width - containerW) / 2;
 
     g.append('rect')
-      .attr('x', margin.left)
+      .attr('x', startX)
       .attr('y', margin.top)
       .attr('width', containerW)
       .attr('height', containerH)
@@ -274,12 +277,11 @@ function SabMemoryMap() {
       .attr('fill', '#f8fafc')
       .attr('stroke', '#cbd5e1')
       .attr('stroke-width', 2);
-
     g.append('text')
       .attr('x', width / 2)
       .attr('y', 25)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
+      .attr('font-size', 10 * scale + 2 * (1 - scale))
       .attr('font-weight', 800)
       .attr('fill', '#64748b')
       .text('SHARED ARRAY BUFFER (HOT CACHE — 1024 SLOTS)');
@@ -287,20 +289,19 @@ function SabMemoryMap() {
     // Draw grid of slots
     const rows = 4;
     const cols = 16;
-    const slotW = 32;
+    const slotW = 32 * scale;
     const slotH = 20;
-    const gap = 6;
+    const gap = 6 * scale;
 
-    // Calculate start positions to center the grid within the rect
     const gridW = cols * slotW + (cols - 1) * gap;
     const gridH = rows * slotH + (rows - 1) * gap;
-    const startX = margin.left + (containerW - gridW) / 2;
-    const startY = margin.top + (containerH - gridH) / 2;
+    const gridStartX = startX + (containerW - gridW) / 2;
+    const gridStartY = margin.top + (containerH - gridH) / 2;
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const x = startX + c * (slotW + gap);
-        const y = startY + r * (slotH + gap);
+        const x = gridStartX + c * (slotW + gap);
+        const y = gridStartY + r * (slotH + gap);
         const isHot = Math.random() > 0.7;
 
         const slot = g
@@ -314,193 +315,231 @@ function SabMemoryMap() {
           .attr('opacity', isHot ? 0.6 : 0.3);
 
         if (isHot) {
-          slot
-            .append('animate')
-            .attr('attributeName', 'opacity')
-            .attr('values', '0.6;1;0.6')
-            .attr('dur', `${1 + Math.random() * 2}s`)
-            .attr('repeatCount', 'indefinite');
+          function pulse() {
+            slot
+              .transition()
+              .duration(1000 + Math.random() * 1000)
+              .attr('opacity', 1)
+              .transition()
+              .duration(1000)
+              .attr('opacity', 0.6)
+              .on('end', pulse);
+          }
+          pulse();
         }
       }
     }
 
     // Legend
-    svg.append('circle').attr('cx', 550).attr('cy', 215).attr('r', 4).attr('fill', '#ef4444');
+    const legendY = 215;
+    svg
+      .append('circle')
+      .attr('cx', width - 150 * scale)
+      .attr('cy', legendY)
+      .attr('r', 4)
+      .attr('fill', '#ef4444');
     svg
       .append('text')
-      .attr('x', 560)
-      .attr('y', 219)
-      .attr('font-size', 9)
+      .attr('x', width - 140 * scale)
+      .attr('y', legendY + 4)
+      .attr('font-size', 9 * scale)
       .attr('fill', '#64748b')
       .text('Active Pattern Slot');
-
-    svg.append('circle').attr('cx', 430).attr('cy', 215).attr('r', 4).attr('fill', '#e2e8f0');
+    svg
+      .append('circle')
+      .attr('cx', width - 270 * scale)
+      .attr('cy', legendY)
+      .attr('r', 4)
+      .attr('fill', '#e2e8f0');
     svg
       .append('text')
-      .attr('x', 440)
-      .attr('y', 219)
-      .attr('font-size', 9)
+      .attr('x', width - 260 * scale)
+      .attr('y', legendY + 4)
+      .attr('font-size', 9 * scale)
       .attr('fill', '#64748b')
       .text('Free/Stale Memory');
   }, []);
 
-  return <svg ref={svgRef} viewBox="0 0 700 240" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 240"
+      height={240}
+    />
+  );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: BLAKE3 HASHING (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function Blake3HashingDiagram() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').interrupt();
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 700);
 
-    const width = 700;
+      // Draw Merkle Tree for BLAKE3
+      const levels = 3;
+      const nodesAtLevel = [4, 2, 1];
+      const nodeRadius = 16 * scale;
+      const startY = 240;
+      const gapY = 70;
 
-    // Draw Merkle Tree for BLAKE3
-    const levels = 3;
-    const nodesAtLevel = [4, 2, 1];
-    const nodeRadius = 16;
-    const startY = 240;
-    const gapY = 70;
+      const treeG = svg.append('g').attr('transform', 'translate(0, 20)');
 
-    const treeG = svg.append('g').attr('transform', 'translate(0, 20)');
+      // Nodes and Lines
+      const nodePositions: { x: number; y: number }[][] = [];
 
-    // Nodes and Lines
-    const nodePositions: { x: number; y: number }[][] = [];
+      for (let l = 0; l < levels; l++) {
+        const levelNodes: { x: number; y: number }[] = [];
+        const count = nodesAtLevel[l];
+        const gapX = width / (count + 1);
 
-    for (let l = 0; l < levels; l++) {
-      const levelNodes: { x: number; y: number }[] = [];
-      const count = nodesAtLevel[l];
-      const gapX = width / (count + 1);
+        for (let i = 0; i < count; i++) {
+          const x = gapX * (i + 1);
+          const y = startY - l * gapY;
+          levelNodes.push({ x, y });
 
-      for (let i = 0; i < count; i++) {
-        const x = gapX * (i + 1);
-        const y = startY - l * gapY;
-        levelNodes.push({ x, y });
+          if (l > 0) {
+            const child1 = nodePositions[l - 1][i * 2];
+            const child2 = nodePositions[l - 1][i * 2 + 1];
 
-        if (l > 0) {
-          const child1 = nodePositions[l - 1][i * 2];
-          const child2 = nodePositions[l - 1][i * 2 + 1];
+            treeG
+              .append('line')
+              .attr('x1', x)
+              .attr('y1', y)
+              .attr('x2', child1.x)
+              .attr('y2', child1.y)
+              .attr('stroke', theme.colors.borderSubtle)
+              .attr('stroke-width', 2);
+            treeG
+              .append('line')
+              .attr('x1', x)
+              .attr('y1', y)
+              .attr('x2', child2.x)
+              .attr('y2', child2.y)
+              .attr('stroke', theme.colors.borderSubtle)
+              .attr('stroke-width', 2);
+          }
 
+          const color = l === 2 ? '#10b981' : l === 1 ? '#3b82f6' : theme.colors.borderSubtle;
           treeG
-            .append('line')
-            .attr('x1', x)
-            .attr('y1', y)
-            .attr('x2', child1.x)
-            .attr('y2', child1.y)
-            .attr('stroke', theme.colors.borderSubtle)
+            .append('circle')
+            .attr('cx', x)
+            .attr('cy', y)
+            .attr('r', nodeRadius)
+            .attr('fill', 'white')
+            .attr('stroke', color)
             .attr('stroke-width', 2);
-
           treeG
-            .append('line')
-            .attr('x1', x)
-            .attr('y1', y)
-            .attr('x2', child2.x)
-            .attr('y2', child2.y)
-            .attr('stroke', theme.colors.borderSubtle)
-            .attr('stroke-width', 2);
+            .append('text')
+            .attr('x', x)
+            .attr('y', y + 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 8 * scale)
+            .attr('font-family', 'JetBrains Mono')
+            .attr('font-weight', 800)
+            .attr('fill', color)
+            .text(l === 2 ? 'ROOT' : 'HASH');
         }
-
-        const color = l === 2 ? '#10b981' : l === 1 ? '#3b82f6' : theme.colors.borderSubtle;
-        treeG
-          .append('circle')
-          .attr('cx', x)
-          .attr('cy', y)
-          .attr('r', nodeRadius)
-          .attr('fill', 'white')
-          .attr('stroke', color)
-          .attr('stroke-width', 2);
-
-        treeG
-          .append('text')
-          .attr('x', x)
-          .attr('y', y + 4)
-          .attr('text-anchor', 'middle')
-          .attr('font-size', 8)
-          .attr('font-family', 'JetBrains Mono')
-          .attr('font-weight', 800)
-          .attr('fill', color)
-          .text(l === 2 ? 'ROOT' : 'HASH');
+        nodePositions.push(levelNodes);
       }
-      nodePositions.push(levelNodes);
-    }
 
-    // Input Chunks (1MB Pulses)
-    const dataChunks = ['Pulse A', 'Pulse B', 'Pulse C', 'Pulse D'];
-    nodePositions[0].forEach((pos, i) => {
-      const g = treeG.append('g');
-      g.append('rect')
-        .attr('x', pos.x - 25)
-        .attr('y', pos.y + 30)
-        .attr('width', 50)
-        .attr('height', 20)
-        .attr('rx', 4)
-        .attr('fill', '#f1f5f9')
-        .attr('stroke', theme.colors.borderSubtle);
+      // Input Chunks (1MB Pulses)
+      const dataChunks = ['Pulse A', 'Pulse B', 'Pulse C', 'Pulse D'];
+      nodePositions[0].forEach((pos, i) => {
+        const g = treeG.append('g');
+        g.append('rect')
+          .attr('x', pos.x - 25 * scale)
+          .attr('y', pos.y + 30)
+          .attr('width', 50 * scale)
+          .attr('height', 20)
+          .attr('rx', 4)
+          .attr('fill', '#f1f5f9')
+          .attr('stroke', theme.colors.borderSubtle);
+        g.append('text')
+          .attr('x', pos.x)
+          .attr('y', pos.y + 43)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8 * scale)
+          .attr('fill', theme.colors.inkMedium)
+          .text(dataChunks[i]);
 
-      g.append('text')
-        .attr('x', pos.x)
-        .attr('y', pos.y + 43)
+        // Pulse animation
+        const pulse = g
+          .append('circle')
+          .attr('cx', pos.x)
+          .attr('cy', pos.y + 40)
+          .attr('r', 2 * scale)
+          .attr('fill', '#ef4444')
+          .attr('opacity', 0);
+
+        function tick() {
+          pulse
+            .transition()
+            .duration(1000)
+            .delay(i * 500)
+            .attr('opacity', 1)
+            .transition()
+            .duration(1000)
+            .attr('opacity', 0)
+            .on('end', tick);
+        }
+        tick();
+      });
+
+      svg
+        .append('text')
+        .attr('x', width / 2)
+        .attr('y', 20)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
+        .attr('font-size', 10 * scale + 2 * (1 - scale))
+        .attr('font-weight', 800)
         .attr('fill', theme.colors.inkMedium)
-        .text(dataChunks[i]);
+        .text('1MB HASHING HEARTBEAT (BLAKE3 MERKLE TREE)');
+    },
+    [theme]
+  );
 
-      // Pulse animation
-      g.append('circle')
-        .attr('cx', pos.x)
-        .attr('cy', pos.y + 40)
-        .attr('r', 2)
-        .attr('fill', '#ef4444')
-        .attr('opacity', 0)
-        .append('animate')
-        .attr('attributeName', 'opacity')
-        .attr('values', '0;1;0')
-        .attr('dur', '2s')
-        .attr('begin', `${i * 0.5}s`)
-        .attr('repeatCount', 'indefinite');
-    });
-
-    svg
-      .append('text')
-      .attr('x', width / 2)
-      .attr('y', 20)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
-      .attr('font-weight', 800)
-      .attr('fill', theme.colors.inkMedium)
-      .text('1MB HASHING HEARTBEAT (BLAKE3 MERKLE TREE)');
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 700 320" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 320"
+      height={320}
+    />
+  );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: SYNC ACCESS PIPELINE (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function SyncAccessPipeline() {
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
     svg.selectAll('*').remove();
+    const scale = Math.min(1, width / 700);
 
     // Main Thread (Blocked Area)
     svg
       .append('rect')
-      .attr('x', 50)
+      .attr('x', 50 * scale)
       .attr('y', 50)
-      .attr('width', 150)
+      .attr('width', 150 * scale)
       .attr('height', 160)
       .attr('rx', 8)
       .attr('fill', '#f1f5f9')
       .attr('stroke', '#cbd5e1');
     svg
       .append('text')
-      .attr('x', 125)
+      .attr('x', 125 * scale)
       .attr('y', 40)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
+      .attr('font-size', 10 * scale)
       .attr('font-weight', 800)
       .attr('fill', '#64748b')
       .text('MAIN THREAD (UI)');
@@ -508,40 +547,40 @@ function SyncAccessPipeline() {
     // Web Worker (Active Area)
     svg
       .append('rect')
-      .attr('x', 250)
+      .attr('x', 250 * scale)
       .attr('y', 50)
-      .attr('width', 200)
+      .attr('width', 200 * scale)
       .attr('height', 160)
       .attr('rx', 8)
       .attr('fill', '#ecfdf5')
       .attr('stroke', '#10b981');
     svg
       .append('text')
-      .attr('x', 350)
+      .attr('x', 350 * scale)
       .attr('y', 40)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
+      .attr('font-size', 10 * scale)
       .attr('font-weight', 800)
       .attr('fill', '#059669')
       .text('DEDICATED WORKER (STORAGE)');
 
     // OPFS (Storage Area)
-    const opfsX = 520;
+    const opfsX = 520 * scale;
     svg
       .append('rect')
       .attr('x', opfsX)
       .attr('y', 50)
-      .attr('width', 130)
+      .attr('width', 130 * scale)
       .attr('height', 160)
       .attr('rx', 8)
       .attr('fill', '#eff6ff')
       .attr('stroke', '#3b82f6');
     svg
       .append('text')
-      .attr('x', opfsX + 65)
+      .attr('x', opfsX + 65 * scale)
       .attr('y', 40)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 10)
+      .attr('font-size', 10 * scale)
       .attr('font-weight', 800)
       .attr('fill', '#1d4ed8')
       .text('OPFS (DISK)');
@@ -549,19 +588,19 @@ function SyncAccessPipeline() {
     // Worker Script
     svg
       .append('rect')
-      .attr('x', 265)
+      .attr('x', 265 * scale)
       .attr('y', 80)
-      .attr('width', 170)
+      .attr('width', 170 * scale)
       .attr('height', 100)
       .attr('rx', 4)
       .attr('fill', '#059669')
       .attr('opacity', 0.1);
     svg
       .append('text')
-      .attr('x', 350)
+      .attr('x', 350 * scale)
       .attr('y', 110)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
+      .attr('font-size', 12 * scale)
       .attr('font-weight', 700)
       .attr('fill', '#059669')
       .text('SQLite WASM');
@@ -571,77 +610,95 @@ function SyncAccessPipeline() {
     for (let i = 0; i < 5; i++) {
       const line = blockG
         .append('rect')
-        .attr('x', 70)
+        .attr('x', 70 * scale)
         .attr('y', 70 + i * 25)
-        .attr('width', 110)
+        .attr('width', 110 * scale)
         .attr('height', 15)
         .attr('rx', 2)
         .attr('fill', '#e2e8f0');
 
-      // Minor pulse to show main thread "jitter"
-      line
-        .append('animate')
-        .attr('attributeName', 'opacity')
-        .attr('values', '1;0.6;1')
-        .attr('dur', `${1 + i * 0.2}s`)
-        .attr('repeatCount', 'indefinite');
+      function jitter() {
+        line
+          .transition()
+          .duration(500 + i * 200)
+          .attr('opacity', 0.6)
+          .transition()
+          .duration(500 + i * 200)
+          .attr('opacity', 1)
+          .on('end', jitter);
+      }
+      jitter();
     }
 
     // Direct Sync Pipe
     svg
       .append('path')
-      .attr('d', `M450,130 L520,130`)
+      .attr('d', `M${450 * scale},130 L${520 * scale},130`)
       .attr('stroke', '#3b82f6')
       .attr('stroke-width', 4)
       .attr('stroke-dasharray', '8,4');
-
     svg
       .append('text')
-      .attr('x', 485)
+      .attr('x', 485 * scale)
       .attr('y', 120)
       .attr('text-anchor', 'middle')
-      .attr('font-size', 8)
+      .attr('font-size', 8 * scale)
       .attr('font-weight', 800)
       .attr('fill', '#3b82f6')
       .text('SYNC');
 
-    // Animated Bytes - Continuous flow
+    // Animated Bytes
     const packetCount = 4;
     for (let i = 0; i < packetCount; i++) {
-      const circle = svg.append('circle').attr('r', 4).attr('fill', '#3b82f6');
-      circle
-        .append('animateMotion')
-        .attr('path', `M450,130 L520,130`)
-        .attr('dur', '1.2s')
-        .attr('begin', `${i * 0.3}s`)
-        .attr('repeatCount', 'indefinite');
+      const circle = svg
+        .append('circle')
+        .attr('r', 4 * scale)
+        .attr('fill', '#3b82f6')
+        .attr('opacity', 0);
 
-      circle
-        .append('animate')
-        .attr('attributeName', 'opacity')
-        .attr('values', '0;1;1;0')
-        .attr('keyTimes', '0;0.1;0.9;1')
-        .attr('dur', '1.2s')
-        .attr('repeatCount', 'indefinite');
+      function flow() {
+        circle
+          .attr('cx', 450 * scale)
+          .attr('cy', 130)
+          .attr('opacity', 0)
+          .transition()
+          .duration(100)
+          .attr('opacity', 1)
+          .transition()
+          .duration(1000)
+          .delay(i * 300)
+          .attr('cx', 520 * scale)
+          .transition()
+          .duration(100)
+          .attr('opacity', 0)
+          .on('end', flow);
+      }
+      flow();
     }
   }, []);
 
-  return <svg ref={svgRef} viewBox="0 0 700 240" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 240"
+      height={240}
+    />
+  );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: DHT MESH MAP (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function DhtMeshMap() {
-  const svgRef = useRef<SVGSVGElement>(null);
-
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
     svg.selectAll('*').remove();
-
-    const width = 700;
     const height = 300;
+    const scale = Math.min(1, width / 700);
     const centerX = width / 2;
     const centerY = height / 2;
-    const radius = 100;
+    const radius = 100 * scale;
 
     // Draw Hash Space Circle
     svg
@@ -654,7 +711,7 @@ function DhtMeshMap() {
       .attr('stroke-width', 1)
       .attr('stroke-dasharray', '4,4');
 
-    // Draw Peers on the circle
+    // Draw Peers
     const peerCount = 8;
     const peers = d3.range(peerCount).map(i => {
       const angle = (i / peerCount) * 2 * Math.PI;
@@ -665,7 +722,6 @@ function DhtMeshMap() {
       };
     });
 
-    // Mesh lines
     peers.forEach((p1, i) => {
       peers.forEach((p2, j) => {
         if (i < j && (j === i + 1 || j === i + 2 || (i === 0 && j === peerCount - 1))) {
@@ -684,27 +740,31 @@ function DhtMeshMap() {
 
     peers.forEach(p => {
       const g = svg.append('g');
-      g.append('circle').attr('cx', p.x).attr('cy', p.y).attr('r', 6).attr('fill', '#3b82f6');
-
+      g.append('circle')
+        .attr('cx', p.x)
+        .attr('cy', p.y)
+        .attr('r', 6 * scale)
+        .attr('fill', '#3b82f6');
       g.append('text')
         .attr('x', p.x)
-        .attr('y', p.y - 12)
+        .attr('y', p.y - 12 * scale)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 8)
+        .attr('font-size', 8 * scale)
         .attr('font-family', 'JetBrains Mono')
         .attr('fill', '#1e40af')
         .text(`Node ${p.id}`);
     });
 
-    // Animate Chunk Transfer
-    const animateChunk = () => {
+    function animateChunk() {
       const p1 = peers[Math.floor(Math.random() * peerCount)];
       const p2 = peers[Math.floor(Math.random() * peerCount)];
       if (p1 === p2) return animateChunk();
 
-      const chunk = svg.append('circle').attr('r', 3).attr('fill', '#10b981').attr('opacity', 0);
-
-      chunk
+      svg
+        .append('circle')
+        .attr('r', 3 * scale)
+        .attr('fill', '#10b981')
+        .attr('opacity', 0)
         .attr('cx', p1.x)
         .attr('cy', p1.y)
         .transition()
@@ -718,132 +778,153 @@ function DhtMeshMap() {
         .on('end', function () {
           d3.select(this).remove();
         });
-    };
 
-    const interval = setInterval(animateChunk, 2000);
-    return () => clearInterval(interval);
+      svg.transition().duration(2000).on('end', animateChunk);
+    }
+    animateChunk();
   }, []);
 
-  return <svg ref={svgRef} viewBox="0 0 700 300" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 300"
+      height={300}
+    />
+  );
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: TIERED CONVERGENCE (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
 function TieredConvergenceMap() {
-  const svgRef = useRef<SVGSVGElement>(null);
   const theme = useTheme();
 
-  useEffect(() => {
-    if (!svgRef.current) return;
-    const svg = d3.select(svgRef.current);
-    svg.selectAll('*').remove();
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 740);
+      const centerX = width / 2;
 
-    const tiers = [
-      {
-        id: 'sab',
-        label: 'HOT: SAB',
-        color: '#ef4444',
-        x: 50,
-        y: 120,
-        w: 120,
-        h: 60,
-        desc: 'Pattern Cache',
-      },
-      {
-        id: 'ram',
-        label: 'WARM: ARENA',
-        color: '#f59e0b',
-        x: 220,
-        y: 120,
-        w: 120,
-        h: 60,
-        desc: 'LRU Heap',
-      },
-      {
-        id: 'opfs',
-        label: 'COLD: OPFS',
-        color: '#3b82f6',
-        x: 390,
-        y: 120,
-        w: 120,
-        h: 60,
-        desc: 'SQLite Blocks',
-      },
-      {
-        id: 'mesh',
-        label: 'ARCHIVE: MESH',
-        color: '#10b981',
-        x: 560,
-        y: 120,
-        w: 120,
-        h: 60,
-        desc: 'P2P Chunks',
-      },
-    ];
+      const tiers = [
+        {
+          id: 'sab',
+          label: 'HOT: SAB',
+          color: '#ef4444',
+          x: centerX - 320 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'Pattern Cache',
+        },
+        {
+          id: 'ram',
+          label: 'WARM: ARENA',
+          color: '#f59e0b',
+          x: centerX - 150 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'LRU Heap',
+        },
+        {
+          id: 'opfs',
+          label: 'COLD: OPFS',
+          color: '#3b82f6',
+          x: centerX + 30 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'SQLite Blocks',
+        },
+        {
+          id: 'mesh',
+          label: 'ARCHIVE: MESH',
+          color: '#10b981',
+          x: centerX + 200 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'P2P Chunks',
+        },
+      ];
 
-    svg
-      .append('rect')
-      .attr('x', 245)
-      .attr('y', 20)
-      .attr('width', 250)
-      .attr('height', 50)
-      .attr('rx', 25)
-      .attr('fill', '#00add810')
-      .attr('stroke', '#00add8')
-      .attr('stroke-width', 2);
-
-    svg
-      .append('text')
-      .attr('x', 370)
-      .attr('y', 50)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', 12)
-      .attr('font-weight', 800)
-      .attr('fill', '#00add8')
-      .text('STORAGE SUPERVISOR (GO)');
-
-    tiers.forEach(t => {
-      const g = svg.append('g');
-      g.append('rect')
-        .attr('x', t.x)
-        .attr('y', t.y)
-        .attr('width', t.w)
-        .attr('height', t.h)
-        .attr('rx', 8)
-        .attr('fill', t.color + '08')
-        .attr('stroke', t.color)
+      svg
+        .append('rect')
+        .attr('x', centerX - 125 * scale)
+        .attr('y', 20)
+        .attr('width', 250 * scale)
+        .attr('height', 50)
+        .attr('rx', 25)
+        .attr('fill', '#00add810')
+        .attr('stroke', '#00add8')
         .attr('stroke-width', 2);
-      g.append('text')
-        .attr('x', t.x + t.w / 2)
-        .attr('y', t.y + 25)
+      svg
+        .append('text')
+        .attr('x', centerX)
+        .attr('y', 50)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 11)
+        .attr('font-size', 12 * scale + 2 * (1 - scale))
         .attr('font-weight', 800)
-        .attr('fill', t.color)
-        .text(t.label);
-      g.append('text')
-        .attr('x', t.x + t.w / 2)
-        .attr('y', t.y + 45)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 9)
-        .attr('fill', theme.colors.inkMedium)
-        .text(t.desc);
+        .attr('fill', '#00add8')
+        .text('STORAGE SUPERVISOR (GO)');
+
+      tiers.forEach(t => {
+        const g = svg.append('g');
+        g.append('rect')
+          .attr('x', t.x)
+          .attr('y', t.y)
+          .attr('width', t.w)
+          .attr('height', t.h)
+          .attr('rx', 8)
+          .attr('fill', t.color + '08')
+          .attr('stroke', t.color)
+          .attr('stroke-width', 2);
+        g.append('text')
+          .attr('x', t.x + t.w / 2)
+          .attr('y', t.y + 25)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11 * scale)
+          .attr('font-weight', 800)
+          .attr('fill', t.color)
+          .text(t.label);
+        g.append('text')
+          .attr('x', t.x + t.w / 2)
+          .attr('y', t.y + 45)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9 * scale)
+          .attr('fill', theme.colors.inkMedium)
+          .text(t.desc);
+        svg
+          .append('path')
+          .attr('d', `M${centerX},70 L${t.x + t.w / 2},${t.y}`)
+          .attr('stroke', theme.colors.borderSubtle)
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,4');
+      });
+
       svg
         .append('path')
-        .attr('d', `M${370},70 L${t.x + t.w / 2},${t.y}`)
-        .attr('stroke', theme.colors.borderSubtle)
-        .attr('stroke-width', 1)
-        .attr('stroke-dasharray', '4,4');
-    });
+        .attr(
+          'd',
+          `M${width - 60 * scale},150 Q${width - 10 * scale},150 ${width - 10 * scale},225 Q${width - 10 * scale},300 ${centerX},300 Q${10 * scale},300 ${10 * scale},225 Q${10 * scale},150 ${50 * scale},150`
+        )
+        .attr('fill', 'none')
+        .attr('stroke', '#10b98120')
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', '8,4');
+    },
+    [theme]
+  );
 
-    svg
-      .append('path')
-      .attr('d', `M680,150 Q730,150 730,225 Q730,300 370,300 Q10,300 10,225 Q10,150 50,150`)
-      .attr('fill', 'none')
-      .attr('stroke', '#10b98120')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '8,4');
-  }, [theme]);
-
-  return <svg ref={svgRef} viewBox="0 0 740 310" style={{ width: '100%', height: 'auto' }} />;
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 740 310"
+      height={310}
+    />
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
