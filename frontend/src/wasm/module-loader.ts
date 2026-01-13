@@ -1,11 +1,6 @@
-/**
- * Module loader for INOS Rust WASM modules.
- * Handles compilation, import bridge construction, and initialization.
- * Uses caching to prevent duplicate module instantiation on hot-reload.
- */
-
 import { WasmHeap } from './heap';
 import { createBaseEnv, createPlaceholders } from './bridge';
+import type { KernelInitResult } from './kernel';
 
 declare global {
   interface Window {
@@ -13,6 +8,9 @@ declare global {
     inosModules?: Record<string, any>;
     __INOS_COMPILED_MODULES__?: Map<string, WebAssembly.Module>;
     __INOS_MODULE_INSTANCES__?: Map<string, ModuleLoadResult>;
+    __INOS_CONTEXT_ID__: string;
+    __INOS_INIT_PROMISE__?: Promise<KernelInitResult>;
+    __INOS_COMPUTE_WORKER__?: Worker;
   }
 }
 
@@ -277,6 +275,9 @@ function handleWbgImport(
 export async function loadAllModules(
   sharedMemory: WebAssembly.Memory
 ): Promise<Record<string, ModuleLoadResult>> {
+  // If worker is enabled for boids, we might not need to load them here
+  // but for backward compatibility and other non-worker units, we still load.
+
   // Singleton check (Context-aware)
   const currentContextId = window.__INOS_CONTEXT_ID__;
   const cachedContextId = (window.inosModules as any)?.contextId;
@@ -291,7 +292,7 @@ export async function loadAllModules(
     return window.inosModules;
   }
 
-  const moduleNames = ['compute', 'diagnostics']; // drivers and vault are now lazy-loaded
+  const moduleNames = ['compute', 'diagnostics'];
   const loadedModules: Record<string, ModuleLoadResult> = {};
 
   for (const name of moduleNames) {

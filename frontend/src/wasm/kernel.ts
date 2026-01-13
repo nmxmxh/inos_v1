@@ -1,5 +1,9 @@
 import { MEMORY_PAGES, type ResourceTier } from './layout';
 import { clearViewCache } from '../../app/features/scenes/SceneWrapper';
+import { initializeBridge, clearBridge, INOSBridge } from './bridge-state';
+
+// Vite worker import syntax
+import KernelWorkerUrl from './kernel.worker?worker&url';
 
 // Re-export IDX_CONTEXT_ID_HASH for other modules
 export { IDX_CONTEXT_ID_HASH } from './layout';
@@ -26,6 +30,7 @@ declare global {
     __INOS_TIER__: ResourceTier;
     __INOS_CONTEXT_ID__: string;
     __INOS_INIT_PROMISE__?: Promise<KernelInitResult>;
+    __INOS_KERNEL_WORKER__?: Worker;
     getSystemSABAddress?: () => number;
     getSystemSABSize?: () => number;
   }
@@ -37,7 +42,7 @@ export type { ResourceTier } from './layout';
 export const TIER_CONFIG = MEMORY_PAGES;
 
 export interface KernelInitResult {
-  memory: WebAssembly.Memory;
+  memory?: WebAssembly.Memory; // Might be unavailable on main thread if only worker has it
   sabBase: SharedArrayBuffer;
   sabOffset: number;
   sabSize: number;
@@ -51,6 +56,7 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
 
   // Clear stale SAB views (Fixes memory leak on HMR/Re-init)
   clearViewCache();
+  clearBridge();
 
   // 1. Atomic Locking - Prevent concurrent initialization spawns
   if (window.__INOS_INIT_PROMISE__) {
@@ -61,207 +67,79 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
   // Define the init logic as a single promise
   const init = async (): Promise<KernelInitResult> => {
     // 1. Singleton Check - Reuse existing memory if already initialized
-    if (window.__INOS_SAB__ && (window as any).__INOS_MEM__) {
-      console.log('[Kernel] Reusing existing SharedArrayBuffer and Memory singleton');
+    if (window.__INOS_SAB__ && window.__INOS_KERNEL_WORKER__) {
+      console.log('[Kernel] Reusing existing SharedArrayBuffer and Worker singleton');
       return {
-        memory: (window as any).__INOS_MEM__ as WebAssembly.Memory,
         sabBase: window.__INOS_SAB__,
         sabOffset: window.__INOS_SAB_OFFSET__ || 0,
         sabSize: window.__INOS_SAB_SIZE__ || 0,
       };
     }
 
-    // 1b. Load wasm_exec.js (Go runtime)
-    if (!window.Go) {
-      const wasmExecScript = document.createElement('script');
-      wasmExecScript.src = '/wasm_exec.js';
-      await new Promise((resolve, reject) => {
-        wasmExecScript.onload = resolve;
-        wasmExecScript.onerror = reject;
-        document.head.appendChild(wasmExecScript);
-      });
-    }
+    // 2. Spawn Kernel Worker
+    console.log('[Kernel] Spawning Kernel Worker...');
+    const worker = new Worker(KernelWorkerUrl, { type: 'module' });
+    window.__INOS_KERNEL_WORKER__ = worker;
 
-    const config = TIER_CONFIG[tier];
-
-    // 2. Create SharedArrayBuffer for zero-copy architecture
-    const sharedMemory = new WebAssembly.Memory({
-      initial: config.initial,
-      maximum: config.maximum,
-      shared: true,
-    });
-
-    // 3. Load and instantiate Go kernel using streaming (Robust Loader)
-    const go = new window.Go();
     const isDev = import.meta.env.DEV;
+    const wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
 
-    // Helper to attempt loading
-    const loadWasm = async (
-      url: string,
-      useStreaming = true
-    ): Promise<WebAssembly.WebAssemblyInstantiatedSource> => {
-      console.log(`[Kernel] Attempting to load from ${url} (streaming: ${useStreaming})...`);
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
-      }
+    return new Promise<KernelInitResult>((resolve, reject) => {
+      const messageHandler = (event: MessageEvent<any>) => {
+        const { type, sab, sabOffset, sabSize, error } = event.data;
 
-      // iOS/Safari basic check: if streaming isn't supported or fails content-type check, we might need arrayBuffer
-      if (useStreaming && typeof WebAssembly.instantiateStreaming === 'function') {
-        try {
-          return await WebAssembly.instantiateStreaming(response, {
-            ...go.importObject,
-            env: { ...go.importObject.env, memory: sharedMemory },
-          });
-        } catch (e) {
-          console.warn(
-            `[Kernel] Streaming instantiation failed for ${url}, falling back to ArrayBuffer`,
-            e
-          );
-          // Fallthrough to ArrayBuffer method
-        }
-      }
-
-      // ArrayBuffer Fallback
-      const bytes = await response.arrayBuffer();
-      return await WebAssembly.instantiate(bytes, {
-        ...go.importObject,
-        env: { ...go.importObject.env, memory: sharedMemory },
-      });
-    };
-
-    let result: WebAssembly.WebAssemblyInstantiatedSource;
-
-    try {
-      // Primary Attempt: Use localized strategy
-      // If Prod, try the Brotli file explicitly. If Dev, simple wasm.
-      // v=2.0 ensures we bust the cache on new deployments
-      const primaryUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
-      result = await loadWasm(primaryUrl, true);
-    } catch (e) {
-      console.warn('[Kernel] Primary WASM load failed, attempting fallback to /kernel.wasm...', e);
-      // Fallback: Always try the raw uncompressed kernel.wasm
-      try {
-        result = await loadWasm('/kernel.wasm?v=2.0', false); // Force ArrayBuffer on fallback for max safety
-      } catch (fallbackError) {
-        console.error('[Kernel] CRITICAL: All WASM load attempts failed.');
-        throw fallbackError;
-      }
-    }
-
-    console.log('[Kernel] Starting Go WASM...');
-    go.run(result.instance);
-    console.log('[Kernel] go.run() returned (Go WASM started)');
-
-    // 4. Wait for Kernel to export SAB functions
-    const maxWaitMs = 5000;
-    const startTime = Date.now();
-
-    console.log('[Kernel] Waiting for getSystemSABAddress/getSystemSABSize...');
-    while (!window.getSystemSABAddress || !window.getSystemSABSize) {
-      if (Date.now() - startTime > maxWaitMs) {
-        console.warn('[Kernel] Timeout waiting for SAB functions');
-        break;
-      }
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    console.log('[Kernel] SAB functions available');
-
-    // 5. Setup SharedArrayBuffer globals
-    const memoryBuffer = sharedMemory.buffer;
-    // Guard against SharedArrayBuffer being undefined (ReferenceError) or hidden
-    const isSAB =
-      typeof SharedArrayBuffer !== 'undefined' && memoryBuffer instanceof SharedArrayBuffer;
-    const isLikelySAB = (memoryBuffer as any).constructor?.name === 'SharedArrayBuffer';
-
-    if (!isSAB && !isLikelySAB) {
-      console.error(
-        '[Kernel] ❌ SharedArrayBuffer is not available. This site must be cross-origin isolated (COOP/COEP) to use shared memory.'
-      );
-      throw new Error('SharedArrayBuffer is missing. Check COOP/COEP headers.');
-    }
-
-    const sabBase = memoryBuffer as unknown as SharedArrayBuffer;
-    let sabOffset = 0;
-    let sabSize = sabBase.byteLength;
-
-    // Only overwrite if Kernel provides NON-ZERO values (meaning it's already initialized)
-    // During boot, we MUST use the full buffer length.
-    if (window.getSystemSABAddress && window.getSystemSABSize) {
-      const kAddr = window.getSystemSABAddress();
-      const kSize = window.getSystemSABSize();
-      if (kSize > 0) {
-        sabOffset = kAddr;
-        sabSize = kSize;
-      }
-    }
-
-    window.__INOS_MEM__ = sharedMemory;
-    window.__INOS_SAB__ = sabBase;
-    window.__INOS_SAB_OFFSET__ = sabOffset;
-    window.__INOS_SAB_SIZE__ = sabSize;
-    (window as any).__INOS_SAB_INT32__ = new Int32Array(sabBase);
-    (window as any).__INOS_TIER__ = tier;
-
-    // 5b. Write Context ID Hash to SAB for zero-copy validation
-    const contextHash = stringHash(contextId);
-    const contextHashIndex = 31; // IDX_CONTEXT_ID_HASH from layout
-    (window as any).__INOS_SAB_INT32__[contextHashIndex] = contextHash;
-    console.log(`[Kernel] Context hash written to SAB[${contextHashIndex}]: ${contextHash}`);
-
-    // 6. Wait for Kernel to be ready for SAB injection
-    // Wait for initializeSharedMemory function to be registered by Go kernel
-    const waitForKernelReady = async (): Promise<void> => {
-      const maxAttempts = 500; // 5 seconds max
-      for (let i = 0; i < maxAttempts; i++) {
-        if ((window as any).initializeSharedMemory) {
-          console.log(`[Kernel] initializeSharedMemory available after ${i * 10}ms`);
-          // Small delay to ensure kernel state has transitioned
-          await new Promise(resolve => setTimeout(resolve, 50));
+        if (type === 'error') {
+          console.error('[KernelWorker] Critical error:', error);
+          worker.terminate();
+          window.__INOS_KERNEL_WORKER__ = undefined;
+          reject(new Error(error));
           return;
         }
-        await new Promise(resolve => setTimeout(resolve, 10));
-      }
-      console.warn('[Kernel] initializeSharedMemory timeout - proceeding anyway');
-    };
 
-    await waitForKernelReady();
+        if (type === 'sab_functions_ready') {
+          console.log('[Kernel] Kernel Worker SAB received');
 
-    // 7. Inject SAB into Go Kernel to start Supervisor threads
-    // This calls InjectSAB which starts discovery loop, signal listener, economy loop
-    if ((window as any).initializeSharedMemory) {
-      console.log('[Kernel] Injecting SAB into kernel (starting supervisor threads)...');
-      const result = (window as any).initializeSharedMemory(sabOffset, sabSize);
-      if (result?.error) {
-        console.error('[Kernel] Failed to inject SAB:', result.error);
-      } else {
-        console.log('[Kernel] ✅ Supervisor threads started');
-      }
-    } else {
-      console.warn(
-        '[Kernel] initializeSharedMemory not available - supervisor threads will not start'
-      );
-    }
+          const { memory } = event.data;
+          window.__INOS_SAB__ = sab;
+          window.__INOS_MEM__ = memory;
+          window.__INOS_SAB_OFFSET__ = sabOffset;
+          window.__INOS_SAB_SIZE__ = sabSize;
+          window.__INOS_TIER__ = tier;
 
-    return {
-      memory: sharedMemory,
-      sabBase,
-      sabOffset,
-      sabSize,
-    };
+          // Initialize centralized SAB bridge
+          initializeBridge(sab, sabOffset, sabSize, memory);
+
+          // Write Context ID Hash
+          const contextHash = stringHash(contextId);
+          const flags = INOSBridge.getFlagsView();
+          if (flags) {
+            flags[31] = contextHash; // IDX_CONTEXT_ID_HASH
+          }
+
+          console.log(`[Kernel] Worker SAB initialized. Context hash: ${contextHash}`);
+
+          worker.removeEventListener('message', messageHandler);
+          resolve({
+            memory,
+            sabBase: sab,
+            sabOffset,
+            sabSize,
+          });
+        }
+      };
+
+      worker.addEventListener('message', messageHandler);
+
+      worker.postMessage({
+        type: 'init',
+        tier,
+        wasmUrl,
+      });
+    });
   };
 
   window.__INOS_INIT_PROMISE__ = init();
-
-  try {
-    const result = await window.__INOS_INIT_PROMISE__;
-    return result;
-  } finally {
-    // Clean up promise ref once settled so it can be re-run if error
-    // but keep SAB/MEM on window for singleton persistence.
-    // Actually, we want to keep it around to serve future calls immediately.
-    // But if we want to allow RE-INIT after error, we clear it on failure.
-  }
+  return window.__INOS_INIT_PROMISE__;
 }
 
 /**

@@ -63,16 +63,24 @@ export function computeTierLimits(tier: ResourceTier) {
   const maxEntities = Math.floor(available / perEntity);
 
   const defaults: Record<ResourceTier, { recommended: number; maximum: number }> = {
-    light: { recommended: 1000, maximum: 5000 },
-    moderate: { recommended: 5000, maximum: 15000 },
-    heavy: { recommended: 15000, maximum: 50000 },
-    dedicated: { recommended: 50000, maximum: 100000 },
+    light: { recommended: 1000, maximum: 2000 },
+    moderate: { recommended: 2000, maximum: 5000 },
+    heavy: { recommended: 5000, maximum: 15000 },
+    dedicated: { recommended: 15000, maximum: 50000 },
+  };
+
+  const parallel: Record<ResourceTier, number> = {
+    light: 1,
+    moderate: 4,
+    heavy: 4,
+    dedicated: 8,
   };
 
   return {
     sabSize,
     sabSizeMB: sabSize / (1024 * 1024),
     maxPossible: maxEntities,
+    parallel: parallel[tier],
     ...defaults[tier],
     memory: MEMORY_PAGES[tier],
   };

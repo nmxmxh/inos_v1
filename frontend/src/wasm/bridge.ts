@@ -1,4 +1,5 @@
 import { WasmHeap } from './heap';
+import { getDataView, getFlagsView, getOffset, isReady } from './bridge-state';
 
 type GetBufferFn = () => ArrayBuffer;
 
@@ -207,6 +208,41 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const dest = new Uint8Array(buffer, ptr, maxLen);
       const { written } = textEncoder.encodeInto(obj, dest);
       return written;
+    },
+
+    // =============================================================================
+    // TYPED SAB ACCESSORS (Zero-Copy via INOSBridge)
+    // =============================================================================
+
+    inos_sab_read_i32: (byteOffset: number) => {
+      if (!isReady()) return 0;
+      const view = getDataView();
+      const offset = getOffset();
+      if (!view) return 0;
+      return view.getInt32(offset + byteOffset, true);
+    },
+
+    inos_sab_read_u32: (byteOffset: number) => {
+      if (!isReady()) return 0;
+      const view = getDataView();
+      const offset = getOffset();
+      if (!view) return 0;
+      return view.getUint32(offset + byteOffset, true);
+    },
+
+    inos_sab_read_f32: (byteOffset: number) => {
+      if (!isReady()) return 0;
+      const view = getDataView();
+      const offset = getOffset();
+      if (!view) return 0;
+      return view.getFloat32(offset + byteOffset, true);
+    },
+
+    inos_sab_atomic_load: (index: number) => {
+      if (!isReady()) return 0;
+      const flags = getFlagsView();
+      if (!flags) return 0;
+      return Atomics.load(flags, index);
     },
   };
 }

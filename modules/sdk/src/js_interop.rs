@@ -263,6 +263,26 @@ extern "C" {
     // Stable name: inos_js_to_string
     #[link_name = "inos_js_to_string"]
     fn js_to_string_raw(val: RawJsValue, ptr: *mut u8, max_len: u32) -> u32;
+
+    // Stable name: inos_sab_read_i32
+    // Read a signed 32-bit integer from SAB at given byte offset (relative to kernel offset)
+    #[link_name = "inos_sab_read_i32"]
+    fn sab_read_i32_raw(byte_offset: u32) -> i32;
+
+    // Stable name: inos_sab_read_u32
+    // Read an unsigned 32-bit integer from SAB at given byte offset
+    #[link_name = "inos_sab_read_u32"]
+    fn sab_read_u32_raw(byte_offset: u32) -> u32;
+
+    // Stable name: inos_sab_read_f32
+    // Read a 32-bit float from SAB at given byte offset
+    #[link_name = "inos_sab_read_f32"]
+    fn sab_read_f32_raw(byte_offset: u32) -> f32;
+
+    // Stable name: inos_sab_atomic_load
+    // Atomically load a value from SAB flags region
+    #[link_name = "inos_sab_atomic_load"]
+    fn sab_atomic_load_raw(index: u32) -> i32;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -430,6 +450,47 @@ mod native_mock {
         if offset + dest.len() <= buf.len() {
             dest.copy_from_slice(&buf[offset..offset + dest.len()]);
         }
+    }
+
+    pub fn sab_read_i32(byte_offset: u32) -> i32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        let buf = &buffers[0];
+        let offset = byte_offset as usize;
+        if offset + 4 <= buf.len() {
+            i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
+        } else {
+            0
+        }
+    }
+
+    pub fn sab_read_u32(byte_offset: u32) -> u32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        let buf = &buffers[0];
+        let offset = byte_offset as usize;
+        if offset + 4 <= buf.len() {
+            u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
+        } else {
+            0
+        }
+    }
+
+    pub fn sab_read_f32(byte_offset: u32) -> f32 {
+        ensure_buffer_initialized();
+        let buffers = BUFFERS.lock().unwrap();
+        let buf = &buffers[0];
+        let offset = byte_offset as usize;
+        if offset + 4 <= buf.len() {
+            f32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
+        } else {
+            0.0
+        }
+    }
+
+    pub fn sab_atomic_load(index: u32) -> i32 {
+        // In native tests, just use normal read since we don't have atomics
+        sab_read_i32(index * 4)
     }
 }
 
@@ -683,4 +744,42 @@ pub fn js_to_string(_val: &JsValue) -> Option<String> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     native_mock::js_to_string(_val)
+}
+
+// =============================================================================
+// TYPED SAB ACCESSORS (Zero-Copy)
+// =============================================================================
+
+/// Read a signed 32-bit integer from SAB at given byte offset (relative to kernel offset).
+/// This uses the centralized INOSBridge on the JS side for zero-allocation access.
+pub fn sab_read_i32(byte_offset: u32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { sab_read_i32_raw(byte_offset) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::sab_read_i32(byte_offset)
+}
+
+/// Read an unsigned 32-bit integer from SAB at given byte offset.
+pub fn sab_read_u32(byte_offset: u32) -> u32 {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { sab_read_u32_raw(byte_offset) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::sab_read_u32(byte_offset)
+}
+
+/// Read a 32-bit float from SAB at given byte offset.
+pub fn sab_read_f32(byte_offset: u32) -> f32 {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { sab_read_f32_raw(byte_offset) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::sab_read_f32(byte_offset)
+}
+
+/// Atomically load a value from the SAB flags region.
+/// Index is in i32 units (not bytes), matching Atomics.load semantics.
+pub fn sab_atomic_load(index: u32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { sab_atomic_load_raw(index) };
+    #[cfg(not(target_arch = "wasm32"))]
+    native_mock::sab_atomic_load(index)
 }

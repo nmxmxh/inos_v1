@@ -45,11 +45,14 @@ func main() {
 		return js.ValueOf(0)
 	}))
 
-	// Register Shutdown Hook
-	js.Global().Get("window").Call("addEventListener", "beforeunload", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-		kernelInstance.Shutdown()
-		return nil
-	}))
+	// Register Shutdown Hook (Main thread only)
+	window := js.Global().Get("window")
+	if !window.IsUndefined() && !window.IsNull() {
+		window.Call("addEventListener", "beforeunload", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+			kernelInstance.Shutdown()
+			return nil
+		}))
+	}
 
 	// Signal Boot Sequence (Reactive - waits for SAB)
 	go func() {

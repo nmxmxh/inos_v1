@@ -1,15 +1,7 @@
-/**
- * INOS Compute Dispatcher
- *
- * Standardized utility for calling WASM compute units via the unified dispatcher.
- * Handles memory allocation, string marshalling, and capability discovery.
- *
- * Architecture:
- * - marshalling: JS strings/objects -> WASM heap
- * - execution: Calls compute_execute (generic dispatcher)
- * - unmarshalling: WASM pointer -> JS Uint8Array/JSON
- * - cleanup: Reclaims heap memory via compute_free
- */
+import { getSAB, getMemory, getOffset } from './bridge-state';
+
+// Vite worker import syntax
+import ComputeWorkerUrl from './compute.worker.ts?worker&url';
 
 export interface DispatchResult<T = any> {
   success: boolean;
@@ -17,16 +9,28 @@ export interface DispatchResult<T = any> {
   error?: string;
 }
 
+export interface WorkerRef {
+  worker: Worker;
+  unit: string;
+  role: string;
+  ready: boolean;
+}
+
 export class Dispatcher {
   private exports: any;
-  private memory: WebAssembly.Memory;
+  private memory: WebAssembly.Memory | null = null;
   private capabilities: Map<string, string[]> = new Map();
   private static encoder = new TextEncoder();
   private static decoder = new TextDecoder();
 
-  constructor(exports: any, memory: WebAssembly.Memory) {
+  // Worker Pool
+  private workers = new Map<string, WorkerRef>();
+  private pendingRequests = new Map<number, { resolve: Function; reject: Function }>();
+  private messageIdCounter = 0;
+
+  constructor(exports?: any, memory?: WebAssembly.Memory) {
     this.exports = exports;
-    this.memory = memory;
+    this.memory = memory || null;
   }
 
   /**
@@ -34,7 +38,6 @@ export class Dispatcher {
    */
   registerUnit(unit: string, methods: string[]) {
     const existing = this.capabilities.get(unit);
-    // Only log if truly new or if capabilities changed
     if (
       !existing ||
       existing.length !== methods.length ||
@@ -55,6 +58,149 @@ export class Dispatcher {
     return true;
   }
 
+  /**
+   * Plug a unit into a dedicated background worker for maximum performance
+   * Supports 'parallel: n' to spawn a pool for multi-core processing.
+   */
+  async plug(unit: string, role: string, params: any = {}): Promise<WorkerRef[]> {
+    const sab = getSAB();
+    const memory = getMemory();
+    const offset = getOffset();
+
+    if (!sab || !memory) {
+      throw new Error('[Dispatch] Cannot plug unit: SAB or Memory not initialized');
+    }
+
+    const parallel = params.parallel || 1;
+    const workerRefs: WorkerRef[] = [];
+
+    for (let i = 0; i < parallel; i++) {
+      const workerId = parallel > 1 ? `${unit}:${role}:${i}` : `${unit}:${role}`;
+
+      if (this.workers.has(workerId)) {
+        const ref = this.workers.get(workerId)!;
+        workerRefs.push(ref);
+        // FORCE PARAMETER UPDATE FOR EXISTING WORKER
+        // This stops the old loop and starts a new one with fresh slicing params.
+        if (ref.ready) {
+          ref.worker.postMessage({
+            type: 'start_role_loop',
+            role,
+            params: { ...params, index: i, parallel },
+          });
+        }
+        continue;
+      }
+
+      console.log(`[Dispatch] Spawning worker ${i + 1}/${parallel} for ${unit} (role: ${role})`);
+      const worker = new Worker(ComputeWorkerUrl, { type: 'module' });
+      const workerRef: WorkerRef = { worker, unit, role, ready: false };
+      this.workers.set(workerId, workerRef);
+      workerRefs.push(workerRef);
+
+      // Initialize each worker
+      const initPromise = new Promise<void>((resolve, reject) => {
+        worker.onmessage = event => {
+          const { type, id, result, error } = event.data;
+
+          switch (type) {
+            case 'ready':
+              workerRef.ready = true;
+              // Transition to the requested role with partition info
+              worker.postMessage({
+                type: 'start_role_loop',
+                role,
+                params: { ...params, index: i, parallel },
+              });
+              resolve();
+              break;
+
+            case 'result': {
+              const pending = this.pendingRequests.get(id);
+              if (pending) {
+                this.pendingRequests.delete(id);
+                if (error) pending.reject(new Error(error));
+                else pending.resolve(result);
+              }
+              break;
+            }
+
+            case 'error':
+              console.error(`[Dispatch:Worker:${workerId}] Error:`, error);
+              if (id !== undefined) {
+                const pending = this.pendingRequests.get(id);
+                if (pending) {
+                  this.pendingRequests.delete(id);
+                  pending.reject(new Error(error));
+                }
+              }
+              break;
+          }
+        };
+
+        worker.onerror = err => {
+          console.error(`[Dispatch:Worker:${workerId}] Fatal error:`, err);
+          reject(err);
+        };
+      });
+
+      worker.postMessage({
+        type: 'init',
+        sab,
+        memory,
+        sabOffset: offset,
+        sabSize: sab.byteLength,
+        role,
+      });
+
+      if (i === 0) await initPromise; // Wait for leader to be ready before spawning others?
+      // Actually, they can all spawn in parallel.
+    }
+
+    return workerRefs;
+  }
+
+  /**
+   * Execute a compute operation.
+   * Automatically routes to a background worker if one is plugged for this unit.
+   */
+  async execute(
+    library: string,
+    method: string,
+    params: object = {},
+    input: Uint8Array | null = null
+  ): Promise<Uint8Array | null> {
+    // Check if we have a plugged worker for this library
+    // Priority: role-specific worker (if any) > generic unit worker > local execution
+    const workerRef = Array.from(this.workers.values()).find(w => w.unit === library);
+
+    if (workerRef && workerRef.ready) {
+      return this.executeOnWorker(workerRef.worker, library, method, params);
+    }
+
+    // Fallback to local synchronous execution
+    return this.executeSync(library, method, params, input);
+  }
+
+  private executeOnWorker(
+    worker: Worker,
+    library: string,
+    method: string,
+    params: object
+  ): Promise<Uint8Array | null> {
+    return new Promise((resolve, reject) => {
+      const id = this.messageIdCounter++;
+      this.pendingRequests.set(id, { resolve, reject });
+      worker.postMessage({
+        type: 'execute',
+        id,
+        library,
+        method,
+        params,
+      });
+    });
+  }
+
   private static stringCache = new Map<string, Uint8Array>();
   private static stringCacheKeys: string[] = [];
   private static readonly MAX_STRING_CACHE = 100;
@@ -63,7 +209,6 @@ export class Dispatcher {
     let cached = this.stringCache.get(str);
     if (!cached) {
       cached = this.encoder.encode(str);
-      // LRU Eviction
       if (this.stringCacheKeys.length >= this.MAX_STRING_CACHE) {
         const oldest = this.stringCacheKeys.shift()!;
         this.stringCache.delete(oldest);
@@ -71,7 +216,6 @@ export class Dispatcher {
       this.stringCache.set(str, cached);
       this.stringCacheKeys.push(str);
     } else {
-      // Move to end (most recent)
       const idx = this.stringCacheKeys.indexOf(str);
       if (idx > -1) {
         this.stringCacheKeys.splice(idx, 1);
@@ -82,7 +226,7 @@ export class Dispatcher {
   }
 
   /**
-   * Execute a compute operation synchronously
+   * Execute a compute operation synchronously on the current thread
    */
   executeSync(
     library: string,
@@ -90,18 +234,17 @@ export class Dispatcher {
     params: object = {},
     input: Uint8Array | null = null
   ): Uint8Array | null {
-    if (!this.exports.compute_execute) {
-      throw new Error('compute_execute export missing');
+    if (!this.exports || !this.exports.compute_execute) {
+      if (!this.exports)
+        throw new Error('[Dispatch] No local exports available. Initialize first.');
+      throw new Error('[Dispatch] compute_execute export missing');
     }
 
     const encoder = Dispatcher.encoder;
-
-    // 1. Prepare strings and JSON (Use cache for library and method)
     const libBytes = Dispatcher.getEncoded(library);
     const methodBytes = Dispatcher.getEncoded(method);
     const paramsBytes = encoder.encode(JSON.stringify(params));
 
-    // 2. Allocate on WASM heap
     const libPtr = this.exports.compute_alloc(libBytes.length);
     const methodPtr = this.exports.compute_alloc(methodBytes.length);
     const paramsPtr = this.exports.compute_alloc(paramsBytes.length);
@@ -111,8 +254,7 @@ export class Dispatcher {
       inputPtr = this.exports.compute_alloc(input.length);
     }
 
-    // 3. Copy data to heap
-    const heap = new Uint8Array(this.memory.buffer);
+    const heap = new Uint8Array(this.memory!.buffer);
     heap.set(libBytes, libPtr);
     heap.set(methodBytes, methodPtr);
     heap.set(paramsBytes, paramsPtr);
@@ -121,7 +263,6 @@ export class Dispatcher {
     }
 
     try {
-      // 4. Run execution
       const resultPtr = this.exports.compute_execute(
         libPtr,
         libBytes.length,
@@ -133,28 +274,19 @@ export class Dispatcher {
         paramsBytes.length
       );
 
-      if (resultPtr === 0) {
-        console.warn(`[Dispatch] ${library}::${method} returned NULL result`);
-        return null;
-      }
+      if (resultPtr === 0) return null;
 
-      // 5. Read result
-      // Format: [len: 4 bytes (u32, little-endian)] + [data: len bytes]
-      const resultView = new DataView(this.memory.buffer);
+      const resultView = new DataView(this.memory!.buffer);
       const outputLen = resultView.getUint32(resultPtr, true);
-      const output = new Uint8Array(this.memory.buffer, resultPtr + 4, outputLen);
-
-      // Copy to new array so we can free the WASM buffer
+      const output = new Uint8Array(this.memory!.buffer, resultPtr + 4, outputLen);
       const finalResult = new Uint8Array(output);
 
-      // 6. Free result buffer in WASM
       if (this.exports.compute_free) {
         this.exports.compute_free(resultPtr, 4 + outputLen);
       }
 
       return finalResult;
     } finally {
-      // 7. Cleanup input allocations
       if (this.exports.compute_free) {
         this.exports.compute_free(libPtr, libBytes.length);
         this.exports.compute_free(methodPtr, methodBytes.length);
@@ -167,22 +299,10 @@ export class Dispatcher {
   }
 
   /**
-   * Execute a compute operation asynchronously (placeholder for future async WASM)
+   * Execute and parse JSON result. Async to support worker routing.
    */
-  async execute(
-    library: string,
-    method: string,
-    params: object = {},
-    input: Uint8Array | null = null
-  ): Promise<Uint8Array | null> {
-    return this.executeSync(library, method, params, input);
-  }
-
-  /**
-   * Execute and parse JSON result
-   */
-  executeJson<T = any>(library: string, method: string, params: object = {}): T | null {
-    const res = this.executeSync(library, method, params);
+  async json<T = any>(library: string, method: string, params: object = {}): Promise<T | null> {
+    const res = await this.execute(library, method, params);
     if (!res) return null;
     try {
       const str = Dispatcher.decoder.decode(res);
@@ -191,6 +311,17 @@ export class Dispatcher {
       console.error('[Dispatch] JSON Parse error:', e);
       return null;
     }
+  }
+
+  /**
+   * Shutdown all workers
+   */
+  shutdown() {
+    for (const ref of this.workers.values()) {
+      ref.worker.postMessage({ type: 'shutdown' });
+      ref.worker.terminate();
+    }
+    this.workers.clear();
   }
 }
 
@@ -211,6 +342,14 @@ export const dispatch = {
 
   has: (unit: string, method?: string) => instance?.hasCapability(unit, method) || false,
 
+  /**
+   * Dedicated background unit registration
+   */
+  plug: (unit: string, role: string, params: object = {}) => {
+    if (!instance) instance = new Dispatcher(); // Lazy init if no local exports
+    return instance.plug(unit, role, params);
+  },
+
   execute: (
     library: string,
     method: string,
@@ -218,11 +357,15 @@ export const dispatch = {
     input: Uint8Array | null = null
   ) => {
     if (!instance) throw new Error('Dispatcher not initialized');
-    return instance.executeSync(library, method, params, input);
+    return instance.execute(library, method, params, input);
   },
 
   json: <T = any>(library: string, method: string, params: object = {}) => {
     if (!instance) throw new Error('Dispatcher not initialized');
-    return instance.executeJson<T>(library, method, params);
+    return instance.json<T>(library, method, params);
   },
+
+  shutdown: () => instance?.shutdown(),
 };
+
+export default dispatch;
