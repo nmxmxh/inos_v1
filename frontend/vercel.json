@@ -18,7 +18,7 @@
       ]
     },
     {
-      "source": "/(.*)\\.wasm\\.br$",
+      "source": "/modules/:path*.wasm.br",
       "headers": [
         {
           "key": "Content-Encoding",
@@ -30,7 +30,20 @@
         },
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/modules/:path*.wasm",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/wasm"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
       ]
     },
