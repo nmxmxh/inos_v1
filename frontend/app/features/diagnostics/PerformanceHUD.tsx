@@ -14,6 +14,7 @@ import {
   IDX_METRICS_EPOCH,
   OFFSET_BRIDGE_METRICS,
 } from '../../../src/wasm/layout';
+import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 const HudContainer = styled(motion.div)`
   display: flex;
@@ -80,24 +81,25 @@ export function PerformanceHUD({ compact = false }: PerformanceHUDProps) {
   });
 
   useEffect(() => {
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
     let lastBirdEpoch = 0;
 
     const interval = setInterval(() => {
       try {
-        const flags = new Int32Array(sab, 0, 32);
-        const birdEpoch = Atomics.load(flags, IDX_BIRD_EPOCH);
-        const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
-        const metricsEpoch = Atomics.load(flags, IDX_METRICS_EPOCH);
+        // Use INOSBridge for zero-allocation reads
+        if (!INOSBridge.isReady()) return;
 
-        // Read bridge metrics (32 bytes = 4 x BigUint64)
-        const metricsView = new BigUint64Array(sab, OFFSET_BRIDGE_METRICS, 4);
-        const hits = Number(Atomics.load(metricsView, 0));
-        const misses = Number(Atomics.load(metricsView, 1));
-        const readNs = Number(Atomics.load(metricsView, 2));
-        const writeNs = Number(Atomics.load(metricsView, 3));
+        const birdEpoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        const matrixEpoch = INOSBridge.atomicLoad(IDX_MATRIX_EPOCH);
+        const metricsEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
+
+        // Get cached DataView for bridge metrics (32 bytes)
+        const metricsView = INOSBridge.getRegionDataView(OFFSET_BRIDGE_METRICS, 32);
+        if (!metricsView) return;
+
+        const hits = Number(metricsView.getBigUint64(0, true));
+        const misses = Number(metricsView.getBigUint64(8, true));
+        const readNs = Number(metricsView.getBigUint64(16, true));
+        const writeNs = Number(metricsView.getBigUint64(24, true));
 
         const total = hits + misses;
         const health = total > 0 ? (hits / total) * 100 : 100;
@@ -113,7 +115,7 @@ export function PerformanceHUD({ compact = false }: PerformanceHUDProps) {
           active,
           bridge: { hits, misses, readNs, writeNs, health },
         });
-      } catch (e) {
+      } catch {
         // SAB not ready or invalid
       }
     }, 100);

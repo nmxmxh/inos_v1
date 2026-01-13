@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { OFFSET_MESH_METRICS, IDX_METRICS_EPOCH } from '../../../src/wasm/layout';
+import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 export interface MeshMetrics {
   totalPeers: number;
@@ -19,31 +20,31 @@ export interface MeshMetrics {
   meshActive: boolean;
 }
 
+/**
+ * useMeshMetrics - Zero-Allocation Mesh Telemetry Hook
+ *
+ * Uses INOSBridge cached views for zero-allocation SAB reads.
+ * Reads mesh metrics directly from SAB without per-tick TypedArray creation.
+ */
 export function useMeshMetrics() {
   const [metrics, setMetrics] = useState<MeshMetrics | null>(null);
 
   useEffect(() => {
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
     let lastEpoch = -1;
-    let flagsView: Int32Array | null = null;
-    let dataView: DataView | null = null;
 
     const interval = setInterval(() => {
       try {
-        if (!flagsView || flagsView.buffer !== sab) {
-          flagsView = new Int32Array(sab, 0, 32);
-          dataView = new DataView(sab, OFFSET_MESH_METRICS, 256);
-        }
+        // Use INOSBridge for zero-allocation reads
+        if (!INOSBridge.isReady()) return;
 
-        const currentEpoch = Atomics.load(flagsView, IDX_METRICS_EPOCH);
+        const currentEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
 
-        if (Number(currentEpoch) === lastEpoch) return;
-        lastEpoch = Number(currentEpoch);
+        if (currentEpoch === lastEpoch) return;
+        lastEpoch = currentEpoch;
 
-        // Read metrics from SAB
-        const view = dataView!;
+        // Get cached DataView for mesh metrics region
+        const view = INOSBridge.getRegionDataView(OFFSET_MESH_METRICS, 256);
+        if (!view) return;
 
         setMetrics({
           totalPeers: view.getUint32(0, true),
@@ -62,7 +63,7 @@ export function useMeshMetrics() {
           sectorId: view.getUint32(20, true),
           meshActive: true,
         });
-      } catch (e) {
+      } catch {
         // SAB not ready or out of bounds
       }
     }, 200);

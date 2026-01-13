@@ -33,8 +33,8 @@ const Style = {
     align-items: center;
     justify-content: space-between;
     padding: ${p => p.theme.spacing[3]} ${p => p.theme.spacing[6]};
-    background: rgba(244, 241, 234, 0.4);
-    backdrop-filter: blur(20px) saturate(180%);
+    background: rgba(244, 241, 234, 0.2);
+    backdrop-filter: blur(5px) saturate(20%);
     border-bottom: 1px solid ${p => p.theme.colors.borderSubtle};
     height: 64px;
 
@@ -89,8 +89,8 @@ const Style = {
     left: 0;
     right: 0;
     z-index: ${p => p.theme.zIndex.fixed};
-    background: rgba(244, 241, 234, 0.4);
-    backdrop-filter: blur(20px) saturate(180%);
+    background: rgba(244, 241, 234, 0.2);
+    backdrop-filter: blur(5px) saturate(20%);
     border-top: 1px solid ${p => p.theme.colors.borderSubtle};
     height: 48px;
     display: flex;

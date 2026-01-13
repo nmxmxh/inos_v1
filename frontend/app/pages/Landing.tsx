@@ -13,6 +13,7 @@ import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
 import { IDX_BIRD_EPOCH } from '../../src/wasm/layout';
+import { INOSBridge } from '../../src/wasm/bridge-state';
 
 import RollingCounter from '../ui/RollingCounter';
 import DimostrazioneStory from '../features/dimostrazione/DimostrazioneStory';
@@ -226,14 +227,14 @@ function useLiveStats() {
   });
 
   useEffect(() => {
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
     let lastEpoch = 0;
+
     const interval = setInterval(() => {
       try {
-        const flags = new Int32Array(sab, 0, 32);
-        const epoch = Atomics.load(flags, IDX_BIRD_EPOCH);
+        // Use INOSBridge for zero-allocation reads
+        if (!INOSBridge.isReady()) return;
+
+        const epoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
         const delta = epoch - lastEpoch;
         lastEpoch = epoch;
 

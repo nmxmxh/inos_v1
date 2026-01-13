@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { OFFSET_GLOBAL_ANALYTICS, IDX_GLOBAL_METRICS_EPOCH } from '../../../src/wasm/layout';
+import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 export interface GlobalAnalytics {
   totalStorageBytes: bigint;
@@ -10,31 +11,30 @@ export interface GlobalAnalytics {
 }
 
 /**
- * useGlobalAnalytics - Zero-Copy Mesh Telemetry Hook
+ * useGlobalAnalytics - Zero-Allocation Mesh Telemetry Hook
  *
+ * Uses INOSBridge cached views for zero-allocation SAB reads.
  * Pulsed by IDX_GLOBAL_METRICS_EPOCH from the AnalyticsSupervisor.
- * Reads aggregated cross-chain/cross-mesh metrics directly from the SAB
- * without intermediate JSON serialization.
  */
 export function useGlobalAnalytics() {
   const [data, setData] = useState<GlobalAnalytics | null>(null);
 
   useEffect(() => {
-    const sab = (window as any).__INOS_SAB__;
-    if (!sab) return;
-
     let lastEpoch = -1;
 
     const poll = () => {
       try {
-        const flags = new Int32Array(sab, 0, 64);
-        const currentEpoch = Atomics.load(flags, IDX_GLOBAL_METRICS_EPOCH);
+        // Use INOSBridge for zero-allocation reads
+        if (!INOSBridge.isReady()) return;
+
+        const currentEpoch = INOSBridge.atomicLoad(IDX_GLOBAL_METRICS_EPOCH);
 
         if (currentEpoch === lastEpoch) return;
         lastEpoch = currentEpoch;
 
-        // Structure: [TotalStorage(8), TotalCompute(8), GlobalOps(8), NodeCount(4)] (28 bytes)
-        const view = new DataView(sab, OFFSET_GLOBAL_ANALYTICS, 32);
+        // Get cached DataView for global analytics region
+        const view = INOSBridge.getRegionDataView(OFFSET_GLOBAL_ANALYTICS, 32);
+        if (!view) return;
 
         setData({
           totalStorageBytes: view.getBigUint64(0, true),
@@ -43,7 +43,7 @@ export function useGlobalAnalytics() {
           activeNodeCount: view.getUint32(24, true),
           timestamp: Date.now(),
         });
-      } catch (e) {
+      } catch {
         // SAB not ready or out of bounds
       }
     };
