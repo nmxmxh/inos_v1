@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Analytics } from '@vercel/analytics/react';
 import { useSystemStore } from '../src/store/system';
 import './styles/minimal.css';
 
@@ -132,30 +133,33 @@ function SystemLoader({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <SystemLoader>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Landing />} />
-            <Route path="problem" element={<Problem />} />
-            <Route path="insight" element={<Insight />} />
-            <Route path="architecture" element={<Architecture />} />
-            <Route path="genesis" element={<Genesis />} />
-            <Route path="cosmos" element={<Cosmos />} />
-            <Route path="diagnostics" element={<Diagnostics />} />
-            {/* Deep Dives */}
-            <Route path="deep-dives">
-              <Route path="zero-copy" element={<ZeroCopy />} />
-              <Route path="signaling" element={<Signaling />} />
-              <Route path="mesh" element={<Mesh />} />
-              <Route path="economy" element={<Economy />} />
-              <Route path="threads" element={<Threads />} />
-              <Route path="graphics" element={<Graphics />} />
-              <Route path="database" element={<Database />} />
+    <>
+      <Analytics />
+      <BrowserRouter>
+        <SystemLoader>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Landing />} />
+              <Route path="problem" element={<Problem />} />
+              <Route path="insight" element={<Insight />} />
+              <Route path="architecture" element={<Architecture />} />
+              <Route path="genesis" element={<Genesis />} />
+              <Route path="cosmos" element={<Cosmos />} />
+              <Route path="diagnostics" element={<Diagnostics />} />
+              {/* Deep Dives */}
+              <Route path="deep-dives">
+                <Route path="zero-copy" element={<ZeroCopy />} />
+                <Route path="signaling" element={<Signaling />} />
+                <Route path="mesh" element={<Mesh />} />
+                <Route path="economy" element={<Economy />} />
+                <Route path="threads" element={<Threads />} />
+                <Route path="graphics" element={<Graphics />} />
+                <Route path="database" element={<Database />} />
+              </Route>
             </Route>
-          </Route>
-        </Routes>
-      </SystemLoader>
-    </BrowserRouter>
+          </Routes>
+        </SystemLoader>
+      </BrowserRouter>
+    </>
   );
 }
