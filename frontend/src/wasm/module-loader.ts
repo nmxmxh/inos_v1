@@ -275,9 +275,6 @@ function handleWbgImport(
 export async function loadAllModules(
   sharedMemory: WebAssembly.Memory
 ): Promise<Record<string, ModuleLoadResult>> {
-  // If worker is enabled for boids, we might not need to load them here
-  // but for backward compatibility and other non-worker units, we still load.
-
   // Singleton check (Context-aware)
   const currentContextId = window.__INOS_CONTEXT_ID__;
   const cachedContextId = (window.inosModules as any)?.contextId;
@@ -292,7 +289,9 @@ export async function loadAllModules(
     return window.inosModules;
   }
 
-  const moduleNames = ['compute', 'diagnostics'];
+  // NOTE: 'compute' is loaded in the Compute Worker only, not main thread
+  // This reduces memory footprint and ensures no dual-loading
+  const moduleNames = ['diagnostics'];
   const loadedModules: Record<string, ModuleLoadResult> = {};
 
   for (const name of moduleNames) {

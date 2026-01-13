@@ -29,9 +29,7 @@ interface Props {
 }
 
 export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
-  const moduleExports = useSystemStore(s => s.moduleExports);
-  const moduleExportsRef = useRef(moduleExports);
-  moduleExportsRef.current = moduleExports;
+  const status = useSystemStore(s => s.status);
 
   // Refs for each part's instanced mesh
   const bodiesRef = useRef<THREE.InstancedMesh>(null);
@@ -175,13 +173,13 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     []
   );
 
-  // Initialize ONCE
+  // Initialize boids population once when system is ready
   useEffect(() => {
-    if (moduleExports?.compute) {
-      console.log('[BoidsFlock] Initializing boids population via dispatcher');
+    if (status === 'ready') {
+      console.log('[BoidsFlock] Initializing boids population');
       dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
     }
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     const refs = [
@@ -211,63 +209,60 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
   }, [palette, sharedColors]);
 
   useFrame((_, delta) => {
-    // 1. Run physics step in WASM via Dispatcher
-    if (moduleExports?.compute) {
-      dispatch.execute('boids', 'step_physics', {
-        bird_count: CONFIG.BIRD_COUNT,
-        dt: delta, // Full refresh rate timing
-      });
+    // Wait for system to be ready (dispatcher initialized)
+    if (status !== 'ready') return;
 
-      // 2. Offload MATRIX MATH to MathUnit (Zero-Copy)
-      // Destination is determined by the math unit's internal ping-pong logic
-      dispatch.execute('math', 'compute_instance_matrices', {
-        count: CONFIG.BIRD_COUNT,
-        source_offset: CONFIG.SAB_OFFSET,
-        pivots: [], // Hardcoded in WASM for performance
-      });
+    const sab = (window as any).__INOS_SAB__;
+    if (!sab) return;
 
-      // 3. Update InstancedMesh matrices from SAB views
-      const sab = (window as any).__INOS_SAB__;
-      if (!sab) return;
+    // 1. Run physics step in WASM via Dispatcher (Worker or local)
+    dispatch.execute('boids', 'step_physics', {
+      bird_count: CONFIG.BIRD_COUNT,
+      dt: delta,
+    });
 
-      // Optimization: Cache persistent views to avoid per-frame TypedArray creation
-      if (!flagsRef.current || flagsRef.current.buffer !== sab) {
-        flagsRef.current = new Int32Array(sab, 0, 16);
-      }
-      const flags = flagsRef.current;
-      const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
-      const isBufferA = Number(matrixEpoch) % 2 === 0;
+    // 2. Compute instance matrices
+    dispatch.execute('math', 'compute_instance_matrices', {
+      count: CONFIG.BIRD_COUNT,
+      source_offset: CONFIG.SAB_OFFSET,
+      pivots: [],
+    });
 
-      // Use layout constants for buffer offsets
-      const matrixBase = isBufferA ? OFFSET_MATRIX_BUFFER_A : OFFSET_MATRIX_BUFFER_B;
-
-      const instances = [
-        bodiesRef,
-        headsRef,
-        beaksRef,
-        leftWingRef,
-        leftWingTipRef,
-        rightWingRef,
-        rightWingTipRef,
-        tailsRef,
-      ];
-
-      instances.forEach((ref, partIdx) => {
-        if (ref.current) {
-          // OFFSET = matrixBase + partIdx * count * 64
-          const matrixOffset = matrixBase + partIdx * CONFIG.BIRD_COUNT * 64;
-
-          // Architecture: Zero-Copy Pointer Swap
-          // Instead of .array.set(sabView) which COPIES data, we re-bind the BufferAttribute
-          // to point directly to the shared memory view for this frame.
-          const sabView = getArenaView(sab, matrixOffset, CONFIG.BIRD_COUNT * 64);
-
-          // Pointer Swap Optimization:
-          (ref.current.instanceMatrix as any).array = sabView;
-          ref.current.instanceMatrix.needsUpdate = true;
-        }
-      });
+    // Optimization: Cache persistent views to avoid per-frame TypedArray creation
+    if (!flagsRef.current || flagsRef.current.buffer !== sab) {
+      flagsRef.current = new Int32Array(sab, 0, 16);
     }
+    const flags = flagsRef.current;
+    const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
+    const isBufferA = Number(matrixEpoch) % 2 === 0;
+
+    // Use layout constants for buffer offsets
+    const matrixBase = isBufferA ? OFFSET_MATRIX_BUFFER_A : OFFSET_MATRIX_BUFFER_B;
+
+    const instances = [
+      bodiesRef,
+      headsRef,
+      beaksRef,
+      leftWingRef,
+      leftWingTipRef,
+      rightWingRef,
+      rightWingTipRef,
+      tailsRef,
+    ];
+
+    instances.forEach((ref, partIdx) => {
+      if (ref.current) {
+        // OFFSET = matrixBase + partIdx * count * 64
+        const matrixOffset = matrixBase + partIdx * CONFIG.BIRD_COUNT * 64;
+
+        // Architecture: Zero-Copy Pointer Swap
+        const sabView = getArenaView(sab, matrixOffset, CONFIG.BIRD_COUNT * 64);
+
+        // Pointer Swap Optimization:
+        (ref.current.instanceMatrix as any).array = sabView;
+        ref.current.instanceMatrix.needsUpdate = true;
+      }
+    });
   });
 
   return (

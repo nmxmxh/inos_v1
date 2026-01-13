@@ -120,6 +120,8 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
       // 1. Initialize kernel
       const { memory } = await initializeKernel(tier);
+      if (!memory) throw new Error('Kernel returned no memory');
+
       const currentContext = window.__INOS_CONTEXT_ID__;
       (window as any).__INOS_MEM__ = memory;
       console.log(`[System] ✅ Kernel initialized (Context: ${currentContext})`);
@@ -136,23 +138,68 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
 
       get().scanRegistry(memory);
 
-      // 3. Load modules
+      // 3. Load modules (diagnostics only - compute is in worker)
       const loadedModules = await loadAllModules(memory);
       console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
 
-      // 4. Initialize Dispatcher
-      if (loadedModules.compute) {
-        // Use the module's own memory if exported (fix for memory mismatch), otherwise fallback to kernel memory
-        const computeMemory = loadedModules.compute.memory || memory;
-        if (loadedModules.compute.memory) {
-          console.log('[System] Using module-exported memory for Dispatcher');
-        } else {
-          console.log('[System] Using shared kernel memory for Dispatcher');
-        }
+      // 4. Initialize Dispatcher (will route to worker once spawned)
+      // We spawn a compute worker that handles all physics/math
+      const sab = (window as any).__INOS_SAB__;
+      const sabOffset = (window as any).__INOS_SAB_OFFSET__ || 0;
 
-        dispatch.initialize(loadedModules.compute.exports, computeMemory);
-        console.log('[System] ✅ Dispatcher initialized');
+      // Import and spawn compute worker
+      const ComputeWorker = await import('../wasm/compute.worker.ts?worker');
+      const worker = new ComputeWorker.default();
+
+      // Initialize worker with SAB (Memory is created inside worker)
+      await new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent) => {
+          if (event.data.type === 'ready') {
+            console.log('[System] ✅ Compute Worker ready');
+            resolve();
+          } else if (event.data.type === 'error') {
+            reject(new Error(event.data.error));
+          }
+        };
+        worker.onerror = reject;
+        worker.postMessage({
+          type: 'init',
+          sab,
+          sabOffset,
+          sabSize: sab.byteLength,
+        });
+      });
+
+      // Store worker reference for dispatch routing
+      (window as any).__INOS_COMPUTE_WORKER__ = worker;
+
+      // Initialize dispatcher without local exports - will create worker route
+      dispatch.initialize(null as any, memory);
+
+      // Register the worker route manually
+      const dispatchInternal = dispatch.internal();
+      if (dispatchInternal) {
+        (dispatchInternal as any).workers.set('compute:main', {
+          worker,
+          unit: 'boids',
+          role: 'main',
+          ready: true,
+        });
+        // Also register math/boids units as available
+        (dispatchInternal as any).workers.set('boids:main', {
+          worker,
+          unit: 'boids',
+          role: 'main',
+          ready: true,
+        });
+        (dispatchInternal as any).workers.set('math:main', {
+          worker,
+          unit: 'math',
+          role: 'main',
+          ready: true,
+        });
       }
+      console.log('[System] ✅ Dispatcher initialized (Worker mode)');
 
       // 4. Update state
       set({
