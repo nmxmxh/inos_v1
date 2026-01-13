@@ -95,16 +95,5 @@ func (s *AnalyticsSupervisor) updateGlobalMetrics() {
 }
 
 func (s *AnalyticsSupervisor) signalGlobalEpoch() {
-	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_GLOBAL_METRICS_EPOCH*4
-
-	var buf [4]byte
-	if err := s.bridge.ReadAt(offset, buf[:]); err != nil {
-		return
-	}
-	currentEpoch := binary.LittleEndian.Uint32(buf[:])
-
-	newEpoch := currentEpoch + 1
-	binary.LittleEndian.PutUint32(buf[:], newEpoch)
-
-	s.bridge.WriteRaw(offset, buf[:])
+	s.bridge.SignalEpoch(sab_layout.IDX_GLOBAL_METRICS_EPOCH)
 }
