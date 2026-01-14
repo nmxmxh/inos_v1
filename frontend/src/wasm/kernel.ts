@@ -33,6 +33,12 @@ declare global {
     __INOS_KERNEL_WORKER__?: Worker;
     getSystemSABAddress?: () => number;
     getSystemSABSize?: () => number;
+    economics?: {
+      getBalance: (did?: string) => Promise<number>;
+      getAccountInfo: (did?: string) => Promise<{ offset: number; exists: boolean } | null>;
+      getStats: () => Promise<any>;
+      grantBonus: (did: string, bonus: number) => Promise<boolean>;
+    };
   }
 }
 
@@ -76,13 +82,24 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
       };
     }
 
-    const isDev = import.meta.env.DEV;
-    const wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
-
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const isIOS =
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1);
+
+    const isDev = import.meta.env.DEV;
+    // Default URL logic
+    let wasmUrl = isDev ? '/kernel.wasm' : '/kernel.wasm.br?v=2.0';
+
+    // Safari/iOS Fix: Force uncompressed WASM and aggressively bust cache
+    if (isSafari || isIOS) {
+      console.log('[Kernel] Safari/iOS detected: forcing uncompressed WASM and cache bust');
+      // Strip .br extension
+      wasmUrl = wasmUrl.replace('.br', '');
+      // Append cache buster
+      const separator = wasmUrl.includes('?') ? '&' : '?';
+      wasmUrl = `${wasmUrl}${separator}t=${Date.now()}`;
+    }
 
     if (isIOS || isSafari) {
       console.log('[Kernel] Safari/iOS detected, prioritizing main-thread initialization');
@@ -159,7 +176,79 @@ async function initializeKernelInWorker(
 
         console.log(`[Kernel] Worker SAB initialized. Context hash: ${contextHash}`);
 
+        // Define Economics Proxy (Worker communication)
+        const pendingEconomicRequests = new Map<string, (res: any) => void>();
+        (window as any).economics = {
+          getBalance: (did?: string) => {
+            const requestId = Math.random().toString(36).substring(7);
+            return new Promise(resolve => {
+              pendingEconomicRequests.set(requestId, resolve);
+              worker.postMessage({
+                type: 'economics_call',
+                method: 'getBalance',
+                args: [did],
+                requestId,
+              });
+            });
+          },
+          getStats: () => {
+            const requestId = Math.random().toString(36).substring(7);
+            return new Promise(resolve => {
+              pendingEconomicRequests.set(requestId, resolve);
+              worker.postMessage({ type: 'economics_call', method: 'getStats', requestId });
+            });
+          },
+          grantBonus: (did: string, bonus: number) => {
+            const requestId = Math.random().toString(36).substring(7);
+            return new Promise(resolve => {
+              pendingEconomicRequests.set(requestId, resolve);
+              worker.postMessage({
+                type: 'economics_call',
+                method: 'grantBonus',
+                args: [did, bonus],
+                requestId,
+              });
+            });
+          },
+          getAccountInfo: (did?: string) => {
+            const requestId = Math.random().toString(36).substring(7);
+            return new Promise(resolve => {
+              pendingEconomicRequests.set(requestId, resolve);
+              worker.postMessage({
+                type: 'economics_call',
+                method: 'getAccountInfo',
+                args: [did],
+                requestId,
+              });
+            });
+          },
+        };
+
+        const originalMessageHandler = messageHandler;
+        const interceptor = (e: MessageEvent) => {
+          if (e.data.type === 'economics_response') {
+            const { requestId, result } = e.data;
+            const resolver = pendingEconomicRequests.get(requestId);
+            if (resolver) {
+              resolver(result);
+              pendingEconomicRequests.delete(requestId);
+            }
+            return;
+          }
+          if (e.data.type === 'error' && e.data.requestId) {
+            const resolver = pendingEconomicRequests.get(e.data.requestId);
+            if (resolver) {
+              resolver(null); // Or reject
+              pendingEconomicRequests.delete(e.data.requestId);
+            }
+            return;
+          }
+          originalMessageHandler(e);
+        };
+
         worker.removeEventListener('message', messageHandler);
+        worker.addEventListener('message', interceptor);
+
         resolve({
           memory,
           sabBase: sab,
@@ -226,87 +315,120 @@ async function initializeKernelOnMainThread(
     isShared = false;
   }
 
-  // 3. Load and instantiate Go kernel
+  // 3. Load and instantiate Go kernel (with Retry Logic)
   const go = new window.Go();
-  let wasmResponse: Response;
+  let result: WebAssembly.WebAssemblyInstantiatedSource | undefined;
 
-  try {
-    wasmResponse = await fetch(wasmUrl);
+  const MAX_RETRIES = 2;
+  let lastError: Error | null = null;
 
-    // If .br fails or is not found, try the uncompressed version
-    if (!wasmResponse.ok && wasmUrl.endsWith('.br')) {
-      const fallbackUrl = wasmUrl.replace('.wasm.br', '.wasm').split('?')[0];
-      console.warn(
-        `[Kernel] Failed to load compressed WASM from ${wasmUrl}, trying fallback: ${fallbackUrl}`
-      );
-      wasmResponse = await fetch(fallbackUrl);
-    }
-
-    if (!wasmResponse.ok) {
-      throw new Error(`HTTP ${wasmResponse.status} ${wasmResponse.statusText}`);
-    }
-
-    // Check for SPA fallback (HTML instead of WASM)
-    const contentType = wasmResponse.headers.get('Content-Type');
-    if (contentType && contentType.includes('text/html')) {
-      throw new Error('Received HTML instead of WASM (check server SPA fallback)');
-    }
-  } catch (err) {
-    throw new Error(
-      `Failed to fetch WASM from ${wasmUrl}: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-
-  let result: WebAssembly.WebAssemblyInstantiatedSource;
-
-  try {
-    // Clone response for fallback to avoid "Body is disturbed or locked" error in Safari
-    const fallbackResponse = wasmResponse.clone();
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      result = await WebAssembly.instantiateStreaming(wasmResponse, {
-        ...go.importObject,
-        env: { ...go.importObject.env, memory },
-      });
-    } catch (streamingError) {
-      console.warn(
-        '[Kernel] instantiateStreaming failed, falling back to arrayBuffer:',
-        streamingError
-      );
-      const bytes = await fallbackResponse.arrayBuffer();
+      const currentUrl =
+        attempt > 0 ? `${wasmUrl}${wasmUrl.includes('?') ? '&' : '?'}retry=${Date.now()}` : wasmUrl;
 
-      // Loud diagnostics: Is this actually WASM?
-      const view = new Uint8Array(bytes);
-      const hex = Array.from(view.slice(0, 16))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join(' ');
-      const text = new TextDecoder().decode(view.slice(0, 50)).replace(/\0/g, '.');
-
-      console.log(`[Kernel] WASM Diagnostics - First 16 bytes (hex): ${hex}`);
-      console.log(`[Kernel] WASM Diagnostics - First 50 bytes (text): ${text}`);
-
-      const isWasm = view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d;
-
-      if (!isWasm) {
-        if (view[0] === 0x1f && view[1] === 0x8b) {
-          throw new Error(
-            'WASM is Gzip-compressed but the server is missing Content-Encoding: gzip. Hex: ' + hex
-          );
-        }
-        if (text.toLowerCase().includes('<!doctype html') || text.toLowerCase().includes('<html')) {
-          throw new Error('Received HTML error page instead of WASM. Hex: ' + hex);
-        }
-        throw new Error(`WASM magic number mismatch ('\\0asm' expected). Received hex: ${hex}`);
+      if (attempt > 0) {
+        console.warn(`[Kernel] Retrying WASM fetch (attempt ${attempt + 1}/${MAX_RETRIES})...`);
       }
 
-      result = await WebAssembly.instantiate(bytes, {
-        ...go.importObject,
-        env: { ...go.importObject.env, memory },
-      });
+      let wasmResponse = await fetch(currentUrl);
+
+      // If .br fails or is not found, try the uncompressed version (only on first attempt logic preserverd)
+      if (!wasmResponse.ok && currentUrl.endsWith('.br')) {
+        const fallbackUrl = currentUrl.replace('.wasm.br', '.wasm').split('?')[0];
+        console.warn(
+          `[Kernel] Failed to load compressed WASM from ${currentUrl}, trying fallback: ${fallbackUrl}`
+        );
+        wasmResponse = await fetch(fallbackUrl);
+      }
+
+      if (!wasmResponse.ok) {
+        throw new Error(`HTTP ${wasmResponse.status} ${wasmResponse.statusText}`);
+      }
+
+      const contentType = wasmResponse.headers.get('Content-Type');
+      if (contentType && contentType.includes('text/html')) {
+        throw new Error('Received HTML instead of WASM (check server SPA fallback)');
+      }
+
+      // Clone for fallback
+      const fallbackResponse = wasmResponse.clone();
+
+      try {
+        // Try streaming first
+        result = await WebAssembly.instantiateStreaming(wasmResponse, {
+          ...go.importObject,
+          env: { ...go.importObject.env, memory },
+        });
+      } catch (streamingError) {
+        console.warn(
+          '[Kernel] instantiateStreaming failed, falling back to arrayBuffer:',
+          streamingError
+        );
+        const bytes = await fallbackResponse.arrayBuffer();
+
+        // Diagnostics
+        const view = new Uint8Array(bytes);
+        const hex = Array.from(view.slice(0, 16))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join(' ');
+
+        const isWasm = view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d;
+
+        if (!isWasm) {
+          // Check for the specific Safari ghost bytes
+          if (hex.startsWith('85 ff 1f')) {
+            throw new Error(`MAGIC_MISMATCH_85FF1F: Received hex: ${hex}`);
+          }
+
+          const text = new TextDecoder().decode(view.slice(0, 50)).replace(/\0/g, '.');
+          console.log(`[Kernel] WASM Diagnostics - First 16 bytes (hex): ${hex}`);
+          console.log(`[Kernel] WASM Diagnostics - First 50 bytes (text): ${text}`);
+
+          if (view[0] === 0x1f && view[1] === 0x8b) {
+            throw new Error(
+              'WASM is Gzip-compressed but the server is missing Content-Encoding: gzip'
+            );
+          }
+
+          if (
+            text.toLowerCase().includes('<!doctype html') ||
+            text.toLowerCase().includes('<html')
+          ) {
+            throw new Error('Received HTML error page instead of WASM. Hex: ' + hex);
+          }
+
+          throw new Error(`WASM magic number mismatch ('\\0asm' expected). Received hex: ${hex}`);
+        }
+
+        result = await WebAssembly.instantiate(bytes, {
+          ...go.importObject,
+          env: { ...go.importObject.env, memory },
+        });
+      }
+
+      // If we got here, success
+      break;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+
+      // Only retry on specific magic number mismatch or network errors (optional)
+      const isMagicMismatch = lastError.message.includes('MAGIC_MISMATCH_85FF1F');
+
+      if (isMagicMismatch && attempt < MAX_RETRIES - 1) {
+        console.warn(
+          '[Kernel] Detected corrupted cache (magic 85 ff 1f). Triggering retry with cache bust...'
+        );
+        continue;
+      }
+
+      // For other errors, or if retries exhausted, rethrow
+      throw lastError;
     }
-  } catch (err) {
-    throw new Error(
-      `Failed to instantiate WASM: ${err instanceof Error ? err.message : String(err)}`
-    );
+  }
+
+  if (!result) {
+    throw lastError || new Error('Failed to instantiate WASM after retries');
   }
 
   // 4. Run Go kernel (non-blocking - runs async via goroutines)
@@ -360,6 +482,16 @@ async function initializeKernelOnMainThread(
   }
 
   console.log(`[Kernel] ✅ Main thread kernel initialized (shared: ${isShared})`);
+
+  // Direct Economic local access (for main thread mode)
+  if (!window.economics) {
+    (window as any).economics = {
+      getBalance: (did?: string) => (window as any).getEconomicBalance?.(did),
+      getAccountInfo: (did?: string) => (window as any).getAccountInfo?.(did),
+      getStats: () => (window as any).getEconomicStats?.(),
+      grantBonus: (did: string, bonus: number) => (window as any).grantEconomicBonus?.(did, bonus),
+    };
+  }
 
   return {
     memory,

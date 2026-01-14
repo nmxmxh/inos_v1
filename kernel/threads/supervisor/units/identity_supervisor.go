@@ -51,7 +51,7 @@ func NewIdentitySupervisor(
 ) *IdentitySupervisor {
 	capabilities := []string{"identity.resolve", "identity.register", "identity.verify", "identity.attest"}
 	return &IdentitySupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("identity", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("identity", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 		sabPtr:            sabPtr,
 		sabSize:           sabSize,

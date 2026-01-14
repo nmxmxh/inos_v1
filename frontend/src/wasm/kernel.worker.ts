@@ -22,19 +22,26 @@ let _memory: WebAssembly.Memory | null = null;
 let _go: any = null;
 
 interface KernelWorkerMessage {
-  type: 'init' | 'shutdown' | 'inject_sab';
+  type: 'init' | 'shutdown' | 'inject_sab' | 'economics_call';
   sab?: SharedArrayBuffer;
   sabOffset?: number;
   sabSize?: number;
   tier?: 'light' | 'moderate' | 'heavy' | 'dedicated';
   wasmUrl?: string;
+  // Economics proxy
+  method?: 'getBalance' | 'getStats' | 'grantBonus';
+  args?: any[];
+  requestId?: string;
 }
 
 interface KernelWorkerResponse {
-  type: 'ready' | 'error' | 'shutdown_complete' | 'sab_functions_ready';
+  type: 'ready' | 'error' | 'shutdown_complete' | 'sab_functions_ready' | 'economics_response';
   error?: string;
   sabOffset?: number;
   sabSize?: number;
+  // Economics proxy
+  result?: any;
+  requestId?: string;
 }
 
 // Memory page configurations (mirrored from layout.ts)
@@ -295,6 +302,7 @@ function shutdownKernel(): void {
 
 self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
   const { type } = event.data;
+  console.log(`[KernelWorker] Received message: type=${type}`);
 
   try {
     switch (type) {
@@ -331,6 +339,55 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
         shutdownKernel();
         const response: KernelWorkerResponse = { type: 'shutdown_complete' };
         self.postMessage(response);
+        break;
+      }
+
+      case 'economics_call': {
+        const { method, args, requestId } = event.data;
+        console.log(
+          `[KernelWorker] economics_call received: method=${method}, requestId=${requestId}`
+        );
+
+        // Access the economics object exposed by Go kernel (self.economics.*)
+        const economics = (self as any).economics;
+        console.log(`[KernelWorker] economics object exists: ${!!economics}`);
+        let result: any;
+        try {
+          if (!economics) {
+            console.error('[KernelWorker] Economics API not available');
+            self.postMessage({
+              type: 'error',
+              error: 'Economics API not available (kernel not initialized)',
+              requestId,
+            });
+            return;
+          }
+          switch (method) {
+            case 'getBalance':
+              result = economics.getBalance?.(...(args || [])) ?? 0;
+              break;
+            case 'getStats':
+              result = economics.getStats?.() ?? {};
+              break;
+            case 'grantBonus':
+              result = economics.grantBonus?.(...(args || [])) ?? false;
+              break;
+            default:
+              self.postMessage({
+                type: 'error',
+                error: `Unknown economics method: ${method}`,
+                requestId,
+              });
+              return;
+          }
+          self.postMessage({ type: 'economics_response', result, requestId });
+        } catch (err) {
+          self.postMessage({
+            type: 'error',
+            error: err instanceof Error ? err.message : String(err),
+            requestId,
+          });
+        }
         break;
       }
 

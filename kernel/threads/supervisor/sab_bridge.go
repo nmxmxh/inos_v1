@@ -363,10 +363,29 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 	return ch
 }
 
+// Cached string values for zero-allocation result comparison
+var (
+	jsOkValue       js.Value
+	jsNotEqualValue js.Value
+	jsResultsInit   bool
+)
+
+func initJsResultValues() {
+	if jsResultsInit {
+		return
+	}
+	jsOkValue = js.ValueOf("ok")
+	jsNotEqualValue = js.ValueOf("not-equal")
+	jsResultsInit = true
+}
+
 // WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
 // IMPORTANT: Each Atomics.wait() call creates a js.Value with a registered finalizer.
 // In tight loops, this can exhaust the Go WASM runtime's finalizer table.
-// We mitigate this by periodically yielding to allow GC to process finalizers.
+// We mitigate this by:
+// 1. Avoiding String() allocation (use js.Value.Equal() instead)
+// 2. Aggressive GC yielding every 20 calls
+// 3. Explicit GC hint every 200 calls
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
 	if !sb.jsInitialized {
 		sb.initJSCache()
@@ -380,29 +399,32 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 		return 2
 	}
 
-	// GC Pressure Relief: Every 50 wait calls, yield to allow finalizer cleanup
-	// This prevents finalizer table exhaustion in Go WASM
+	// Ensure cached result values are initialized
+	initJsResultValues()
+
+	// GC Pressure Relief: Aggressive yielding to prevent finalizer table exhaustion
+	// Go WASM has limited finalizer capacity - we must yield frequently
 	count := atomic.AddUint64(&sb.waitCallCount, 1)
-	if count%50 == 0 {
+	if count%20 == 0 {
 		runtime.Gosched()
+	}
+	// Force GC hint every 200 calls to prevent memory buildup
+	if count%200 == 0 {
+		runtime.GC()
 	}
 
 	// Call Atomics.wait - this creates a js.Value that will have a finalizer
 	result := sb.jsAtomics.Call("wait", sb.jsInt32View, epochIndex, expectedValue, timeoutMs)
 
-	// Use Type() check instead of String() to reduce additional js.Value allocations
-	// js.TypeString = 7, but we need to compare the actual string value
-	// Since we must extract the string, use it efficiently:
-	resultStr := result.String()
-
-	switch resultStr {
-	case "ok":
+	// CRITICAL: Avoid result.String() - it allocates memory on every call!
+	// Use Equal() with cached js.Value instead (zero allocation)
+	if result.Equal(jsOkValue) {
 		return 0
-	case "not-equal":
-		return 1
-	default:
-		return 2
 	}
+	if result.Equal(jsNotEqualValue) {
+		return 1
+	}
+	return 2 // "timed-out" or unknown
 }
 
 // detectWorkerContext detects if we're running in a Web Worker (Atomics.wait allowed)

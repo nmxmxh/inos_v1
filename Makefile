@@ -3,7 +3,7 @@
 .PHONY: modules-build modules-test
 .PHONY: frontend-build frontend-dev frontend-install
 .PHONY: docker-build docker-up docker-down docker-clean
-.PHONY: deploy-setup deploy
+.PHONY: deploy-setup deploy e2e-test
 
 # ============================================================================
 # INOS v1.9 - Root Makefile
@@ -301,11 +301,12 @@ build: all
 # ============================================================================
 
 # ============================================================================
-# Testing
-# ============================================================================
-
-test: kernel-test modules-test
+test: kernel-test modules-test e2e-test
 	@echo "✅ All tests complete"
+
+e2e-test:
+	@echo "🧪 Running E2E tests in integration directory..."
+	@cd integration && npm test
 
 # Comprehensive testing with coverage
 test-coverage:

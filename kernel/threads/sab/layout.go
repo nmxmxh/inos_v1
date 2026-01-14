@@ -320,15 +320,6 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			MaxTotal:  0,
 		},
 		{
-			Name:      "RobotState",
-			Offset:    OFFSET_ROBOT_STATE,
-			Size:      SIZE_ROBOT_STATE + SIZE_ROBOT_NODES + SIZE_ROBOT_FILAMENTS,
-			Purpose:   "Moonshot Morphic Lattice simulation state",
-			CanExpand: false,
-			MaxInline: 1,
-			MaxTotal:  1,
-		},
-		{
 			Name:      "Arena",
 			Offset:    OFFSET_ARENA,
 			Size:      arenaSize,

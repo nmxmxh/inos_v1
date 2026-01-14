@@ -23,7 +23,7 @@ func NewGPUSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPa
 		capabilities = []string{"gpu.compute", "gpu.shader", "gpu.render", "gpu.tensor", "gpu.cuda_proxy"}
 	}
 	return &GPUSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("gpu", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("gpu", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 	}
 }

@@ -33,6 +33,14 @@ func main() {
 		return nil
 	}))
 
+	// Economics API
+	economics := js.Global().Get("Object").New()
+	economics.Set("getBalance", js.FuncOf(jsGetEconomicBalance))
+	economics.Set("getStats", js.FuncOf(jsGetEconomicStats))
+	economics.Set("grantBonus", js.FuncOf(jsGrantEconomicBonus))
+	economics.Set("getAccountInfo", js.FuncOf(jsGetAccountInfo))
+	js.Global().Set("economics", economics)
+
 	// Expose SAB metadata to Host (Dynamic Grounding)
 	js.Global().Set("getSystemSABAddress", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		// Return the actual SAB base pointer (set by InjectSAB at runtime)

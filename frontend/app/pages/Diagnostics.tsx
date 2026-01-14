@@ -18,6 +18,7 @@ import {
 import { INOSBridge } from '../../src/wasm/bridge-state';
 import NumberFormatter from '../ui/NumberFormatter';
 import RollingCounter from '../ui/RollingCounter';
+import { useEconomics } from '../hooks/useEconomics';
 import { useGlobalAnalytics } from '../features/analytics/useGlobalAnalytics';
 
 const Style = {
@@ -195,10 +196,14 @@ interface SystemMetrics {
     writeNs: number;
     health: number;
   };
+  balance: number;
+  pendingEscrow: number;
+  earningsPulse: number;
 }
 
 export default function Diagnostics() {
   const global = useGlobalAnalytics();
+  const { getBalance } = useEconomics(); // Zero-copy hook
   const [metrics, setMetrics] = useState<SystemMetrics>({
     birdEpoch: 0,
     matrixEpoch: 0,
@@ -207,6 +212,9 @@ export default function Diagnostics() {
     sabSize: 0,
     arenaHead: 0,
     bridge: { hits: 0, misses: 0, readNs: 0, writeNs: 0, health: 100 },
+    balance: 0,
+    pendingEscrow: 0,
+    earningsPulse: 0,
   });
 
   useEffect(() => {
@@ -239,6 +247,12 @@ export default function Diagnostics() {
         const active = birdEpoch !== lastBirdEpoch;
         lastBirdEpoch = birdEpoch;
 
+        // Async calls removed from render loop (except getStats which is separate)
+        const econStats = (window as any).economics?.getStats?.() || {};
+
+        // Zero-copy balance read
+        const currentBalance = getBalance();
+
         setMetrics({
           birdEpoch,
           matrixEpoch,
@@ -247,6 +261,9 @@ export default function Diagnostics() {
           sabSize: sab.byteLength,
           arenaHead,
           bridge: { hits, misses, readNs, writeNs, health },
+          balance: currentBalance,
+          pendingEscrow: econStats.pending_escrow || 0,
+          earningsPulse: econStats.earnings_rate || 0,
         });
       } catch {
         // SAB invalid
@@ -254,7 +271,7 @@ export default function Diagnostics() {
     }, 100);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [getBalance]);
 
   return (
     <Style.PageContainer>
@@ -274,6 +291,7 @@ export default function Diagnostics() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          data-testid="performance-meter"
         >
           <Style.CardTitle>Simulation Pulse</Style.CardTitle>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -378,6 +396,68 @@ export default function Diagnostics() {
             <Style.MetricLabel>Alloc Integrity</Style.MetricLabel>
             <Style.MetricValue style={{ color: '#10b981' }}>✓ VERIFIED</Style.MetricValue>
           </Style.MetricRow>
+        </Style.Card>
+
+        {/* Economic Ledger */}
+        <Style.Card
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          style={{ gridColumn: 'span 2' }}
+          data-testid="economic-ledger-card"
+        >
+          <Style.CardTitle>Economic Ledger</Style.CardTitle>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 2fr',
+              gap: '2rem',
+              alignItems: 'center',
+            }}
+          >
+            <Style.BigMetric
+              style={{
+                background: 'rgba(22, 163, 74, 0.05)',
+                borderColor: 'rgba(22, 163, 74, 0.2)',
+              }}
+            >
+              <Style.BigValue style={{ color: '#16a34a' }}>
+                <RollingCounter value={metrics.balance} />
+              </Style.BigValue>
+              <Style.BigLabel>Available Credits (µ)</Style.BigLabel>
+            </Style.BigMetric>
+            <div>
+              <Style.MetricRow>
+                <Style.MetricLabel>Node Identity (DID)</Style.MetricLabel>
+                <Style.MetricValue style={{ fontSize: '10px', color: '#6b7280' }}>
+                  did:inos:
+                  {(window as any).inosModules?.compute?.node_id?.slice(0, 16) || 'anonymous'}...
+                </Style.MetricValue>
+              </Style.MetricRow>
+              <Style.MetricRow>
+                <Style.MetricLabel>Staking Ratio</Style.MetricLabel>
+                <Style.MetricValue>1.0x (Default)</Style.MetricValue>
+              </Style.MetricRow>
+              <Style.MetricRow>
+                <Style.MetricLabel>Pending Escrow</Style.MetricLabel>
+                <Style.MetricValue style={{ color: '#0284c7' }}>
+                  {metrics.pendingEscrow} µ (Secured)
+                </Style.MetricValue>
+              </Style.MetricRow>
+              <Style.MetricRow>
+                <Style.MetricLabel>Earnings Pulse</Style.MetricLabel>
+                <Style.MetricValue style={{ color: '#16a34a' }}>
+                  +{metrics.earningsPulse.toFixed(2)} µ/min
+                </Style.MetricValue>
+              </Style.MetricRow>
+              <Style.MetricRow>
+                <Style.MetricLabel>Projected Earnings/24h</Style.MetricLabel>
+                <Style.MetricValue style={{ color: '#16a34a' }}>
+                  +{(metrics.earningsPulse * 60 * 24).toFixed(0)} µ
+                </Style.MetricValue>
+              </Style.MetricRow>
+            </div>
+          </div>
         </Style.Card>
       </Style.Grid>
     </Style.PageContainer>

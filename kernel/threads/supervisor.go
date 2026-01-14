@@ -64,6 +64,7 @@ type SupervisorConfig struct {
 	MeshCoordinator any // mesh.MeshCoordinator
 	Logger          *utils.Logger
 	SAB             unsafe.Pointer // SharedArrayBuffer pointer
+	MaxWorkers      int
 }
 
 // SupervisorStats holds supervisor statistics
@@ -165,6 +166,31 @@ func (s *Supervisor) GetBridge() *supervisor.SABBridge {
 	return s.bridge
 }
 
+// GetCredits returns the economic supervisor
+func (s *Supervisor) GetCredits() *supervisor.CreditSupervisor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.credits
+}
+
+// GetSystemLoad implements mesh.SystemLoadProvider via RootSupervisor
+func (s *Supervisor) GetSystemLoad() float64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Heuristic: Active threads vs Max threads
+	active := float64(len(s.children))
+	max := float64(s.config.MaxWorkers)
+	if max == 0 {
+		max = 1.0
+	}
+	load := active / max
+	if load > 1.0 {
+		load = 1.0
+	}
+	return load
+}
+
 // InitializeCompute initializes the compute units with the provided SAB
 func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.mu.Lock()
@@ -203,6 +229,14 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 
 	// Initialize Core System Supervisors
 	s.credits = supervisor.NewCreditSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_ECONOMICS))
+
+	// Inject CreditSupervisor into MeshCoordinator for unified economic authority
+	if m, ok := s.config.MeshCoordinator.(interface {
+		SetEconomicVault(foundation.EconomicVault)
+	}); ok {
+		m.SetEconomicVault(s.credits)
+	}
+
 	s.identity = units.NewIdentitySupervisor(s.bridge, s.patterns, s.knowledge, s.sab, s.sabSize, uint32(sab_layout.OFFSET_IDENTITY_REGISTRY), nil)
 	s.social = supervisor.NewSocialGraphSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_SOCIAL_GRAPH))
 

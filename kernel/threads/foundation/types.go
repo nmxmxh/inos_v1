@@ -317,3 +317,9 @@ type EconomicRates struct {
 	SchedulingCost     float64
 	PressureMultiplier float64
 }
+
+// EconomicVault defines the authority for economic state changes
+type EconomicVault interface {
+	GetBalance(did string) (int64, error)
+	GrantBonus(did string, amount int64) error
+}

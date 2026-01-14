@@ -1,6 +1,7 @@
 @0xf434190284712409;
 
 using Base = import "../../base/v1/base.capnp".Base;
+using Delegation = import "delegation.capnp";
 
 interface P2PMesh {
 
@@ -42,7 +43,13 @@ interface P2PMesh {
   allocateSharedBuffer @14 (size :UInt64) -> (bufferId :Text, offset :UInt64);
   
   # =================================================================
-  # 5. Reactive Events (Envelope Compatible)
+  # 5. Compute Delegation (The "Brain")
+  # =================================================================
+
+  delegateCompute @17 (request :Delegation.DelegateRequest) -> (response :Delegation.DelegateResponse);
+
+  # =================================================================
+  # 6. Reactive Events (Envelope Compatible)
   # =================================================================
   # We use a callback interface for push events to support streaming.
   

@@ -165,6 +165,9 @@ func (k *Kernel) Boot() {
 		k.meshCoordinator.SetStorage(k.supervisor)
 		// Inject SAB bridge for metrics reporting
 		k.meshCoordinator.SetSABBridge(k.supervisor.GetBridge())
+		// Inject monitor for delegation engine
+		k.meshCoordinator.SetMonitor(k.supervisor)
+
 		if err := k.meshCoordinator.Start(k.ctx); err != nil {
 			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
 		}
@@ -201,6 +204,7 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 		MeshCoordinator: k.meshCoordinator,
 		Logger:          k.logger,
 		SAB:             ptr,
+		MaxWorkers:      k.config.MaxWorkers,
 	})
 
 	k.setState(StateRunning)

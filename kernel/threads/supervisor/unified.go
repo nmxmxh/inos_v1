@@ -16,6 +16,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/security"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 // UnifiedSupervisor is the base supervisor implementation
@@ -24,6 +25,7 @@ type UnifiedSupervisor struct {
 	capabilities []string
 	delegator    foundation.MeshDelegator // Mesh offloading capability
 	bridge       SABInterface             // SAB bridge for epoch-based signaling
+	Logger       *utils.Logger            // Logger for supervisor activity
 
 	// Intelligence engines (from Week 1-2)
 	learning  *learning.EnhancedLearningEngine
@@ -70,12 +72,17 @@ func NewUnifiedSupervisor(
 	knowledge *intelligence.KnowledgeGraph,
 	delegator foundation.MeshDelegator,
 	bridge SABInterface,
+	logger *utils.Logger,
 ) *UnifiedSupervisor {
+	if logger == nil {
+		logger = utils.DefaultLogger(name)
+	}
 	us := &UnifiedSupervisor{
 		name:         name,
 		capabilities: capabilities,
 		delegator:    delegator,
 		bridge:       bridge,
+		Logger:       logger,
 		optimizer:    optimization.NewOptimizationEngine(),
 		scheduler:    scheduling.NewSchedulingEngine(),
 		security:     security.NewSecurityEngine(),
@@ -92,6 +99,18 @@ func NewUnifiedSupervisor(
 	// Initialize engines with coordinator and bridge access
 	us.learning = learning.NewEnhancedLearningEngine(patterns, knowledge, us)
 	return us
+}
+
+// RecordLatency records a job latency in a thread-safe manner
+func (us *UnifiedSupervisor) RecordLatency(d time.Duration) {
+	us.mu.Lock()
+	defer us.mu.Unlock()
+
+	// Keep a rolling window of latencies (max 1000)
+	if len(us.latencies) >= 1000 {
+		us.latencies = us.latencies[1:]
+	}
+	us.latencies = append(us.latencies, d)
 }
 
 // Start starts the supervisor

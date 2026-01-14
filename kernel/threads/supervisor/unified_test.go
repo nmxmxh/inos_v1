@@ -44,7 +44,7 @@ func TestUnifiedSupervisor_Creation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup := supervisor.NewUnifiedSupervisor(tc.name, tc.capabilities, patterns, knowledge, nil, nil)
+			sup := supervisor.NewUnifiedSupervisor(tc.name, tc.capabilities, patterns, knowledge, nil, nil, nil)
 
 			assert.NotNil(t, sup)
 			assert.Equal(t, tc.capabilities, sup.Capabilities())
@@ -57,36 +57,54 @@ func TestUnifiedSupervisor_Creation(t *testing.T) {
 func TestUnifiedSupervisor_StartStop(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start
-	err := sup.Start(ctx)
-	assert.NoError(t, err)
+	// Start in background
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sup.Start(ctx)
+	}()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Verify running
-	health := sup.Health()
-	assert.NotNil(t, health)
+	assert.True(t, sup.Health().Healthy)
 
 	// Stop
-	err = sup.Stop()
+	err := sup.Stop()
 	assert.NoError(t, err)
+
+	// Wait for Start to return
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(1 * time.Second):
+		t.Fatal("Start did not return after Stop")
+	}
 }
 
 // TestUnifiedSupervisor_JobSubmission validates job submission
 func TestUnifiedSupervisor_JobSubmission(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Submit job
 	job := &foundation.Job{
@@ -117,14 +135,19 @@ func TestUnifiedSupervisor_JobSubmission(t *testing.T) {
 func TestUnifiedSupervisor_BatchSubmission(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Create batch of jobs
 	jobs := make([]*foundation.Job, 5)
@@ -155,7 +178,7 @@ func TestUnifiedSupervisor_BatchSubmission(t *testing.T) {
 func TestUnifiedSupervisor_Learning(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "learn-job",
@@ -177,7 +200,7 @@ func TestUnifiedSupervisor_Learning(t *testing.T) {
 func TestUnifiedSupervisor_Optimization(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "opt-job",
@@ -197,7 +220,7 @@ func TestUnifiedSupervisor_Optimization(t *testing.T) {
 func TestUnifiedSupervisor_Prediction(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "pred-job",
@@ -214,7 +237,7 @@ func TestUnifiedSupervisor_Prediction(t *testing.T) {
 func TestUnifiedSupervisor_Metrics(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	metrics := sup.Metrics()
 	assert.NotNil(t, metrics)
@@ -226,17 +249,22 @@ func TestUnifiedSupervisor_Metrics(t *testing.T) {
 func TestUnifiedSupervisor_InvalidJob(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
 
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
+
 	// Submit invalid job (nil)
-	_, err = sup.Submit(nil)
+	_, err := sup.Submit(nil)
 	assert.Error(t, err)
 
 	// Submit job with invalid operation
@@ -262,14 +290,19 @@ func TestUnifiedSupervisor_InvalidJob(t *testing.T) {
 func TestUnifiedSupervisor_ExpiredDeadline(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Submit job with already expired deadline
 	expiredJob := &foundation.Job{
@@ -296,14 +329,19 @@ func TestUnifiedSupervisor_ExpiredDeadline(t *testing.T) {
 func TestUnifiedSupervisor_ConcurrentSubmissions(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Submit 100 jobs concurrently
 	numJobs := 100
@@ -344,7 +382,7 @@ func TestUnifiedSupervisor_CapabilityCheck(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
 	capabilities := []string{"encode", "decode", "transform"}
-	sup := supervisor.NewUnifiedSupervisor("test", capabilities, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", capabilities, patterns, knowledge, nil, nil, nil)
 
 	// Test supported operations
 	for _, cap := range capabilities {
@@ -359,17 +397,22 @@ func TestUnifiedSupervisor_CapabilityCheck(t *testing.T) {
 func TestUnifiedSupervisor_HealthMonitoring(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
 
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
+
 	// Monitor health
-	err = sup.Monitor(ctx)
+	err := sup.Monitor(ctx)
 	assert.NoError(t, err)
 
 	// Check health status
@@ -381,7 +424,7 @@ func TestUnifiedSupervisor_HealthMonitoring(t *testing.T) {
 func TestUnifiedSupervisor_AnomalyDetection(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	anomalies := sup.Anomalies()
 	assert.NotNil(t, anomalies)
@@ -393,15 +436,19 @@ func TestUnifiedSupervisor_AnomalyDetection(t *testing.T) {
 func TestUnifiedSupervisor_FullWorkflow(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("workflow", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("workflow", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 1. Start supervisor
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// 1. Start supervisor in background
+	go func() {
+		sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// 2. Submit job
 	job := &foundation.Job{
@@ -457,14 +504,20 @@ func TestUnifiedSupervisor_Throughput(t *testing.T) {
 
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("throughput", []string{"test"}, patterns, knowledge, nil, nil)
+	sup := supervisor.NewUnifiedSupervisor("throughput", []string{"test"}, patterns, knowledge, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	err := sup.Start(ctx)
-	require.NoError(t, err)
+	// Start in background
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sup.Start(ctx)
+	}()
 	defer sup.Stop()
+
+	// Give it a moment to initialize
+	time.Sleep(10 * time.Millisecond)
 
 	// Submit 1000 jobs
 	numJobs := 1000

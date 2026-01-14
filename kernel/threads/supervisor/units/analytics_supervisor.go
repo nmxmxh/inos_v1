@@ -30,7 +30,7 @@ type AnalyticsSupervisor struct {
 func NewAnalyticsSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, metricsProvider MetricsProvider, delegator foundation.MeshDelegator) *AnalyticsSupervisor {
 	capabilities := []string{"analytics.aggregate", "analytics.broadcast"}
 	return &AnalyticsSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("analytics", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("analytics", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 		metricsProvider:   metricsProvider,
 	}

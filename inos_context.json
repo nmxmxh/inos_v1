@@ -152,6 +152,12 @@
     },
     "Layer 2": {
       "components": {
+        "kernel/core/mesh": {
+          "capabilities": [
+            "Intelligence Engine"
+          ],
+          "path": "kernel/core/mesh"
+        },
         "kernel/core/mesh/routing": {
           "capabilities": [
             "P2P Mesh Networking"
@@ -707,6 +713,7 @@
       ],
       "path": "protocols/schemas/p2p/v1",
       "schemas": [
+        "delegation.capnp",
         "gossip.capnp",
         "mesh.capnp"
       ]
@@ -806,6 +813,7 @@
       "docker-down": "🛑 Stopping Docker containers...",
       "docker-logs": "Build target",
       "docker-up": "🚀 Starting Docker containers...",
+      "e2e-test": "🧪 Running E2E tests in integration directory...",
       "else echo \"❌ Error": "✅ Kernel build complete (Development): frontend/public/kernel.wasm",
       "frontend-build": "🎨 Building frontend for production...",
       "frontend-dev": "🎨 Starting frontend dev server...",
@@ -825,7 +833,7 @@
       "proto-rust": "🔧 Generating Rust code from Cap'n Proto schemas...",
       "proto-ts": "🔧 Generating TypeScript code from Cap'n Proto schemas...",
       "setup": "🚀 Setting up INOS development environment...",
-      "test": "✅ All tests complete",
+      "test": "============================================================================",
       "test-bench": "Run benchmarks",
       "test-coverage": "Comprehensive testing with coverage",
       "test-module": "Usage: make test-module MODULE=ml",

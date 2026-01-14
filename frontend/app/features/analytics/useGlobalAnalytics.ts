@@ -7,6 +7,7 @@ export interface GlobalAnalytics {
   totalComputeGFLOPS: bigint;
   globalOpsPerSec: bigint;
   activeNodeCount: number;
+  avgCapability: bigint; // Computed: totalCompute / nodes
   timestamp: number;
 }
 
@@ -36,11 +37,17 @@ export function useGlobalAnalytics() {
         const view = INOSBridge.getRegionDataView(OFFSET_GLOBAL_ANALYTICS, 32);
         if (!view) return;
 
+        const totalStorageBytes = view.getBigUint64(0, true);
+        const totalComputeGFLOPS = view.getBigUint64(8, true);
+        const globalOpsPerSec = view.getBigUint64(16, true);
+        const activeNodeCount = view.getUint32(24, true);
+
         setData({
-          totalStorageBytes: view.getBigUint64(0, true),
-          totalComputeGFLOPS: view.getBigUint64(8, true),
-          globalOpsPerSec: view.getBigUint64(16, true),
-          activeNodeCount: view.getUint32(24, true),
+          totalStorageBytes,
+          totalComputeGFLOPS,
+          globalOpsPerSec,
+          activeNodeCount,
+          avgCapability: activeNodeCount > 0 ? totalComputeGFLOPS / BigInt(activeNodeCount) : 0n,
           timestamp: Date.now(),
         });
       } catch {

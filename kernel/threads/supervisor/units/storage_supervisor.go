@@ -10,6 +10,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 // StorageSupervisor supervises the storage module
@@ -36,7 +37,7 @@ func NewStorageSupervisor(
 	}
 
 	return &StorageSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 	}
 }
@@ -48,7 +49,24 @@ func (ss *StorageSupervisor) Start(ctx context.Context) error {
 
 // ExecuteJob overrides base ExecuteJob for storage-specific tasks
 func (ss *StorageSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result {
-	// 1. Determine action and params based on Job Operation
+	// 1. Check if delegation is preferred (e.g., large payload + local load high)
+	start := time.Now()
+	if ss.shouldDelegate(job) {
+		ss.Logger.Info("Offloading storage task to mesh", utils.String("job_id", job.ID), utils.String("operation", job.Operation))
+		result, err := ss.Coordinate(context.Background(), job)
+		if err == nil {
+			elapsed := time.Since(start)
+			ss.RecordLatency(elapsed)
+			ss.Logger.Info("Mesh delegation successful",
+				utils.String("job_id", job.ID),
+				utils.String("duration", elapsed.String()),
+			)
+			return result
+		}
+		ss.Logger.Warn("Mesh delegation failed, falling back to local", utils.String("job_id", job.ID), utils.Err(err))
+	}
+
+	// 2. Determine action and params based on Job Operation
 	var method string
 	params := make(map[string]interface{})
 
@@ -116,6 +134,12 @@ func (ss *StorageSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result 
 
 	select {
 	case res := <-resultChan:
+		elapsed := time.Since(start)
+		ss.RecordLatency(elapsed)
+		ss.Logger.Info("Local storage operation completed",
+			utils.String("job_id", job.ID),
+			utils.String("duration", elapsed.String()),
+		)
 		return res
 	case <-timer.C:
 		return &foundation.Result{
@@ -123,4 +147,31 @@ func (ss *StorageSupervisor) ExecuteJob(job *foundation.Job) *foundation.Result 
 			Error: "Storage operation timed out (reactive)",
 		}
 	}
+}
+
+func (ss *StorageSupervisor) shouldDelegate(job *foundation.Job) bool {
+	// Logic to determine if mesh offloading is efficient
+	// - Is payload > 1MB?
+	// - Is it a heavy operation (compress, store)?
+	// - Is local CPU usage > 80%?
+
+	isHeavy := job.Operation == "store" || job.Operation == "compress"
+	isLarge := len(job.Data) > 1024*1024
+	highLoad := ss.getSystemLoad() > 0.8
+
+	return (isHeavy && isLarge) || (isLarge && highLoad)
+}
+
+func (ss *StorageSupervisor) getSystemLoad() float64 {
+	// In a real implementation, this would read from the health monitor
+	// For now, return a placeholder or use the healthMon if available
+	if ss.UnifiedSupervisor != nil {
+		// Mock load based on job counters
+		submitted := float64(ss.Metrics().JobsSubmitted)
+		completed := float64(ss.Metrics().JobsCompleted)
+		if submitted > 0 {
+			return (submitted - completed) / 10.0 // Very simplified
+		}
+	}
+	return 0.2
 }

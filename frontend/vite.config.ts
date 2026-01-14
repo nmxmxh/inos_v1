@@ -22,6 +22,7 @@ export default defineConfig({
           // Enforce COOP/COEP for all responses in dev to enable SharedArrayBuffer
           res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
           res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
           const url = (req as any).url || '';
           // Remove query params to safely check extension
@@ -42,6 +43,7 @@ export default defineConfig({
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
   },
   build: {

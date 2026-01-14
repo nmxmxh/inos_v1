@@ -89,13 +89,13 @@ func NewBoidsSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiered
 		capabilities = []string{"boids.physics", "boids.evolution"}
 	}
 	s := &BoidsSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 		metricsProvider:   metricsProvider,
 		birdCount:         1000, // Default
 		tournamentSize:    3,
 		crossoverRate:     0.7,
-		mutationRate:      0.1,
+		mutationRate:      DefaultMutationRate,
 		meshNodesActive:   0,
 		evolutionInterval: EvolutionInterval,
 		birdChunkBuf:      make([]byte, 180),

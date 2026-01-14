@@ -6,11 +6,13 @@ module.exports = defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
+  timeout: 60000,
   reporter: 'html',
   
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'https://localhost:5173',
     trace: 'on-first-retry',
+    ignoreHTTPSErrors: true,
   },
 
   projects: [
@@ -24,9 +26,10 @@ module.exports = defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'cd ../frontend && yarn dev',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-  },
+  // webServer disabled - using externally running dev server
+  // webServer: {
+  //   command: 'cd ../frontend && yarn dev',
+  //   url: 'https://localhost:5173',
+  //   reuseExistingServer: true,
+  // },
 });

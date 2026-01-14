@@ -72,7 +72,8 @@ interface RollingCounterProps {
 
 export const RollingCounter = memo(
   ({ value, decimals = 0, prefix = '', suffix = '' }: RollingCounterProps) => {
-    const formatted = value.toFixed(decimals);
+    const safeValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+    const formatted = safeValue.toFixed(decimals);
 
     return (
       <Style.CounterContainer>

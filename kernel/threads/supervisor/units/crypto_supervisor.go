@@ -23,7 +23,7 @@ func NewCryptoSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiere
 		capabilities = []string{"crypto.hash", "crypto.sign", "crypto.verify", "crypto.encrypt", "crypto.decrypt", "crypto.keygen"}
 	}
 	return &CryptoSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("crypto", capabilities, patterns, knowledge, delegator, bridge),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("crypto", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
 	}
 }

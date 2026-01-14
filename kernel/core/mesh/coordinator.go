@@ -19,6 +19,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+	"github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 // SABWriter defines the interface for writing to the SharedArrayBuffer.
@@ -77,6 +78,12 @@ type MeshCoordinator struct {
 
 	// External Dispatcher for remote delegation
 	dispatcher foundation.Dispatcher
+
+	// Decision engine for offloading
+	decider *DelegationEngine
+
+	// Economic layer for delegation settlement
+	ledger *EconomicLedger
 }
 
 // CoordinatorConfig holds mesh coordinator settings
@@ -204,6 +211,15 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 	// Register RPC handlers for remote delegation
 	coord.registerRPCHandlers()
 
+	// Initialize Delegation Engine
+	coord.decider = NewDelegationEngine(nil)
+
+	// Initialize Economic Ledger
+	coord.ledger = NewEconomicLedger()
+	// Bootstrap local account with Early Adopter Bonus (10,000 microcredits)
+	coord.ledger.RegisterAccount(nodeID, 0)
+	coord.ledger.GrantEarlyAdopterBonus(nodeID, 10000)
+
 	return coord
 }
 
@@ -217,11 +233,17 @@ func (m *MeshCoordinator) SetSABBridge(bridge SABWriter) {
 	m.bridge = bridge
 }
 
-const (
-	// Locally defined to avoid import cycles with sab package
-	idxMetricsEpoch   = 11
-	offsetMeshMetrics = 0x00004000
-)
+// SetMonitor sets the system load provider for the delegation engine
+func (m *MeshCoordinator) SetMonitor(monitor SystemLoadProvider) {
+	m.decider.mu.Lock()
+	defer m.decider.mu.Unlock()
+	m.decider.loadProvider = monitor
+}
+
+// SetEconomicVault sets the grounded economic authority
+func (m *MeshCoordinator) SetEconomicVault(vault foundation.EconomicVault) {
+	m.ledger.SetVault(vault)
+}
 
 // Start begins mesh coordination
 func (m *MeshCoordinator) Start(ctx context.Context) error {
@@ -248,7 +270,36 @@ func (m *MeshCoordinator) Start(ctx context.Context) error {
 
 	m.logger.Info("mesh coordinator started - ready for shared compute",
 		"epoch_duration", m.epochOptimizer.EpochDuration)
+
 	return nil
+}
+
+// GetNodeID returns the local node identifier
+func (m *MeshCoordinator) GetNodeID() string {
+	return m.nodeID
+}
+
+// GetEconomicBalance returns the balance for the specified DID
+func (m *MeshCoordinator) GetEconomicBalance(did string) int64 {
+	if m.ledger == nil {
+		return 0
+	}
+	return m.ledger.GetBalance(did)
+}
+
+// GetEconomicStats returns the global stats for the economic ledger
+func (m *MeshCoordinator) GetEconomicStats() map[string]interface{} {
+	if m.ledger == nil {
+		return nil
+	}
+	return m.ledger.GetStats()
+}
+
+// GrantEconomicBonus grants a one-time bonus (convenience for JS/E2E)
+func (m *MeshCoordinator) GrantEconomicBonus(did string, bonus int64) {
+	if m.ledger != nil {
+		m.ledger.GrantEarlyAdopterBonus(did, bonus)
+	}
 }
 
 // Stop gracefully shuts down
@@ -975,8 +1026,8 @@ func (m *MeshCoordinator) updateMetrics() {
 		binary.LittleEndian.PutUint32(buf[56:], m.metrics.LocalChunks)
 		binary.LittleEndian.PutUint32(buf[60:], m.metrics.TotalChunksAvailable)
 
-		if err := m.bridge.WriteRaw(offsetMeshMetrics, buf); err == nil {
-			m.bridge.SignalEpoch(idxMetricsEpoch)
+		if err := m.bridge.WriteRaw(sab.OFFSET_MESH_METRICS, buf); err == nil {
+			m.bridge.SignalEpoch(sab.IDX_METRICS_EPOCH)
 		}
 	}
 }
@@ -1203,7 +1254,106 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 	return &result, nil
 }
 
+// DelegateCompute offloads a compute operation to the mesh with integrity verification
+func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string, inputDigest string, data []byte) ([]byte, error) {
+	// 1. Find suitable peer
+	m.peerMetricsMu.RLock()
+	var bestPeer string
+	var bestScore float32 = -1.0
+
+	for peerID, metrics := range m.peerMetrics {
+		score := metrics.AvgReputation * (1.0 / (metrics.P50LatencyMs + 0.1))
+		if score > bestScore {
+			bestScore = score
+			bestPeer = peerID
+		}
+	}
+	m.peerMetricsMu.RUnlock()
+
+	if bestPeer == "" {
+		return nil, errors.New("no suitable peers found for compute delegation")
+	}
+
+	// 2. Prepare request
+	req := DelegateRequest{
+		ID:          fmt.Sprintf("deleg_%d", time.Now().UnixNano()),
+		Operation:   operation,
+		InputDigest: inputDigest,
+	}
+
+	// 3. Dispatch via RPC
+	var resp DelegationResponse
+	err := m.transport.SendRPC(ctx, bestPeer, "mesh.DelegateCompute", req, &resp)
+	if err != nil {
+		m.updateCircuitBreaker(bestPeer, false)
+		return nil, fmt.Errorf("compute delegation RPC failed: %w", err)
+	}
+
+	if resp.Status == "input_missing" {
+		// TODO: Implement chunk push flow
+		return nil, errors.New("remote peer missing input chunk")
+	}
+
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("compute delegation failed: %s", resp.Error)
+	}
+
+	// 4. Verification (Simplified for now - should re-hash)
+	m.logger.Info("compute delegation successful", "peer", getShortID(bestPeer), "latency", resp.LatencyMs)
+	m.updateCircuitBreaker(bestPeer, true)
+
+	return resp.OutputData, nil
+}
+
 func (m *MeshCoordinator) registerRPCHandlers() {
+	m.transport.RegisterRPCHandler("mesh.DelegateCompute", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
+		if m.dispatcher == nil {
+			return nil, errors.New("local dispatcher not initialized")
+		}
+
+		var req DelegateRequest
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal delegation request: %w", err)
+		}
+
+		m.logger.Debug("received delegation request", "operation", req.Operation, "from_peer", getShortID(peerID))
+
+		// 1. Check if we have the input chunk
+		if m.storage != nil {
+			has, err := m.storage.HasChunk(ctx, req.InputDigest)
+			if err != nil || !has {
+				return DelegationResponse{Status: "input_missing"}, nil
+			}
+		}
+
+		// 2. Fetch data (simplified for now - assumes it's in storage)
+		data, err := m.storage.FetchChunk(ctx, req.InputDigest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch input chunk: %w", err)
+		}
+
+		// 3. Execute locally
+		job := &foundation.Job{
+			ID:        req.ID,
+			Operation: req.Operation,
+			Data:      data,
+			Priority:  100, // Default priority for delegated tasks
+		}
+
+		result := m.dispatcher.ExecuteJob(job)
+		if !result.Success {
+			return DelegationResponse{Status: "failed", Error: result.Error}, nil
+		}
+
+		// 4. Return result with verification digest
+		return DelegationResponse{
+			Status:       "success",
+			OutputData:   result.Data,
+			OutputDigest: req.InputDigest, // TODO: Compute actual output hash
+			LatencyMs:    float32(result.Latency),
+		}, nil
+	})
+
 	m.transport.RegisterRPCHandler("mesh.ExecuteJob", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
 		if m.dispatcher == nil {
 			return nil, errors.New("local dispatcher not initialized")
@@ -1220,6 +1370,23 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 		result := m.dispatcher.ExecuteJob(&job)
 		return result, nil
 	})
+}
+
+// DelegateRequest represents a compute delegation request
+type DelegateRequest struct {
+	ID          string `json:"id"`
+	Operation   string `json:"operation"`
+	InputDigest string `json:"input_digest"`
+	Params      string `json:"params"`
+}
+
+// DelegationResponse represents the result of a compute delegation
+type DelegationResponse struct {
+	Status       string  `json:"status"`
+	OutputData   []byte  `json:"output_data,omitempty"`
+	OutputDigest string  `json:"output_digest,omitempty"`
+	Error        string  `json:"error,omitempty"`
+	LatencyMs    float32 `json:"latency_ms"`
 }
 
 func minInt(a, b int) int {

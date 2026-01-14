@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
+	"syscall/js"
 	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
@@ -36,19 +38,17 @@ type CreditSupervisor struct {
 	rates foundation.EconomicRates
 
 	// Local cache for performance
-	accounts map[string]uint32 // ID -> SAB Offset
-
-	mu sync.RWMutex
+	accounts  sync.Map // ID (string) -> Offset (uint32)
+	nextIndex uint32   // Atomic counter for account allocation
 }
 
 // NewCreditSupervisor creates a new credit supervisor managing SAB economics
 func NewCreditSupervisor(sabPtr unsafe.Pointer, sabSize, baseOffset uint32) *CreditSupervisor {
-	return &CreditSupervisor{
+	cs := &CreditSupervisor{
 		sabPtr:     sabPtr,
 		sabSize:    sabSize,
 		baseOffset: baseOffset,
 		capacity:   ECONOMICS_MAX_ACCOUNTS,
-		accounts:   make(map[string]uint32),
 		rates: foundation.EconomicRates{
 			ComputeRate:        1.0,
 			BandwidthRate:      0.001,
@@ -61,26 +61,32 @@ func NewCreditSupervisor(sabPtr unsafe.Pointer, sabSize, baseOffset uint32) *Cre
 			PressureMultiplier: 0.1,
 		},
 	}
+	// Note: sync.Map doesn't need explicit initialization
+	return cs
 }
 
 // RegisterAccount allocates space in SAB for a new account
 func (cs *CreditSupervisor) RegisterAccount(id string) (uint32, error) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+	if val, ok := cs.accounts.Load(id); ok {
+		return val.(uint32), nil
+	}
 
-	if len(cs.accounts) >= ECONOMICS_MAX_ACCOUNTS {
+	// Atomic allocation check
+	currentIndex := atomic.LoadUint32(&cs.nextIndex)
+	if currentIndex >= ECONOMICS_MAX_ACCOUNTS {
 		return 0, fmt.Errorf("max accounts reached")
 	}
 
-	if offset, exists := cs.accounts[id]; exists {
-		return offset, nil
+	// Calculate and store
+	index := atomic.AddUint32(&cs.nextIndex, 1) - 1
+	offset := cs.baseOffset + OFFSET_ECONOMICS_ACCOUNTS + (index * ECONOMICS_ACCOUNT_SIZE)
+
+	actual, loaded := cs.accounts.LoadOrStore(id, offset)
+	if loaded {
+		return actual.(uint32), nil
 	}
 
-	index := uint32(len(cs.accounts))
-	offset := cs.baseOffset + OFFSET_ECONOMICS_ACCOUNTS + (index * ECONOMICS_ACCOUNT_SIZE)
-	cs.accounts[id] = offset
-
-	// Initialize account in SAB
+	// Initialize account in SAB (lock-free write once)
 	acc := &foundation.CreditAccount{
 		Balance:           0,
 		EarnedTotal:       0,
@@ -96,14 +102,12 @@ func (cs *CreditSupervisor) RegisterAccount(id string) (uint32, error) {
 // OnEpoch settle metrics and update accounts
 // GetAccount retrieves an account by ID
 func (cs *CreditSupervisor) GetAccount(id string) (foundation.CreditAccount, error) {
-	cs.mu.RLock()
-	offset, exists := cs.accounts[id]
-	cs.mu.RUnlock()
-
-	if !exists {
+	val, ok := cs.accounts.Load(id)
+	if !ok {
 		return foundation.CreditAccount{}, fmt.Errorf("account not found: %s", id)
 	}
 
+	offset := val.(uint32)
 	acc, err := cs.readAccount(offset)
 	if err != nil {
 		return foundation.CreditAccount{}, err
@@ -111,10 +115,28 @@ func (cs *CreditSupervisor) GetAccount(id string) (foundation.CreditAccount, err
 	return *acc, nil
 }
 
-func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
+// GetBalance implements foundation.EconomicVault
+func (cs *CreditSupervisor) GetBalance(did string) (int64, error) {
+	acc, err := cs.GetAccount(did)
+	if err != nil {
+		return 0, err
+	}
+	return acc.Balance, nil
+}
 
+// GrantBonus implements foundation.EconomicVault
+func (cs *CreditSupervisor) GrantBonus(did string, amount int64) error {
+	cs.settleAccount(did, amount, true)
+	return nil
+}
+
+// RegisterSABAccount wraps RegisterAccount to satisfy foundation.EconomicVault
+func (cs *CreditSupervisor) RegisterSABAccount(did string) error {
+	_, err := cs.RegisterAccount(did)
+	return err
+}
+
+func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
 	// For each metrics entry in SAB (256 slots)
 	for i := uint32(0); i < ECONOMICS_MAX_METRICS; i++ {
 		metricsOffset := cs.baseOffset + OFFSET_ECONOMICS_METRICS + (i * ECONOMICS_METRICS_SIZE)
@@ -124,10 +146,13 @@ func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
 		}
 
 		// Update registered accounts based on metrics
-		for id, offset := range cs.accounts {
+		cs.accounts.Range(func(key, value any) bool {
+			id := key.(string)
+			offset := value.(uint32)
+
 			acc, err := cs.readAccount(offset)
 			if err != nil {
-				continue
+				return true
 			}
 
 			// Apply multiplier based on device count (v1.1 Principle)
@@ -136,18 +161,11 @@ func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
 			// Calculate delta (v1.0 Principle)
 			delta := float64(cs.economic_tick(metrics, 1.0/12.0)) * multiplier
 
-			// Update balance
-			acc.Balance += int64(delta)
-			if delta > 0 {
-				acc.EarnedTotal += uint64(delta)
-			} else {
-				acc.SpentTotal += uint64(math.Abs(delta))
+			if delta != 0 {
+				cs.settleAccount(id, int64(delta), delta > 0)
 			}
-			acc.LastActivityEpoch = epoch
-
-			cs.writeAccount(offset, acc)
-			fmt.Printf("Settled account %s: delta %f, new balance %d\n", id, delta, acc.Balance)
-		}
+			return true
+		})
 
 		// 2. Process UBI Drip for all accounts (from Treasury)
 		cs.ProcessUBIDrip(epoch)
@@ -161,10 +179,11 @@ func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
 // ProcessUBIDrip distributes credits from did:inos:treasury to all accounts
 func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
 	// 1. Get Treasury balance
-	treasuryOffset, exists := cs.accounts["did:inos:treasury"]
-	if !exists {
+	val, ok := cs.accounts.Load("did:inos:treasury")
+	if !ok {
 		return
 	}
+	treasuryOffset := val.(uint32)
 	treasury, err := cs.readAccount(treasuryOffset)
 	if err != nil || treasury.Balance <= 0 {
 		return
@@ -173,14 +192,17 @@ func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
 	// 2. Calculate baseline drip (e.g., 1 credit per epoch)
 	baselineDrip := int64(1)
 
-	for id, offset := range cs.accounts {
+	cs.accounts.Range(func(key, value any) bool {
+		id := key.(string)
+		offset := value.(uint32)
+
 		if id == "did:inos:treasury" || id == "did:inos:nmxmxh" {
-			continue
+			return true
 		}
 
 		acc, err := cs.readAccount(offset)
 		if err != nil {
-			continue
+			return true
 		}
 
 		// Apply device multiplier: 1.0 + (devices * 0.001)
@@ -188,16 +210,12 @@ func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
 		drip := int64(float64(baselineDrip) * multiplier)
 
 		if treasury.Balance >= drip {
-			acc.Balance += drip
-			acc.EarnedTotal += uint64(drip)
-			acc.LastUbiClaim = int64(epoch)
-
-			treasury.Balance -= drip
-			cs.writeAccount(offset, acc)
+			// Atomic transfer logic (simplified for drip)
+			cs.settleAccount(id, drip, true)
+			cs.settleAccount("did:inos:treasury", -drip, false)
 		}
-	}
-
-	cs.writeAccount(treasuryOffset, treasury)
+		return true
+	})
 }
 
 // Internal Accessors
@@ -285,8 +303,6 @@ func (cs *CreditSupervisor) resetMetrics(offset uint32) {
 
 // DistributePoUWYield splits a job value according to the 5% protocol fee
 func (cs *CreditSupervisor) DistributePoUWYield(workerId, referrerId string, closeIds []string, jobValue uint64) error {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
 
 	// 1. Calculate Splits
 	protocolFee := uint64(float64(jobValue) * 0.05)
@@ -328,47 +344,31 @@ func (cs *CreditSupervisor) DistributePoUWYield(workerId, referrerId string, clo
 
 // settleAccount applies a delta to an account and updates totals
 func (cs *CreditSupervisor) settleAccount(id string, delta int64, isEarned bool) {
-	offset, exists := cs.accounts[id]
+	val, exists := cs.accounts.Load(id)
+	var offset uint32
 	if !exists {
-		// Auto-register for simplicity in Phase 17
+		// Auto-register
 		var err error
-		offset, err = cs.registerAccountLocked(id)
+		offset, err = cs.RegisterAccount(id)
 		if err != nil {
 			return
 		}
+	} else {
+		offset = val.(uint32)
 	}
 
-	acc, err := cs.readAccount(offset)
-	if err != nil {
-		return
-	}
+	// Atomic update of balance in SAB
+	ptr := unsafe.Add(cs.sabPtr, offset)
+	// Balance is at offset 0
+	atomic.AddInt64((*int64)(ptr), delta)
 
-	acc.Balance += delta
-	if isEarned && delta > 0 {
-		acc.EarnedTotal += uint64(delta)
+	if delta > 0 && isEarned {
+		// EarnedTotal is at offset 8
+		atomic.AddUint64((*uint64)(unsafe.Add(ptr, 8)), uint64(delta))
 	} else if delta < 0 {
-		acc.SpentTotal += uint64(math.Abs(float64(delta)))
+		// SpentTotal is at offset 16
+		atomic.AddUint64((*uint64)(unsafe.Add(ptr, 16)), uint64(math.Abs(float64(delta))))
 	}
-
-	cs.writeAccount(offset, acc)
-}
-
-// registerAccountLocked is the internal locked version of RegisterAccount
-func (cs *CreditSupervisor) registerAccountLocked(id string) (uint32, error) {
-	if len(cs.accounts) >= ECONOMICS_MAX_ACCOUNTS {
-		return 0, fmt.Errorf("max accounts reached")
-	}
-
-	index := uint32(len(cs.accounts))
-	offset := cs.baseOffset + OFFSET_ECONOMICS_ACCOUNTS + (index * ECONOMICS_ACCOUNT_SIZE)
-	cs.accounts[id] = offset
-
-	acc := &foundation.CreditAccount{
-		ReputationScore: 0.5,
-		DeviceCount:     1,
-		UptimeScore:     1.0,
-	}
-	return offset, cs.writeAccount(offset, acc)
 }
 
 // economic_tick calculates the delta for an epoch based on metrics
@@ -385,4 +385,91 @@ func (cs *CreditSupervisor) economic_tick(metrics *foundation.ResourceMetrics, h
 		(float64(metrics.SchedulingBias) * cs.rates.SchedulingCost)
 
 	return int64(earned - spent)
+}
+
+// GetStats returns aggregate economic statistics
+func (cs *CreditSupervisor) GetStats() map[string]interface{} {
+	var totalBalance int64
+	var accountCount int
+
+	cs.accounts.Range(func(key, value any) bool {
+		offset := value.(uint32)
+		acc, err := cs.readAccount(offset)
+		if err == nil {
+			totalBalance += acc.Balance
+			accountCount++
+		}
+		return true
+	})
+
+	return map[string]interface{}{
+		"active":         true,
+		"account_count":  accountCount,
+		"total_balance":  totalBalance,
+		"pending_escrow": 0,
+		"earnings_rate":  0.0,
+	}
+}
+
+// =============================================================================
+// JS EXPORTS - Domain-Owned Economic API
+// =============================================================================
+
+// JSGetBalance returns the balance for a DID (JS export wrapper)
+func (cs *CreditSupervisor) JSGetBalance(this js.Value, args []js.Value) interface{} {
+	did := "did:inos:nmxmxh" // Default
+	if len(args) > 0 && args[0].Type() == js.TypeString {
+		did = args[0].String()
+	}
+
+	balance, err := cs.GetBalance(did)
+	if err != nil {
+		return js.ValueOf(0)
+	}
+	return js.ValueOf(balance)
+}
+
+// JSGetStats returns aggregate economic stats (JS export wrapper)
+func (cs *CreditSupervisor) JSGetStats(this js.Value, args []js.Value) interface{} {
+	return js.ValueOf(cs.GetStats())
+}
+
+// JSGrantBonus grants a bonus to a DID (JS export wrapper)
+func (cs *CreditSupervisor) JSGrantBonus(this js.Value, args []js.Value) interface{} {
+	if len(args) < 2 {
+		return js.ValueOf(false)
+	}
+
+	did := args[0].String()
+	bonus := int64(args[1].Int())
+
+	err := cs.GrantBonus(did, bonus)
+	return js.ValueOf(err == nil)
+}
+
+// JSGetAccountInfo returns the SAB offset for a DID (JS export wrapper)
+func (cs *CreditSupervisor) JSGetAccountInfo(this js.Value, args []js.Value) interface{} {
+	did := "did:inos:nmxmxh" // Default
+	if len(args) > 0 && args[0].Type() == js.TypeString {
+		did = args[0].String()
+	}
+
+	// Try to finding existing account
+	val, ok := cs.accounts.Load(did)
+	if !ok {
+		// Auto-register if not found
+		offset, err := cs.RegisterAccount(did)
+		if err != nil {
+			return js.ValueOf(nil)
+		}
+		return js.ValueOf(map[string]interface{}{
+			"offset": offset,
+			"exists": true,
+		})
+	}
+
+	return js.ValueOf(map[string]interface{}{
+		"offset": val.(uint32),
+		"exists": true,
+	})
 }
