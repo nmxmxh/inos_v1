@@ -315,18 +315,25 @@ function ParadigmComparisonDiagram() {
     (svg, width) => {
       svg.selectAll('*').interrupt();
       svg.selectAll('*').remove();
+      if (!isPlaying) return;
 
-      const scale = Math.min(1, width / 700);
+      const designWidth = 600;
+      const scale = Math.min(1, width / designWidth);
       const timelineY = 120;
-      const cpuY = 45;
-      const colors = { polling: '#dc2626', callback: '#f59e0b', epoch: '#16a34a' };
+      const cpuY = 320;
+
+      const colors = {
+        polling: '#ef4444',
+        callback: '#f59e0b',
+        epoch: '#16a34a',
+      };
 
       // 1. Static Layout
       svg
         .append('line')
         .attr('x1', 50 * scale)
         .attr('y1', timelineY)
-        .attr('x2', width - 50 * scale)
+        .attr('x2', designWidth - 50 * scale)
         .attr('y2', timelineY)
         .attr('stroke', theme.colors.borderSubtle)
         .attr('stroke-width', 2);
@@ -339,7 +346,7 @@ function ParadigmComparisonDiagram() {
         .text('0ms');
       svg
         .append('text')
-        .attr('x', width - 50 * scale)
+        .attr('x', designWidth - 50 * scale)
         .attr('y', timelineY + 20)
         .attr('text-anchor', 'end')
         .attr('font-size', 9)
@@ -353,7 +360,7 @@ function ParadigmComparisonDiagram() {
       };
       svg
         .append('text')
-        .attr('x', width / 2)
+        .attr('x', designWidth / 2)
         .attr('y', 20)
         .attr('text-anchor', 'middle')
         .attr('font-size', 12 * scale + 2 * (1 - scale))
@@ -389,14 +396,14 @@ function ParadigmComparisonDiagram() {
         .attr('fill', colors[activeParadigm]);
       const statusText = svg
         .append('text')
-        .attr('x', 165 * scale)
+        .attr('x', (120 + 45) * scale)
         .attr('y', cpuY + 3)
         .attr('font-size', 10 * scale + 2 * (1 - scale))
         .attr('font-weight', 500)
         .attr('fill', colors[activeParadigm])
         .attr('font-family', "'JetBrains Mono', monospace");
 
-      const dataChangeX = 50 * scale + (width - 100 * scale) * 0.45;
+      const dataChangeX = 50 * scale + (designWidth - 100 * scale) * 0.45;
       const dataMarker = svg.append('g').attr('opacity', 0);
       dataMarker
         .append('line')
@@ -432,7 +439,7 @@ function ParadigmComparisonDiagram() {
           .transition()
           .duration(5000)
           .ease(d3.easeLinear)
-          .attr('cx', width - 50 * scale)
+          .attr('cx', designWidth - 50 * scale)
           .on('end', loop);
 
         dataMarker.style('opacity', 0).transition().delay(2250).duration(0).style('opacity', 1);
@@ -627,7 +634,8 @@ function CpuUsageDiagram() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 660);
+      const designWidth = 660;
+      const scale = Math.min(1, width / designWidth);
       const barHeight = 35;
       const startX = 150 * scale + 50 * (1 - scale);
       const barWidth = 400 * scale;
@@ -719,13 +727,14 @@ function EpochFlowDiagram() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 660);
-      const centerX = width / 2;
+      const designWidth = 660;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
       const spacing = 180 * scale;
 
       svg
         .append('text')
-        .attr('x', width / 2)
+        .attr('x', designWidth / 2)
         .attr('y', 25)
         .attr('text-anchor', 'middle')
         .attr('font-size', 12 * scale + 2 * (1 - scale))
@@ -825,7 +834,7 @@ function EpochFlowDiagram() {
         .attr('stroke', 'rgba(22, 163, 74, 0.3)');
       svg
         .append('text')
-        .attr('x', width / 2)
+        .attr('x', designWidth / 2)
         .attr('y', 195)
         .attr('text-anchor', 'middle')
         .attr('font-size', 10 * scale)

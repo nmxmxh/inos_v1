@@ -228,7 +228,35 @@ async function initializeKernelOnMainThread(
 
   // 3. Load and instantiate Go kernel
   const go = new window.Go();
-  const wasmResponse = await fetch(wasmUrl);
+  let wasmResponse: Response;
+
+  try {
+    wasmResponse = await fetch(wasmUrl);
+
+    // If .br fails or is not found, try the uncompressed version
+    if (!wasmResponse.ok && wasmUrl.endsWith('.br')) {
+      const fallbackUrl = wasmUrl.replace('.wasm.br', '.wasm').split('?')[0];
+      console.warn(
+        `[Kernel] Failed to load compressed WASM from ${wasmUrl}, trying fallback: ${fallbackUrl}`
+      );
+      wasmResponse = await fetch(fallbackUrl);
+    }
+
+    if (!wasmResponse.ok) {
+      throw new Error(`HTTP ${wasmResponse.status} ${wasmResponse.statusText}`);
+    }
+
+    // Check for SPA fallback (HTML instead of WASM)
+    const contentType = wasmResponse.headers.get('Content-Type');
+    if (contentType && contentType.includes('text/html')) {
+      throw new Error('Received HTML instead of WASM (check server SPA fallback)');
+    }
+  } catch (err) {
+    throw new Error(
+      `Failed to fetch WASM from ${wasmUrl}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
   let result: WebAssembly.WebAssemblyInstantiatedSource;
 
   try {
@@ -245,6 +273,31 @@ async function initializeKernelOnMainThread(
         streamingError
       );
       const bytes = await fallbackResponse.arrayBuffer();
+
+      // Loud diagnostics: Is this actually WASM?
+      const view = new Uint8Array(bytes);
+      const hex = Array.from(view.slice(0, 16))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join(' ');
+      const text = new TextDecoder().decode(view.slice(0, 50)).replace(/\0/g, '.');
+
+      console.log(`[Kernel] WASM Diagnostics - First 16 bytes (hex): ${hex}`);
+      console.log(`[Kernel] WASM Diagnostics - First 50 bytes (text): ${text}`);
+
+      const isWasm = view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d;
+
+      if (!isWasm) {
+        if (view[0] === 0x1f && view[1] === 0x8b) {
+          throw new Error(
+            'WASM is Gzip-compressed but the server is missing Content-Encoding: gzip. Hex: ' + hex
+          );
+        }
+        if (text.toLowerCase().includes('<!doctype html') || text.toLowerCase().includes('<html')) {
+          throw new Error('Received HTML error page instead of WASM. Hex: ' + hex);
+        }
+        throw new Error(`WASM magic number mismatch ('\\0asm' expected). Received hex: ${hex}`);
+      }
+
       result = await WebAssembly.instantiate(bytes, {
         ...go.importObject,
         env: { ...go.importObject.env, memory },

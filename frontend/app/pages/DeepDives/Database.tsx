@@ -695,8 +695,9 @@ function DhtMeshMap() {
     svg.selectAll('*').interrupt();
     svg.selectAll('*').remove();
     const height = 300;
-    const scale = Math.min(1, width / 700);
-    const centerX = width / 2;
+    const designWidth = 700;
+    const scale = Math.min(1, width / designWidth);
+    const centerX = designWidth / 2;
     const centerY = height / 2;
     const radius = 100 * scale;
 
@@ -803,8 +804,9 @@ function TieredConvergenceMap() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 740);
-      const centerX = width / 2;
+      const designWidth = 740;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
 
       const tiers = [
         {
@@ -907,7 +909,7 @@ function TieredConvergenceMap() {
         .append('path')
         .attr(
           'd',
-          `M${width - 60 * scale},150 Q${width - 10 * scale},150 ${width - 10 * scale},225 Q${width - 10 * scale},300 ${centerX},300 Q${10 * scale},300 ${10 * scale},225 Q${10 * scale},150 ${50 * scale},150`
+          `M${designWidth - 60 * scale},150 Q${designWidth - 10 * scale},150 ${designWidth - 10 * scale},225 Q${designWidth - 10 * scale},300 ${centerX},300 Q${10 * scale},300 ${10 * scale},225 Q${10 * scale},150 ${50 * scale},150`
         )
         .attr('fill', 'none')
         .attr('stroke', '#10b98120')

@@ -411,7 +411,8 @@ function ZeroCopyPipelineDiagram({ activeBuffer }: PipelineProps) {
     (svg, width) => {
       svg.selectAll('*').remove();
       const isA = activeBuffer === 'A';
-      const scale = Math.min(1, width / 700);
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
       const sabX = 220 * scale + 50 * (1 - scale);
       const sabY = 40,
         sabW = 260 * scale,
@@ -656,8 +657,9 @@ function PingPongBufferDiagram({ activeBuffer }: PipelineProps) {
     (svg, width) => {
       svg.selectAll('*').remove();
       const isA = activeBuffer === 'A';
-      const scale = Math.min(1, width / 700);
-      const centerX = 350;
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
       const mainColor = '#3b82f6',
         backColor = '#8b5cf6';
 
@@ -695,7 +697,7 @@ function PingPongBufferDiagram({ activeBuffer }: PipelineProps) {
 
       // 2. Actors
       const drawConnector = (color: string, targetY: number, label: string, isLeft: boolean) => {
-        const sx = isLeft ? 100 * scale : width - 100 * scale;
+        const sx = isLeft ? 100 * scale : designWidth - 100 * scale;
         const arrowX1 = isLeft ? sx + 25 : sx - 25;
         const arrowX2 = isLeft ? centerX - 135 * scale : centerX + 135 * scale;
 
@@ -759,7 +761,8 @@ function ShaderCategoriesDiagram() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 700);
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
 
       const categories = [
         { name: 'Rendering', count: 12, color: '#3b82f6', y: 30 },

@@ -220,8 +220,9 @@ function SupervisorHierarchyDiagram() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 700);
-      const centerX = width / 2;
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
 
       // Root supervisor
       svg
@@ -398,8 +399,9 @@ function UnifiedSupervisorDiagram() {
   const renderDiagram: D3RenderFn = useCallback(
     (svg, width) => {
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 700);
-      const centerX = width / 2;
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
 
       // Main supervisor box
       svg
@@ -478,7 +480,7 @@ function UnifiedSupervisorDiagram() {
 
       svg
         .append('text')
-        .attr('x', width - 190 * scale)
+        .attr('x', designWidth - 190 * scale)
         .attr('y', 75)
         .attr('text-anchor', 'middle')
         .attr('font-size', 10 * scale)
@@ -490,7 +492,7 @@ function UnifiedSupervisorDiagram() {
         const isActive = activeLoop === loop.name;
         svg
           .append('rect')
-          .attr('x', width - 260 * scale)
+          .attr('x', designWidth - 260 * scale)
           .attr('y', loop.y)
           .attr('width', 140 * scale)
           .attr('height', 35)
@@ -500,7 +502,7 @@ function UnifiedSupervisorDiagram() {
           .attr('stroke-width', isActive ? 2 : 1.5);
         svg
           .append('text')
-          .attr('x', width - 190 * scale)
+          .attr('x', designWidth - 190 * scale)
           .attr('y', loop.y + 16)
           .attr('text-anchor', 'middle')
           .attr('font-size', 10 * scale)
@@ -509,7 +511,7 @@ function UnifiedSupervisorDiagram() {
           .text(loop.name);
         svg
           .append('text')
-          .attr('x', width - 190 * scale)
+          .attr('x', designWidth - 190 * scale)
           .attr('y', loop.y + 28)
           .attr('text-anchor', 'middle')
           .attr('font-size', 8 * scale)
@@ -555,7 +557,7 @@ function UnifiedSupervisorDiagram() {
         .attr('marker-end', 'url(#arrowhead)');
       svg
         .append('path')
-        .attr('d', `M${centerX + 50 * scale},160 L${width - 260 * scale},160`)
+        .attr('d', `M${centerX + 50 * scale},160 L${designWidth - 260 * scale},160`)
         .attr('stroke', '#d1d5db')
         .attr('stroke-width', 2)
         .attr('marker-end', 'url(#arrowhead)');
@@ -630,11 +632,12 @@ function EpochCommunicationDiagram() {
     (svg, width) => {
       svg.selectAll('*').interrupt();
       svg.selectAll('*').remove();
-      const scale = Math.min(1, width / 700);
+      const designWidth = 700;
+      const scale = Math.min(1, width / designWidth);
 
       svg
         .append('text')
-        .attr('x', width / 2)
+        .attr('x', designWidth / 2)
         .attr('y', 30)
         .attr('text-anchor', 'middle')
         .attr('font-size', 12 * scale + 2 * (1 - scale))
@@ -751,7 +754,7 @@ function EpochCommunicationDiagram() {
 
       svg
         .append('text')
-        .attr('x', width / 2)
+        .attr('x', designWidth / 2)
         .attr('y', 245)
         .attr('text-anchor', 'middle')
         .attr('font-size', 10 * scale)
