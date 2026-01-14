@@ -1498,6 +1498,77 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
       <Style.SectionDivider />
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* LESSON 8: EPOCH-DIFFUSED CLEANUP */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 8: Epoch-Diffused Cleanup</h3>
+          <p>
+            Traditional systems use <strong>timers</strong> for cleanup (cache eviction, stale job
+            removal). But timers waste CPU even when idle. INOS uses{' '}
+            <strong>epoch-diffused cleanup</strong>: housekeeping runs after N epochs of{' '}
+            <em>activity</em>, not after N seconds of wall-clock time.
+          </p>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.ComparisonGrid>
+        <Style.ParadigmCard $type="bad">
+          <h4>⏰ Time-Based (Bad)</h4>
+          <p>
+            <code>ticker := 30s</code>
+          </p>
+          <p>Runs cleanup every 30s—even at 3am when nobody is using the app.</p>
+          <p>CPU: ~1% even when idle.</p>
+        </Style.ParadigmCard>
+        <Style.ParadigmCard $type="good">
+          <h4>⚡ Epoch-Diffused (Good)</h4>
+          <p>
+            <code>if epochDelta &gt;= 100</code>
+          </p>
+          <p>Runs cleanup after 100 operations. No ops = no cleanup.</p>
+          <p>CPU: 0% when idle.</p>
+        </Style.ParadigmCard>
+        <Style.ParadigmCard $type="good">
+          <h4>📊 Activity-Scaled</h4>
+          <p>High load → frequent cleanup</p>
+          <p>Low load → infrequent cleanup</p>
+          <p>Naturally self-regulating.</p>
+        </Style.ParadigmCard>
+      </Style.ComparisonGrid>
+
+      <Style.DefinitionBox>
+        <h4>Epoch-Driven Cleanup Pattern</h4>
+        <p>
+          Block on <code>Atomics.wait(SYSTEM_EPOCH)</code>, then check if enough epochs have passed
+          since last cleanup. If <code>epochDelta &gt;= threshold</code>, run cleanup. This ensures
+          zero CPU when idle, activity-proportional maintenance, and deterministic behavior for
+          testing.
+        </p>
+      </Style.DefinitionBox>
+
+      <Style.ContentCard>
+        <Style.MetricRow>
+          <Style.MetricLabel>Pending Jobs Cleanup</Style.MetricLabel>
+          <Style.MetricValue>Every 100 epochs</Style.MetricValue>
+        </Style.MetricRow>
+        <Style.MetricRow>
+          <Style.MetricLabel>View Cache Flush</Style.MetricLabel>
+          <Style.MetricValue>Every 500 epochs</Style.MetricValue>
+        </Style.MetricRow>
+        <Style.MetricRow>
+          <Style.MetricLabel>Peer Metrics Eviction</Style.MetricLabel>
+          <Style.MetricValue>Every 1000 epochs</Style.MetricValue>
+        </Style.MetricRow>
+        <Style.MetricRow>
+          <Style.MetricLabel>Circuit Breakers</Style.MetricLabel>
+          <Style.MetricValue>Every 5000 epochs</Style.MetricValue>
+        </Style.MetricRow>
+      </Style.ContentCard>
+
+      <Style.SectionDivider />
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* TAKEAWAYS */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <ScrollReveal>

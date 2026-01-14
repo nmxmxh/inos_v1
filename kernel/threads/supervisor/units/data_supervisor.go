@@ -23,7 +23,7 @@ func NewDataSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredP
 		capabilities = []string{"data.transform", "data.filter", "data.aggregate", "data.validate", "data.query"}
 	}
 	return &DataSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("data", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("data", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 	}
 }

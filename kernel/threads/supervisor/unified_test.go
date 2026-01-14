@@ -44,7 +44,7 @@ func TestUnifiedSupervisor_Creation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			sup := supervisor.NewUnifiedSupervisor(tc.name, tc.capabilities, patterns, knowledge, nil)
+			sup := supervisor.NewUnifiedSupervisor(tc.name, tc.capabilities, patterns, knowledge, nil, nil)
 
 			assert.NotNil(t, sup)
 			assert.Equal(t, tc.capabilities, sup.Capabilities())
@@ -57,7 +57,7 @@ func TestUnifiedSupervisor_Creation(t *testing.T) {
 func TestUnifiedSupervisor_StartStop(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -79,7 +79,7 @@ func TestUnifiedSupervisor_StartStop(t *testing.T) {
 func TestUnifiedSupervisor_JobSubmission(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -117,7 +117,7 @@ func TestUnifiedSupervisor_JobSubmission(t *testing.T) {
 func TestUnifiedSupervisor_BatchSubmission(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -155,7 +155,7 @@ func TestUnifiedSupervisor_BatchSubmission(t *testing.T) {
 func TestUnifiedSupervisor_Learning(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "learn-job",
@@ -177,7 +177,7 @@ func TestUnifiedSupervisor_Learning(t *testing.T) {
 func TestUnifiedSupervisor_Optimization(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "opt-job",
@@ -197,7 +197,7 @@ func TestUnifiedSupervisor_Optimization(t *testing.T) {
 func TestUnifiedSupervisor_Prediction(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	job := &foundation.Job{
 		ID:        "pred-job",
@@ -214,7 +214,7 @@ func TestUnifiedSupervisor_Prediction(t *testing.T) {
 func TestUnifiedSupervisor_Metrics(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	metrics := sup.Metrics()
 	assert.NotNil(t, metrics)
@@ -226,7 +226,7 @@ func TestUnifiedSupervisor_Metrics(t *testing.T) {
 func TestUnifiedSupervisor_InvalidJob(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -262,7 +262,7 @@ func TestUnifiedSupervisor_InvalidJob(t *testing.T) {
 func TestUnifiedSupervisor_ExpiredDeadline(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -296,7 +296,7 @@ func TestUnifiedSupervisor_ExpiredDeadline(t *testing.T) {
 func TestUnifiedSupervisor_ConcurrentSubmissions(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -344,7 +344,7 @@ func TestUnifiedSupervisor_CapabilityCheck(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
 	capabilities := []string{"encode", "decode", "transform"}
-	sup := supervisor.NewUnifiedSupervisor("test", capabilities, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", capabilities, patterns, knowledge, nil, nil)
 
 	// Test supported operations
 	for _, cap := range capabilities {
@@ -359,7 +359,7 @@ func TestUnifiedSupervisor_CapabilityCheck(t *testing.T) {
 func TestUnifiedSupervisor_HealthMonitoring(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -381,7 +381,7 @@ func TestUnifiedSupervisor_HealthMonitoring(t *testing.T) {
 func TestUnifiedSupervisor_AnomalyDetection(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("test", []string{"test"}, patterns, knowledge, nil, nil)
 
 	anomalies := sup.Anomalies()
 	assert.NotNil(t, anomalies)
@@ -393,7 +393,7 @@ func TestUnifiedSupervisor_AnomalyDetection(t *testing.T) {
 func TestUnifiedSupervisor_FullWorkflow(t *testing.T) {
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("workflow", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("workflow", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -457,7 +457,7 @@ func TestUnifiedSupervisor_Throughput(t *testing.T) {
 
 	_, patterns, knowledge := createTestEnvironment()
 
-	sup := supervisor.NewUnifiedSupervisor("throughput", []string{"test"}, patterns, knowledge, nil)
+	sup := supervisor.NewUnifiedSupervisor("throughput", []string{"test"}, patterns, knowledge, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

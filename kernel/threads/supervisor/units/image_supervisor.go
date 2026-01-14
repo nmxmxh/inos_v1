@@ -23,7 +23,7 @@ func NewImageSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiered
 		capabilities = []string{"image.process", "image.filter", "image.recognize", "image.segment", "image.generate"}
 	}
 	return &ImageSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("image", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("image", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 	}
 }

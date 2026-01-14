@@ -15,6 +15,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/scheduling"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence/security"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 // UnifiedSupervisor is the base supervisor implementation
@@ -22,6 +23,7 @@ type UnifiedSupervisor struct {
 	name         string
 	capabilities []string
 	delegator    foundation.MeshDelegator // Mesh offloading capability
+	bridge       SABInterface             // SAB bridge for epoch-based signaling
 
 	// Intelligence engines (from Week 1-2)
 	learning  *learning.EnhancedLearningEngine
@@ -47,6 +49,13 @@ type UnifiedSupervisor struct {
 	latencies []time.Duration
 	mu        sync.RWMutex
 
+	// Epoch-Based Loop Tracking (v1.10+)
+	lastSystemEpoch        int32 // Last seen system epoch
+	lastCleanupEpoch       int32 // Epoch at last cleanup
+	monitorEpochThreshold  int32 // Run monitor every N epochs (default 10)
+	learningEpochThreshold int32 // Run learning every N epochs (default 1000)
+	healthEpochThreshold   int32 // Run health every N epochs (default 100)
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -60,11 +69,13 @@ func NewUnifiedSupervisor(
 	patterns *pattern.TieredPatternStorage,
 	knowledge *intelligence.KnowledgeGraph,
 	delegator foundation.MeshDelegator,
+	bridge SABInterface,
 ) *UnifiedSupervisor {
 	us := &UnifiedSupervisor{
 		name:         name,
 		capabilities: capabilities,
 		delegator:    delegator,
+		bridge:       bridge,
 		optimizer:    optimization.NewOptimizationEngine(),
 		scheduler:    scheduling.NewSchedulingEngine(),
 		security:     security.NewSecurityEngine(),
@@ -73,6 +84,10 @@ func NewUnifiedSupervisor(
 		jobQueue:     NewJobQueue(),
 		resultCache:  NewResultCache(),
 		latencies:    make([]time.Duration, 0, 1000),
+		// Epoch thresholds (activity-based, not time-based)
+		monitorEpochThreshold:  10,   // ~10 operations between monitor checks
+		learningEpochThreshold: 1000, // ~1000 operations between learning updates
+		healthEpochThreshold:   100,  // ~100 operations between health checks
 	}
 	// Initialize engines with coordinator and bridge access
 	us.learning = learning.NewEnhancedLearningEngine(patterns, knowledge, us)
@@ -354,22 +369,39 @@ func (us *UnifiedSupervisor) SupportsOperation(op string) bool {
 }
 
 // Goroutine loops
+// v1.10+: Epoch-driven loops replace time-based tickers
+// Zero CPU when idle - activity-proportional maintenance
 
 func (us *UnifiedSupervisor) monitorLoop() {
 	defer us.wg.Done()
 
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	var lastEpoch int32 = 0
+	var monitorEpoch int32 = 0
 
 	for {
+		// If bridge is nil (e.g., in tests), fall back to time-based
+		if us.bridge == nil {
+			select {
+			case <-us.ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				us.Monitor(us.ctx)
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity
 		select {
 		case <-us.ctx.Done():
 			return
-		case <-ticker.C:
-			// Monitor health via role
-			if err := us.Monitor(us.ctx); err != nil {
-				// Handle monitored issues
+		case <-us.bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			// Epoch changed, update and check threshold
+			currentEpoch := us.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-monitorEpoch >= us.monitorEpochThreshold {
+				us.Monitor(us.ctx)
+				monitorEpoch = currentEpoch
 			}
+			lastEpoch = currentEpoch
 		}
 	}
 }
@@ -391,19 +423,34 @@ func (us *UnifiedSupervisor) scheduleLoop() {
 func (us *UnifiedSupervisor) learningLoop() {
 	defer us.wg.Done()
 
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
+	var lastEpoch int32 = 0
+	var learnEpoch int32 = 0
 
 	for {
+		// If bridge is nil (e.g., in tests), fall back to time-based
+		if us.bridge == nil {
+			select {
+			case <-us.ctx.Done():
+				return
+			case <-time.After(1 * time.Minute):
+				// Periodic learning updates (placeholder)
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity
 		select {
 		case <-us.ctx.Done():
 			return
-		case <-ticker.C:
-			// Periodic learning updates
-			// 1. Scan for new patterns from Rust modules (SAB)
-			// Placeholder for pattern scanning logic
-
-			// 2. Analyze patterns and update models (placeholder)
+		case <-us.bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := us.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-learnEpoch >= us.learningEpochThreshold {
+				// Periodic learning updates
+				// 1. Scan for new patterns from Rust modules (SAB)
+				// 2. Analyze patterns and update models
+				learnEpoch = currentEpoch
+			}
+			lastEpoch = currentEpoch
 		}
 	}
 }
@@ -411,16 +458,32 @@ func (us *UnifiedSupervisor) learningLoop() {
 func (us *UnifiedSupervisor) healthLoop() {
 	defer us.wg.Done()
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	var lastEpoch int32 = 0
+	var healthEpoch int32 = 0
 
 	for {
+		// If bridge is nil (e.g., in tests), fall back to time-based
+		if us.bridge == nil {
+			select {
+			case <-us.ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+				us.Monitor(us.ctx)
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity
 		select {
 		case <-us.ctx.Done():
 			return
-		case <-ticker.C:
-			// Health monitoring via Monitor role
-			us.Monitor(us.ctx)
+		case <-us.bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := us.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-healthEpoch >= us.healthEpochThreshold {
+				us.Monitor(us.ctx)
+				healthEpoch = currentEpoch
+			}
+			lastEpoch = currentEpoch
 		}
 	}
 }

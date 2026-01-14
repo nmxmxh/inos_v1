@@ -89,7 +89,7 @@ func NewBoidsSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiered
 		capabilities = []string{"boids.physics", "boids.evolution"}
 	}
 	s := &BoidsSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 		metricsProvider:   metricsProvider,
 		birdCount:         1000, // Default

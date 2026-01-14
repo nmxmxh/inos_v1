@@ -340,22 +340,39 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 }
 
 // runMetricsLoop periodically persists bridge metrics to SAB for external diagnostics
+// v1.10+: Epoch-driven (zero CPU when idle)
 func (s *Supervisor) runMetricsLoop(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	const metricsThreshold int32 = 10 // Update every 10 epochs
+	var lastEpoch int32 = 0
+	var metricsEpoch int32 = 0
 
 	for {
+		s.mu.RLock()
+		bridge := s.bridge
+		s.mu.RUnlock()
+
+		// Fallback to time-based if no bridge
+		if bridge == nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(1 * time.Second):
+				// Skip metrics write when no bridge
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			s.mu.RLock()
-			bridge := s.bridge
-			s.mu.RUnlock()
-
-			if bridge != nil {
+		case <-bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-metricsEpoch >= metricsThreshold {
 				bridge.WriteMetricsToSAB()
+				metricsEpoch = currentEpoch
 			}
+			lastEpoch = currentEpoch
 		}
 	}
 }
@@ -601,21 +618,54 @@ func (s *Supervisor) runMatchmaker(ctx context.Context) error {
 }
 
 // runWatcher runs the watcher thread
+// v1.10+: Epoch-driven with channel listening
 func (s *Supervisor) runWatcher(ctx context.Context) error {
 	s.logger.Info("Watcher thread started")
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	const watcherThreshold int32 = 100 // Health check every 100 epochs
+	var lastEpoch int32 = 0
+	var watchEpoch int32 = 0
 
 	for {
+		s.mu.RLock()
+		bridge := s.bridge
+		s.mu.RUnlock()
+
+		// Fallback to time-based if no bridge
+		if bridge == nil {
+			select {
+			case <-ctx.Done():
+				s.logger.Info("Watcher thread stopping")
+				return nil
+			case <-time.After(1 * time.Second):
+				s.logger.Debug("Performing periodic health check")
+				s.mu.Lock()
+				s.stats.TotalMessages++
+				s.mu.Unlock()
+			case req := <-s.watcherQueue:
+				s.logger.Debug("Processing health check request", utils.String("node_id", req.NodeID))
+				req.ResponseChan <- HealthCheckResponse{IsHealthy: true, Load: 0.3}
+				s.mu.Lock()
+				s.stats.TotalMessages++
+				s.mu.Unlock()
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity or queue messages
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Watcher thread stopping")
 			return nil
-		case <-ticker.C:
-			s.logger.Debug("Performing periodic health check")
-			s.mu.Lock()
-			s.stats.TotalMessages++
-			s.mu.Unlock()
+		case <-bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-watchEpoch >= watcherThreshold {
+				s.logger.Debug("Performing periodic health check")
+				s.mu.Lock()
+				s.stats.TotalMessages++
+				s.mu.Unlock()
+				watchEpoch = currentEpoch
+			}
+			lastEpoch = currentEpoch
 		case req := <-s.watcherQueue:
 			s.logger.Debug("Processing health check request", utils.String("node_id", req.NodeID))
 			req.ResponseChan <- HealthCheckResponse{IsHealthy: true, Load: 0.3}
@@ -627,38 +677,72 @@ func (s *Supervisor) runWatcher(ctx context.Context) error {
 }
 
 // runAdjuster runs the adjuster thread
+// v1.10+: Epoch-driven with channel listening
 func (s *Supervisor) runAdjuster(ctx context.Context) error {
 	s.logger.Info("Adjuster thread started")
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	const adjusterThreshold int32 = 50 // Adjust every 50 epochs
+	var lastEpoch int32 = 0
+	var adjustEpoch int32 = 0
 
 	for {
+		s.mu.RLock()
+		bridge := s.bridge
+		s.mu.RUnlock()
+
+		// Fallback to time-based if no bridge
+		if bridge == nil {
+			select {
+			case <-ctx.Done():
+				s.logger.Info("Adjuster thread stopping")
+				return nil
+			case <-time.After(500 * time.Millisecond):
+				s.logger.Debug("Checking load and adjusting throttling")
+				s.mu.Lock()
+				s.stats.TotalMessages++
+				s.mu.Unlock()
+			case req := <-s.adjusterQueue:
+				s.processAdjusterRequest(req)
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity or queue messages
 		select {
 		case <-ctx.Done():
 			s.logger.Info("Adjuster thread stopping")
 			return nil
-		case <-ticker.C:
-			s.logger.Debug("Checking load and adjusting throttling")
-			s.mu.Lock()
-			s.stats.TotalMessages++
-			s.mu.Unlock()
-		case req := <-s.adjusterQueue:
-			s.logger.Debug("Processing throttle request",
-				utils.String("resource_id", req.ResourceID),
-				utils.Float64("current_load", req.CurrentLoad))
-
-			shouldThrottle := req.CurrentLoad > 0.8
-			newRate := 1.0
-			if shouldThrottle {
-				newRate = 0.5
+		case <-bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-adjustEpoch >= adjusterThreshold {
+				s.logger.Debug("Checking load and adjusting throttling")
+				s.mu.Lock()
+				s.stats.TotalMessages++
+				s.mu.Unlock()
+				adjustEpoch = currentEpoch
 			}
-
-			req.ResponseChan <- ThrottleResponse{ShouldThrottle: shouldThrottle, NewRate: newRate}
-			s.mu.Lock()
-			s.stats.TotalMessages++
-			s.mu.Unlock()
+			lastEpoch = currentEpoch
+		case req := <-s.adjusterQueue:
+			s.processAdjusterRequest(req)
 		}
 	}
+}
+
+// processAdjusterRequest handles a throttle request
+func (s *Supervisor) processAdjusterRequest(req ThrottleRequest) {
+	s.logger.Debug("Processing throttle request",
+		utils.String("resource_id", req.ResourceID),
+		utils.Float64("current_load", req.CurrentLoad))
+
+	shouldThrottle := req.CurrentLoad > 0.8
+	newRate := 1.0
+	if shouldThrottle {
+		newRate = 0.5
+	}
+
+	req.ResponseChan <- ThrottleResponse{ShouldThrottle: shouldThrottle, NewRate: newRate}
+	s.mu.Lock()
+	s.stats.TotalMessages++
+	s.mu.Unlock()
 }
 
 // MatchJob sends a job matching request to the matchmaker

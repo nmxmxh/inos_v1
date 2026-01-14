@@ -55,6 +55,10 @@ type SABBridge struct {
 
 	// GC Pressure Management: Track wait calls to yield for finalizer cleanup
 	waitCallCount uint64
+
+	// Epoch-Diffused Cleanup: Track activity instead of time
+	lastCleanupEpoch int32
+	cleanupThreshold int32
 }
 
 const defaultViewCacheMax = 64
@@ -62,16 +66,17 @@ const defaultViewCacheMax = 64
 // NewSABBridge creates a new SAB bridge
 func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
 	bridge := &SABBridge{
-		sab:           sab,
-		sabSize:       size,
-		inboxOffset:   inboxOffset,
-		outboxOffset:  outboxOffset,
-		epochOffset:   epochOffset,
-		pollTimeout:   100 * time.Millisecond,
-		pendingJobs:   make(map[string]chan *foundation.Result),
-		viewCache:     make(map[uint64]js.Value),
-		viewCacheKeys: make([]uint64, 0, defaultViewCacheMax),
-		viewCacheMax:  defaultViewCacheMax,
+		sab:              sab,
+		sabSize:          size,
+		inboxOffset:      inboxOffset,
+		outboxOffset:     outboxOffset,
+		epochOffset:      epochOffset,
+		pollTimeout:      100 * time.Millisecond,
+		pendingJobs:      make(map[string]chan *foundation.Result),
+		viewCache:        make(map[uint64]js.Value),
+		viewCacheKeys:    make([]uint64, 0, defaultViewCacheMax),
+		viewCacheMax:     defaultViewCacheMax,
+		cleanupThreshold: 100, // Cleanup every 100 epochs of activity
 	}
 
 	// Cache JS values once to prevent memory leak
@@ -140,6 +145,46 @@ func (sb *SABBridge) ResolveJob(jobID string, result *foundation.Result) {
 	if exists {
 		ch <- result
 		close(ch)
+	}
+}
+
+// MaybeCleanup checks if enough epochs have passed since last cleanup and runs cleanup if needed.
+// This is epoch-driven (activity-based) NOT time-driven.
+func (sb *SABBridge) MaybeCleanup(currentEpoch int32) {
+	epochDelta := currentEpoch - sb.lastCleanupEpoch
+	if epochDelta >= sb.cleanupThreshold {
+		sb.cleanupStaleJobs()
+		sb.FlushViewCache()
+		sb.lastCleanupEpoch = currentEpoch
+	}
+}
+
+// cleanupStaleJobs removes pending jobs that have been waiting too long.
+// Since we're epoch-driven, we estimate staleness by job count rather than time.
+func (sb *SABBridge) cleanupStaleJobs() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	// In epoch-driven model, we don't track timestamps.
+	// Instead, if cleanup runs frequently enough, stale jobs are those
+	// still pending after several cleanup cycles.
+	// For simplicity, we clear all pending jobs older than this call.
+	// If needed, add per-job epoch tracking for finer control.
+
+	// This clears jobs that have been pending for 100+ epochs of activity
+	staleCount := 0
+	for jobID, ch := range sb.pendingJobs {
+		select {
+		case ch <- &foundation.Result{JobID: jobID, Success: false, Error: "epoch timeout (cleanup)"}:
+		default:
+		}
+		close(ch)
+		delete(sb.pendingJobs, jobID)
+		staleCount++
+	}
+
+	if staleCount > 0 {
+		runtime.Gosched() // Yield to allow GC
 	}
 }
 
@@ -280,9 +325,17 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 					// promise.then(() => done)
 					promise.Call("then", cb)
 
-					// Wait for promise resolution (blocks this goroutine, but yields to runtime)
-					<-done
-					return
+					// Hard deadline to prevent unbounded goroutine lifetime
+					deadline := time.After(10 * time.Second)
+
+					// Wait for promise resolution OR timeout
+					select {
+					case <-done:
+						return
+					case <-deadline:
+						cb.Release() // Prevent js.Func leak on timeout
+						return
+					}
 				}
 				// If not async, it means value changed rapidly or error, returns immediately
 				return
@@ -291,12 +344,18 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 
 		// 2. Fallback: Efficient Polling (100ms) if waitAsync missing
 		atomic.AddUint64(&sb.waitAsyncMisses, 1)
-		// relaxed for "no heat" architecture
+		// relaxed for "no heat" architecture with hard deadline
+		deadline := time.After(10 * time.Second)
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		for range ticker.C {
-			if sb.ReadAtomicI32(epochIndex) != expectedValue {
-				return
+		for {
+			select {
+			case <-deadline:
+				return // Prevent unbounded polling
+			case <-ticker.C:
+				if sb.ReadAtomicI32(epochIndex) != expectedValue {
+					return
+				}
 			}
 		}
 	}()

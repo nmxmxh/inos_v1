@@ -1195,6 +1195,90 @@ func (us *UnifiedSupervisor) processJob(job *foundation.Job) {
 
       <Style.SectionDivider />
 
+      {/* LESSON 7: EPOCH-DIFFUSED LOOPS */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 7: Epoch-Diffused Loops (v1.10)</h3>
+          <p>
+            Traditional supervisor loops use <code>time.NewTicker</code> for periodic tasks. But
+            timers waste CPU when idle. INOS supervisor loops are <strong>epoch-diffused</strong>:
+            they block on epoch changes via <code>WaitForEpochAsync</code> and only run cleanup
+            after N epochs of activity.
+          </p>
+          <p>
+            <strong>Converted loops in v1.10:</strong>
+          </p>
+          <ul>
+            <li>
+              <code>unified.go</code>: monitorLoop (10 epochs), learningLoop (1000 epochs),
+              healthLoop (100 epochs)
+            </li>
+            <li>
+              <code>supervisor.go</code>: runMetricsLoop (10 epochs), runWatcher (100 epochs),
+              runAdjuster (50 epochs)
+            </li>
+            <li>
+              <code>analytics_supervisor.go</code>: aggregationLoop (10 epochs)
+            </li>
+            <li>
+              <code>boids_supervisor.go</code>: evolutionLoop (uses IDX_EVOLUTION_EPOCH)
+            </li>
+          </ul>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.LoopGrid>
+        <Style.LoopCard $color="#10b981">
+          <h4>❌ Time-Based (Old)</h4>
+          <p>
+            <code>ticker := time.NewTicker(30 * time.Second)</code>
+          </p>
+          <p>Runs every 30s regardless of activity. At 3am with no users, still spinning CPU.</p>
+        </Style.LoopCard>
+        <Style.LoopCard $color="#3b82f6">
+          <h4>✅ Epoch-Diffused (New)</h4>
+          <p>
+            <code>WaitForEpochAsync()</code> +{' '}
+            <code>currentEpoch - actionEpoch &gt;= threshold</code>
+          </p>
+          <p>Blocks on Atomics.wait until activity. Cleanup every N epochs. Zero CPU when idle.</p>
+        </Style.LoopCard>
+      </Style.LoopGrid>
+
+      <Style.CodeBlock>
+        {`// Canonical Epoch-Diffused Loop Pattern (v1.10+)
+func (us *UnifiedSupervisor) exampleLoop() {
+  const threshold int32 = 100  // Run every 100 epochs
+  var lastEpoch, actionEpoch int32 = 0, 0
+  
+  for {
+    // Fallback for tests (nil bridge)
+    if us.bridge == nil {
+      select {
+      case <-us.ctx.Done(): return
+      case <-time.After(fallbackInterval):
+        doWork()
+      }
+      continue
+    }
+    
+    // EPOCH-DRIVEN: Block until activity (zero CPU when idle)
+    select {
+    case <-us.ctx.Done(): return
+    case <-us.bridge.WaitForEpochAsync(IDX_SYSTEM_EPOCH, lastEpoch):
+      currentEpoch := us.bridge.ReadAtomicI32(IDX_SYSTEM_EPOCH)
+      if currentEpoch - actionEpoch >= threshold {
+        doWork()           // Run maintenance
+        actionEpoch = currentEpoch
+      }
+      lastEpoch = currentEpoch
+    }
+  }
+}`}
+      </Style.CodeBlock>
+
+      <Style.SectionDivider />
+
       <Style.ContentCard>
         <h3>The Vision: Self-Organizing Intelligence</h3>
         <p>

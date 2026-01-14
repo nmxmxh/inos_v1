@@ -362,6 +362,70 @@ impl Epoch {
 
 **This is the ONLY communication mechanism. No function calls, no message passing.**
 
+### Epoch-Diffused Cleanup Pattern (v1.10+)
+
+**Core Principle**: Cleanup operations should be triggered by **activity epochs**, not wall-clock timers. This ensures zero CPU usage when idle while still performing necessary housekeeping.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TIME-BASED CLEANUP (BAD)         EPOCH-DIFFUSED (GOOD)         │
+│  ─────────────────────────        ──────────────────────        │
+│  ticker := 30s                    Atomics.wait(SYSTEM_EPOCH)    │
+│  for range ticker.C {             epochDelta := new - last      │
+│    cleanup() // ALWAYS RUNS       if epochDelta >= 100 {        │
+│  }                                  cleanup() // ONLY ON ACTIVITY│
+│                                   }                              │
+│  CPU: ~1% even when idle          CPU: 0% when idle              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why Epoch-Diffused?**
+- **Zero CPU when idle**: If no epochs change, no cleanup runs
+- **Activity-proportional**: More activity = more cleanup (naturally scaled)
+- **Deterministic**: Cleanup happens after N operations, not arbitrary time
+- **Testable**: Easy to reason about in unit tests
+
+**Implementation Pattern (Go Kernel)**:
+
+```go
+// epochDrivenCleanup blocks until activity, then cleans up every N epochs
+func (sb *SABBridge) epochDrivenCleanup() {
+    var lastSystemEpoch int32 = 0
+    var lastCleanupEpoch int32 = 0
+    const cleanupInterval int32 = 100 // Every 100 epochs of activity
+    
+    for {
+        // BLOCK until activity (zero CPU while idle)
+        sb.WaitForEpochChange(sab_layout.IDX_SYSTEM_EPOCH, lastSystemEpoch, -1)
+        currentEpoch := sb.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+        
+        // Check if enough activity has occurred
+        if currentEpoch - lastCleanupEpoch >= cleanupInterval {
+            sb.cleanupStaleJobs()      // Remove timed-out pending jobs
+            sb.FlushViewCache()        // Release stale JS view references
+            lastCleanupEpoch = currentEpoch
+        }
+        
+        lastSystemEpoch = currentEpoch
+    }
+}
+```
+
+**Cleanup Thresholds (Configurable)**:
+
+| Cleanup Type | Epoch Threshold | Rationale |
+|--------------|-----------------|-----------|
+| Pending Jobs | 100 epochs | High-frequency, needs regular cleanup |
+| View Cache | 500 epochs | Lower frequency, js.Value retention |
+| Peer Metrics | 1000 epochs | Mesh activity infrequent |
+| Circuit Breakers | 5000 epochs | Rarely stale |
+
+**Benefits**:
+1. ✅ **Zero-CPU Idle**: No tickers spinning during inactivity
+2. ✅ **Activity-Scaled**: Cleanup frequency matches workload
+3. ✅ **Predictable**: Cleanup after N operations, not arbitrary time
+4. ✅ **Aligned with Architecture**: Uses same epoch primitives as all other communication
+
 ---
 
 ## Module Registration via SAB

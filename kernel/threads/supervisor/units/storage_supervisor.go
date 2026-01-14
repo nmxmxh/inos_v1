@@ -36,7 +36,7 @@ func NewStorageSupervisor(
 	}
 
 	return &StorageSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("storage", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 	}
 }

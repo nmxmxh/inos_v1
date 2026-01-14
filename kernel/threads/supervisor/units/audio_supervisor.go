@@ -23,7 +23,7 @@ func NewAudioSupervisor(bridge supervisor.SABInterface, patterns *pattern.Tiered
 		capabilities = []string{"audio.process", "audio.synthesize", "audio.analyze", "audio.encode", "audio.spatial"}
 	}
 	return &AudioSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("audio", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("audio", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 	}
 }

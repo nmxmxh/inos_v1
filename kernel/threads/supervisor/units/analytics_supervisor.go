@@ -30,7 +30,7 @@ type AnalyticsSupervisor struct {
 func NewAnalyticsSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, metricsProvider MetricsProvider, delegator foundation.MeshDelegator) *AnalyticsSupervisor {
 	capabilities := []string{"analytics.aggregate", "analytics.broadcast"}
 	return &AnalyticsSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("analytics", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("analytics", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 		metricsProvider:   metricsProvider,
 	}
@@ -46,15 +46,34 @@ func (s *AnalyticsSupervisor) Start(ctx context.Context) error {
 }
 
 func (s *AnalyticsSupervisor) aggregationLoop(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	// v1.10+: Epoch-driven aggregation (zero CPU when idle)
+	const aggregationThreshold int32 = 10 // Update every 10 epochs
+	var lastEpoch int32 = 0
+	var aggEpoch int32 = 0
 
 	for {
+		// If bridge is nil (e.g., in tests), fall back to time-based
+		if s.bridge == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				s.updateGlobalMetrics()
+			}
+			continue
+		}
+
+		// Epoch-driven: Wait for activity
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			s.updateGlobalMetrics()
+		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_SYSTEM_EPOCH, lastEpoch):
+			currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			if currentEpoch-aggEpoch >= aggregationThreshold {
+				s.updateGlobalMetrics()
+				aggEpoch = currentEpoch
+			}
+			lastEpoch = currentEpoch
 		}
 	}
 }

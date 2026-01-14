@@ -27,7 +27,7 @@ func NewDriverSupervisor(bridge supervisor.SABInterface, credits *supervisor.Cre
 	// We need to confirm if 'bridge' supports multiple indices or if we route via operation.
 	// For now, we inject the shared bridge to maintain consistency.
 	return &DriverSupervisor{
-		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("driver", capabilities, patterns, knowledge, delegator),
+		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("driver", capabilities, patterns, knowledge, delegator, bridge),
 		bridge:            bridge,
 		credits:           credits,
 	}

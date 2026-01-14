@@ -110,6 +110,6 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 		return units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	default:
 		// Fallback: Generic Supervisor for new/unknown modules
-		return supervisor.NewUnifiedSupervisor(name, capabilities, ul.patterns, ul.knowledge, ul.delegator)
+		return supervisor.NewUnifiedSupervisor(name, capabilities, ul.patterns, ul.knowledge, ul.delegator, bridge)
 	}
 }
