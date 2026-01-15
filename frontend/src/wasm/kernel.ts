@@ -176,78 +176,8 @@ async function initializeKernelInWorker(
 
         console.log(`[Kernel] Worker SAB initialized. Context hash: ${contextHash}`);
 
-        // Define Economics Proxy (Worker communication)
-        const pendingEconomicRequests = new Map<string, (res: any) => void>();
-        (window as any).economics = {
-          getBalance: (did?: string) => {
-            const requestId = Math.random().toString(36).substring(7);
-            return new Promise(resolve => {
-              pendingEconomicRequests.set(requestId, resolve);
-              worker.postMessage({
-                type: 'economics_call',
-                method: 'getBalance',
-                args: [did],
-                requestId,
-              });
-            });
-          },
-          getStats: () => {
-            const requestId = Math.random().toString(36).substring(7);
-            return new Promise(resolve => {
-              pendingEconomicRequests.set(requestId, resolve);
-              worker.postMessage({ type: 'economics_call', method: 'getStats', requestId });
-            });
-          },
-          grantBonus: (did: string, bonus: number) => {
-            const requestId = Math.random().toString(36).substring(7);
-            return new Promise(resolve => {
-              pendingEconomicRequests.set(requestId, resolve);
-              worker.postMessage({
-                type: 'economics_call',
-                method: 'grantBonus',
-                args: [did, bonus],
-                requestId,
-              });
-            });
-          },
-          getAccountInfo: (did?: string) => {
-            const requestId = Math.random().toString(36).substring(7);
-            return new Promise(resolve => {
-              pendingEconomicRequests.set(requestId, resolve);
-              worker.postMessage({
-                type: 'economics_call',
-                method: 'getAccountInfo',
-                args: [did],
-                requestId,
-              });
-            });
-          },
-        };
-
-        const originalMessageHandler = messageHandler;
-        const interceptor = (e: MessageEvent) => {
-          if (e.data.type === 'economics_response') {
-            const { requestId, result } = e.data;
-            const resolver = pendingEconomicRequests.get(requestId);
-            if (resolver) {
-              resolver(result);
-              pendingEconomicRequests.delete(requestId);
-            }
-            return;
-          }
-          if (e.data.type === 'error' && e.data.requestId) {
-            const resolver = pendingEconomicRequests.get(e.data.requestId);
-            if (resolver) {
-              resolver(null); // Or reject
-              pendingEconomicRequests.delete(e.data.requestId);
-            }
-            return;
-          }
-          originalMessageHandler(e);
-        };
-
-        worker.removeEventListener('message', messageHandler);
-        worker.addEventListener('message', interceptor);
+        // Economics data is read directly from SAB at OFFSET_ECONOMICS
+        // Use the useEconomics() hook for zero-copy access - no worker messaging needed
 
         resolve({
           memory,

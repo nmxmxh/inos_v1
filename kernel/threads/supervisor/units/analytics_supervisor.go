@@ -3,6 +3,7 @@ package units
 import (
 	"context"
 	"encoding/binary"
+	"math"
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
@@ -63,7 +64,7 @@ func (s *AnalyticsSupervisor) aggregationLoop(ctx context.Context) {
 			continue
 		}
 
-		// Epoch-driven: Wait for activity
+		// Epoch-driven: Wait for activity with a 2-second heartbeat fallback
 		select {
 		case <-ctx.Done():
 			return
@@ -74,6 +75,9 @@ func (s *AnalyticsSupervisor) aggregationLoop(ctx context.Context) {
 				aggEpoch = currentEpoch
 			}
 			lastEpoch = currentEpoch
+		case <-time.After(2 * time.Second):
+			// Heartbeat: Force update if no epoch activity
+			s.updateGlobalMetrics()
 		}
 	}
 }
@@ -93,15 +97,18 @@ func (s *AnalyticsSupervisor) updateGlobalMetrics() {
 	// Total Storage (Bytes)
 	binary.LittleEndian.PutUint64(buf[0:8], metrics.TotalStorageBytes)
 
-	// Total Compute (GFLOPS)
-	// We use Uint64 for SAB slot, but metrics has float32. Convert for SAB storage.
-	binary.LittleEndian.PutUint64(buf[8:16], uint64(metrics.TotalComputeGFLOPS))
+	// Total Compute (GFLOPS) - Use Float64 for precision
+	binary.LittleEndian.PutUint64(buf[8:16], math.Float64bits(float64(metrics.TotalComputeGFLOPS)))
 
-	// Global Ops/Sec
-	binary.LittleEndian.PutUint64(buf[16:24], uint64(metrics.GlobalOpsPerSec))
+	// Global Ops/Sec - Use Float64 for precision
+	binary.LittleEndian.PutUint64(buf[16:24], math.Float64bits(float64(metrics.GlobalOpsPerSec)))
 
-	// Node Count
-	binary.LittleEndian.PutUint32(buf[24:28], metrics.ActiveNodeCount)
+	// Node Count - Ensure at least 1 if metrics Provider is present
+	nodeCount := metrics.ActiveNodeCount
+	if nodeCount == 0 {
+		nodeCount = 1
+	}
+	binary.LittleEndian.PutUint32(buf[24:28], nodeCount)
 
 	// 3. Write to SAB
 	if err := s.bridge.WriteRaw(sab_layout.OFFSET_GLOBAL_ANALYTICS, buf[:]); err != nil {

@@ -5,6 +5,7 @@
  */
 
 export { default as ZeroCopy } from './ZeroCopy';
+export { default as Atomics } from './Atomics';
 export { default as Signaling } from './Signaling';
 export { default as Mesh } from './Mesh';
 export { default as Economy } from './Economy';

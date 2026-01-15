@@ -67,7 +67,7 @@ func jsGetKernelStats(this js.Value, args []js.Value) interface{} {
 		if sabPtr != nil {
 			// Read current count from standardized epoch index
 			// Using raw pointer to avoid slice boundary checks
-			ptr := unsafe.Add(sabPtr, sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_BOIDS_COUNT*4)
+			ptr := unsafe.Add(sabPtr, sab_layout.OFFSET_ATOMIC_FLAGS+sab_layout.IDX_BIRD_COUNT*4)
 			particleCount = int(*(*uint32)(ptr))
 		}
 	}

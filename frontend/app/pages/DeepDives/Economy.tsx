@@ -273,7 +273,7 @@ function EconomicFlywheelDiagram() {
       // Responsive: scale based on container width, min 280px
       const scale = Math.min(1, width / 700);
       const centerX = 350;
-      const centerY = 140;
+      const centerY = 200;
       const radius = 100 * scale + 50 * (1 - scale); // Shrinks on mobile
 
       // Flywheel nodes
@@ -424,8 +424,8 @@ function EconomicFlywheelDiagram() {
     <D3Container
       render={renderFlywheel}
       dependencies={[renderFlywheel]}
-      viewBox="0 0 700 280"
-      height={280}
+      viewBox="0 0 700 400"
+      height={400}
     />
   );
 }
@@ -475,7 +475,7 @@ function FeeDistributionDiagram() {
 
       // Distribution targets - responsive positions
       const baseTargets = [
-        { label: 'Worker', amount: '950₵', pct: '95%', color: '#10b981', icon: '👷' },
+        { label: 'Workers', amount: '950₵', pct: '95%', color: '#10b981', icon: '👷' },
         { label: 'Treasury', amount: '35₵', pct: '3.5%', color: '#8b5cf6', icon: '🏦' },
         { label: 'Creator', amount: '5₵', pct: '0.5%', color: '#f59e0b', icon: '👑' },
         { label: 'Referrer', amount: '5₵', pct: '0.5%', color: '#3b82f6', icon: '🔗' },
@@ -489,7 +489,7 @@ function FeeDistributionDiagram() {
       const startY = 85;
 
       // Draw lines and boxes
-      targets.forEach(target => {
+      targets.forEach((target, i) => {
         svg
           .append('line')
           .attr('x1', startX)
@@ -500,6 +500,15 @@ function FeeDistributionDiagram() {
           .attr('stroke-width', 2);
 
         const boxW = width < 500 ? 55 : 70;
+
+        // Glow effect
+        svg
+          .append('filter')
+          .attr('id', `glow-${i}`)
+          .append('feGaussianBlur')
+          .attr('stdDeviation', 2.5)
+          .attr('result', 'coloredBlur');
+
         svg
           .append('rect')
           .attr('x', target.x - boxW / 2)
@@ -507,9 +516,10 @@ function FeeDistributionDiagram() {
           .attr('width', boxW)
           .attr('height', 70)
           .attr('rx', 8)
-          .attr('fill', `${target.color}10`)
+          .attr('fill', `${target.color}25`) // Increased opacity
           .attr('stroke', target.color)
-          .attr('stroke-width', 1.5);
+          .attr('stroke-width', 1.5)
+          .style('filter', `drop-shadow(0 0 4px ${target.color}60)`);
 
         svg
           .append('text')

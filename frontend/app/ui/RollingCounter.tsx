@@ -9,8 +9,11 @@ const Style = {
     font-weight: bold;
     overflow: hidden;
     height: 1.2em;
+    max-height: 1.2em;
     line-height: 1.2em;
     position: relative;
+    contain: paint;
+    vertical-align: bottom;
   `,
   DigitWrapper: styled.div`
     position: relative;

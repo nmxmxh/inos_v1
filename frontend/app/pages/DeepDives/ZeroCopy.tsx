@@ -296,7 +296,12 @@ const Style = {
     color: ${p => p.theme.colors.inkMedium};
   `,
 
-  MeterBar: styled.div<{ $percent: number; $color?: string }>`
+  MeterBar: styled.div.attrs<{ $percent: number; $color?: string }>(props => ({
+    style: {
+      '--meter-width': `${props.$percent}%`,
+      '--meter-color': props.$color || '#8b5cf6',
+    } as React.CSSProperties,
+  }))<{ $percent: number; $color?: string }>`
     height: 4px;
     background: rgba(0, 0, 0, 0.1);
     border-radius: 2px;
@@ -309,8 +314,8 @@ const Style = {
       left: 0;
       top: 0;
       height: 100%;
-      width: ${p => p.$percent}%;
-      background: ${p => p.$color || p.theme.colors.accent};
+      width: var(--meter-width);
+      background: var(--meter-color);
       transition: width 0.3s ease;
     }
   `,

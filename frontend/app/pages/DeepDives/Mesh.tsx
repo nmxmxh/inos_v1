@@ -677,6 +677,8 @@ function HierarchicalMeshDiagram() {
         },
       ];
 
+      const timeouts: number[] = [];
+
       flows.forEach(flow => {
         const packet = svg
           .append('circle')
@@ -737,7 +739,8 @@ function HierarchicalMeshDiagram() {
             .duration(500)
             .style('opacity', 0);
         }
-        setTimeout(animateFlow, flow.delay);
+        const tId = window.setTimeout(animateFlow, flow.delay);
+        timeouts.push(tId);
       });
 
       // Request flows (going up)
@@ -791,8 +794,14 @@ function HierarchicalMeshDiagram() {
             .duration(500)
             .style('opacity', 0);
         }
-        setTimeout(animateReq, req.delay);
+        const tId = window.setTimeout(animateReq, req.delay);
+        timeouts.push(tId);
       });
+
+      return () => {
+        timeouts.forEach(clearTimeout);
+        svg.selectAll('*').interrupt();
+      };
     },
     [theme]
   );
@@ -850,8 +859,11 @@ function GossipDiagram() {
       for (let i = 0; i < nodeCount; i++) {
         for (let offset = 1; offset <= 2; offset++) {
           const next = (i + offset) % nodeCount;
+          // ID needed for animation targeting
+          const lineId = `line-${Math.min(i, next)}-${Math.max(i, next)}`;
           svg
             .append('line')
+            .attr('id', lineId)
             .attr('x1', nodes[i].x)
             .attr('y1', nodes[i].y)
             .attr('x2', nodes[next].x)
@@ -946,6 +958,8 @@ function GossipDiagram() {
           .text(item.label);
       });
 
+      const timeouts: number[] = [];
+
       function startCycle() {
         // Reset state
         nodeGroups.forEach(ng => {
@@ -963,7 +977,7 @@ function GossipDiagram() {
         // Animate infection
         let informedCount = 0;
         nodes.forEach((n, i) => {
-          setTimeout(() => {
+          const tId = window.setTimeout(() => {
             nodeGroups[i].circle
               .transition()
               .duration(300)
@@ -986,6 +1000,22 @@ function GossipDiagram() {
               const targetIdx = (i + offset + nodeCount) % nodeCount;
               const target = nodes[targetIdx];
               if (target.delay > n.delay) {
+                // Animate connection line
+                const lineId = `line-${Math.min(i, targetIdx)}-${Math.max(i, targetIdx)}`;
+                const line = svg.select(`#${lineId}`);
+                if (!line.empty()) {
+                  line
+                    .transition()
+                    .duration(100)
+                    .attr('stroke', '#16a34a')
+                    .attr('stroke-width', 2)
+                    .style('opacity', 1)
+                    .transition()
+                    .duration(500)
+                    .attr('stroke', 'rgba(139, 92, 246, 0.1)')
+                    .attr('stroke-width', 1);
+                }
+
                 const packet = svg
                   .append('circle')
                   .attr('cx', n.x)
@@ -1034,13 +1064,20 @@ function GossipDiagram() {
               }
             });
           }, n.delay);
+          timeouts.push(tId);
         });
 
         // Loop cycle
-        setTimeout(startCycle, 5000);
+        const cycleId = window.setTimeout(startCycle, 5000);
+        timeouts.push(cycleId);
       }
 
       startCycle();
+
+      return () => {
+        timeouts.forEach(clearTimeout);
+        svg.selectAll('*').interrupt();
+      };
     },
     [theme]
   );

@@ -20,11 +20,20 @@ import Landing from './pages/Landing';
 import Problem from './pages/Problem';
 import Insight from './pages/Insight';
 import Architecture from './pages/Architecture';
-import Genesis from './pages/Genesis';
-import Cosmos from './pages/Cosmos';
+import History from './pages/History';
+import WhatsNext from './pages/WhatsNext';
 
 // Deep Dives
-import { ZeroCopy, Signaling, Mesh, Economy, Threads, Graphics, Database } from './pages/DeepDives';
+import {
+  ZeroCopy,
+  Signaling,
+  Mesh,
+  Economy,
+  Threads,
+  Graphics,
+  Database,
+  Atomics,
+} from './pages/DeepDives';
 import Diagnostics from './pages/Diagnostics';
 import ArchitecturalBoids from './features/boids/ArchitecturalBoids';
 
@@ -143,8 +152,8 @@ export default function App() {
               <Route path="problem" element={<Problem />} />
               <Route path="insight" element={<Insight />} />
               <Route path="architecture" element={<Architecture />} />
-              <Route path="genesis" element={<Genesis />} />
-              <Route path="cosmos" element={<Cosmos />} />
+              <Route path="history" element={<History />} />
+              <Route path="whats-next" element={<WhatsNext />} />
               <Route path="diagnostics" element={<Diagnostics />} />
               {/* Deep Dives */}
               <Route path="deep-dives">
@@ -155,6 +164,7 @@ export default function App() {
                 <Route path="threads" element={<Threads />} />
                 <Route path="graphics" element={<Graphics />} />
                 <Route path="database" element={<Database />} />
+                <Route path="atomics" element={<Atomics />} />
               </Route>
             </Route>
           </Routes>

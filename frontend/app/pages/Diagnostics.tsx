@@ -167,15 +167,13 @@ const Style = {
     margin-top: ${p => p.theme.spacing[2]};
   `,
 
-  HealthFill: styled.div<{ $percent: number }>`
+  HealthFill: styled.div.attrs<{ $percent: number }>(props => ({
+    style: {
+      width: `${props.$percent}%`,
+      background: props.$percent > 90 ? '#16a34a' : props.$percent > 70 ? '#f59e0b' : '#dc2626',
+    },
+  }))<{ $percent: number }>`
     height: 100%;
-    width: ${p => p.$percent}%;
-    background: ${p =>
-      p.$percent > 90
-        ? p.theme.colors.success
-        : p.$percent > 70
-          ? p.theme.colors.warning
-          : p.theme.colors.error};
     transition:
       width 0.3s ease,
       background 0.3s ease;
@@ -247,10 +245,7 @@ export default function Diagnostics() {
         const active = birdEpoch !== lastBirdEpoch;
         lastBirdEpoch = birdEpoch;
 
-        // Async calls removed from render loop (except getStats which is separate)
-        const econStats = (window as any).economics?.getStats?.() || {};
-
-        // Zero-copy balance read
+        // Zero-copy balance read (no worker messaging)
         const currentBalance = getBalance();
 
         setMetrics({
@@ -262,8 +257,8 @@ export default function Diagnostics() {
           arenaHead,
           bridge: { hits, misses, readNs, writeNs, health },
           balance: currentBalance,
-          pendingEscrow: econStats.pending_escrow || 0,
-          earningsPulse: econStats.earnings_rate || 0,
+          pendingEscrow: 0, // TODO: Read from SAB when economics layout is defined
+          earningsPulse: 0, // TODO: Read from SAB when economics layout is defined
         });
       } catch {
         // SAB invalid

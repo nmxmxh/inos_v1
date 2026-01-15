@@ -4,10 +4,10 @@ import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 export interface GlobalAnalytics {
   totalStorageBytes: bigint;
-  totalComputeGFLOPS: bigint;
-  globalOpsPerSec: bigint;
+  totalComputeGFLOPS: number;
+  globalOpsPerSec: number;
   activeNodeCount: number;
-  avgCapability: bigint; // Computed: totalCompute / nodes
+  avgCapability: number; // Computed: totalCompute / nodes
   timestamp: number;
 }
 
@@ -38,8 +38,8 @@ export function useGlobalAnalytics() {
         if (!view) return;
 
         const totalStorageBytes = view.getBigUint64(0, true);
-        const totalComputeGFLOPS = view.getBigUint64(8, true);
-        const globalOpsPerSec = view.getBigUint64(16, true);
+        const totalComputeGFLOPS = view.getFloat64(8, true);
+        const globalOpsPerSec = view.getFloat64(16, true);
         const activeNodeCount = view.getUint32(24, true);
 
         setData({
@@ -47,7 +47,7 @@ export function useGlobalAnalytics() {
           totalComputeGFLOPS,
           globalOpsPerSec,
           activeNodeCount,
-          avgCapability: activeNodeCount > 0 ? totalComputeGFLOPS / BigInt(activeNodeCount) : 0n,
+          avgCapability: activeNodeCount > 0 ? totalComputeGFLOPS / activeNodeCount : 0,
           timestamp: Date.now(),
         });
       } catch {

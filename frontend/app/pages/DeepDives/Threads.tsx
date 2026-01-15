@@ -470,12 +470,12 @@ function UnifiedSupervisorDiagram() {
           .text(eng.name);
       });
 
-      // Goroutine loops (right side)
+      // Epoch trigger handlers (right side)
       const loops = [
-        { name: 'monitorLoop()', interval: '1s', y: 100, color: '#8b5cf6' },
-        { name: 'scheduleLoop()', interval: '∞', y: 150, color: '#3b82f6' },
-        { name: 'learningLoop()', interval: '1m', y: 200, color: '#10b981' },
-        { name: 'healthLoop()', interval: '30s', y: 250, color: '#22c55e' },
+        { name: 'onEpoch(MONITOR)', interval: 'Event', y: 100, color: '#8b5cf6' },
+        { name: 'onEpoch(SCHEDULE)', interval: 'Adaptive', y: 150, color: '#3b82f6' },
+        { name: 'onEpoch(LEARN)', interval: 'Adaptive', y: 200, color: '#10b981' },
+        { name: 'onEpoch(HEALTH)', interval: 'Event', y: 250, color: '#22c55e' },
       ];
 
       svg
@@ -486,7 +486,7 @@ function UnifiedSupervisorDiagram() {
         .attr('font-size', 10 * scale)
         .attr('font-weight', 600)
         .attr('fill', theme.colors.inkMedium)
-        .text('Goroutine Loops');
+        .text('Epoch Triggers');
 
       loops.forEach(loop => {
         const isActive = activeLoop === loop.name;
@@ -516,7 +516,7 @@ function UnifiedSupervisorDiagram() {
           .attr('text-anchor', 'middle')
           .attr('font-size', 8 * scale)
           .attr('fill', theme.colors.inkLight)
-          .text(`interval: ${loop.interval}`);
+          .text(`Strategy: ${loop.interval}`);
       });
 
       // Central job queue
@@ -596,24 +596,26 @@ function UnifiedSupervisorDiagram() {
           flexWrap: 'wrap',
         }}
       >
-        {['monitorLoop()', 'scheduleLoop()', 'learningLoop()', 'healthLoop()'].map(loop => (
-          <button
-            key={loop}
-            onClick={() => setActiveLoop(activeLoop === loop ? null : loop)}
-            style={{
-              padding: '6px 12px',
-              background: activeLoop === loop ? '#8b5cf6' : 'white',
-              color: activeLoop === loop ? 'white' : '#6b7280',
-              border: '1px solid',
-              borderColor: activeLoop === loop ? '#8b5cf6' : '#d1d5db',
-              borderRadius: '4px',
-              fontSize: '11px',
-              cursor: 'pointer',
-            }}
-          >
-            {loop}
-          </button>
-        ))}
+        {['onEpoch(MONITOR)', 'onEpoch(SCHEDULE)', 'onEpoch(LEARN)', 'onEpoch(HEALTH)'].map(
+          loop => (
+            <button
+              key={loop}
+              onClick={() => setActiveLoop(activeLoop === loop ? null : loop)}
+              style={{
+                padding: '6px 12px',
+                background: activeLoop === loop ? '#8b5cf6' : 'white',
+                color: activeLoop === loop ? 'white' : '#6b7280',
+                border: '1px solid',
+                borderColor: activeLoop === loop ? '#8b5cf6' : '#d1d5db',
+                borderRadius: '4px',
+                fontSize: '11px',
+                cursor: 'pointer',
+              }}
+            >
+              {loop}
+            </button>
+          )
+        )}
       </div>
     </div>
   );

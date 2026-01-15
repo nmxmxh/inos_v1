@@ -10,14 +10,14 @@ const Style = {
     display: flex;
     flex-direction: column;
     gap: ${p => p.theme.spacing[6]};
-    padding: ${p => p.theme.spacing[6]};
+    padding: ${p => p.theme.spacing[8]};
     background: ${p => p.theme.colors.paperCream};
     border: 1px solid ${p => p.theme.colors.borderSubtle};
-    border-radius: ${p => p.theme.borders.radius.lg};
-    box-shadow: ${p => p.theme.shadows.page};
+    border-radius: 8px;
     font-family: ${p => p.theme.fonts.main};
     position: relative;
     overflow: hidden;
+    box-shadow: ${p => p.theme.shadows.lg};
 
     &::before {
       content: '';
@@ -25,8 +25,13 @@ const Style = {
       top: 0;
       left: 0;
       right: 0;
-      height: 4px;
-      background: ${p => p.theme.colors.accent};
+      height: 2px;
+      background: linear-gradient(
+        to right,
+        transparent,
+        ${p => p.theme.colors.accent},
+        transparent
+      );
     }
   `,
 
@@ -39,27 +44,28 @@ const Style = {
   `,
 
   Title: styled.h2`
-    font-family: ${p => p.theme.fonts.display};
-    font-size: ${p => p.theme.fontSizes.xl};
-    font-weight: ${p => p.theme.fontWeights.extrabold};
+    font-family: ${p => p.theme.fonts.main};
+    font-size: 1.25rem;
+    font-weight: 800;
     color: ${p => p.theme.colors.inkDark};
     margin: 0;
-    letter-spacing: ${p => p.theme.letterSpacing?.tight || '-0.02em'};
     text-transform: uppercase;
+    letter-spacing: 0.1em;
   `,
 
   Subtitle: styled.span`
     font-family: ${p => p.theme.fonts.typewriter};
     font-size: 9px;
-    color: ${p => p.theme.colors.inkLight};
+    color: ${p => p.theme.colors.inkMedium};
     text-transform: uppercase;
     letter-spacing: 0.1em;
+    opacity: 0.8;
   `,
 
   Grid: styled.div`
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: ${p => p.theme.spacing[4]};
+    gap: ${p => p.theme.spacing[6]};
 
     @media (max-width: ${p => p.theme.breakpoints.sm}) {
       grid-template-columns: 1fr;
@@ -67,82 +73,80 @@ const Style = {
   `,
 
   StatCard: styled(motion.div)`
-    padding: ${p => p.theme.spacing[4]};
-    background: ${p => p.theme.colors.paperWhite};
-    border: 1px solid ${p => p.theme.colors.borderSubtle};
-    border-radius: ${p => p.theme.borders.radius.md};
+    padding: ${p => p.theme.spacing[5]};
+    background: rgba(255, 255, 255, 0.4);
+    border-left: 1px solid ${p => p.theme.colors.accent}40;
     display: flex;
     flex-direction: column;
-    gap: ${p => p.theme.spacing[1]};
-    position: relative;
+    gap: ${p => p.theme.spacing[2]};
   `,
 
   StatLabel: styled.span`
-    font-size: 10px;
-    font-weight: ${p => p.theme.fontWeights.semibold};
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 9px;
     color: ${p => p.theme.colors.inkMedium};
     text-transform: uppercase;
     letter-spacing: 0.05em;
   `,
 
   StatValue: styled.div`
-    font-size: ${p => p.theme.fontSizes['3xl']};
-    font-weight: ${p => p.theme.fontWeights.extrabold};
-    color: ${p => p.theme.colors.accent};
-    font-feature-settings: 'tnum';
+    font-size: 2rem;
+    font-weight: 800;
+    color: ${p => p.theme.colors.inkDark};
     display: flex;
     align-items: baseline;
     gap: ${p => p.theme.spacing[1]};
   `,
 
   StatUnit: styled.span`
-    font-size: ${p => p.theme.fontSizes.sm};
-    font-weight: ${p => p.theme.fontWeights.medium};
-    color: ${p => p.theme.colors.inkLight};
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    font-weight: 800;
+    color: ${p => p.theme.colors.accent};
+    margin-left: 4px;
   `,
 
   Visualizer: styled.div`
-    height: 120px;
+    height: 160px;
     width: 100%;
-    background: ${p => p.theme.colors.blueprintLight};
-    border: 1px solid ${p => p.theme.colors.blueprintGrid};
-    border-radius: ${p => p.theme.borders.radius.md};
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 4px;
     position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-top: ${p => p.theme.spacing[2]};
-    background-image:
-      linear-gradient(${p => p.theme.colors.blueprintGrid} 1px, transparent 1px),
-      linear-gradient(90deg, ${p => p.theme.colors.blueprintGrid} 1px, transparent 1px);
-    background-size: 20px 20px;
+    margin-top: ${p => p.theme.spacing[4]};
+    overflow: hidden;
   `,
 
   NodeDot: styled(motion.div)`
-    width: 8px;
-    height: 8px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
     background: ${p => p.theme.colors.accent};
-    box-shadow: 0 0 10px ${p => p.theme.colors.accent};
+    opacity: 0.6;
   `,
 
   Footer: styled.div`
     display: flex;
     justify-content: space-between;
     font-family: ${p => p.theme.fonts.typewriter};
-    font-size: 10px;
-    color: ${p => p.theme.colors.inkFaded};
-    margin-top: ${p => p.theme.spacing[2]};
+    font-size: 8px;
+    color: ${p => p.theme.colors.inkLight};
+    margin-top: ${p => p.theme.spacing[4]};
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   `,
 
   BlueprintLabel: styled.div`
     position: absolute;
     top: 8px;
     left: 8px;
+    font-family: ${p => p.theme.fonts.typewriter};
     font-size: 8px;
-    color: ${p => p.theme.colors.blueprint};
-    font-weight: bold;
-    opacity: 0.5;
+    color: ${p => p.theme.colors.accent};
+    opacity: 0.3;
   `,
 };
 

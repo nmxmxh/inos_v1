@@ -1354,6 +1354,10 @@ export function Architecture() {
             <Style.DeepDiveTitle $color="#dc2626">Epoch Signaling</Style.DeepDiveTitle>
             <Style.DeepDiveDesc>Reactive mutation patterns</Style.DeepDiveDesc>
           </Style.DeepDiveLink>
+          <Style.DeepDiveLink to="/deep-dives/atomics" $color="#8b5cf6">
+            <Style.DeepDiveTitle $color="#8b5cf6">Atomics</Style.DeepDiveTitle>
+            <Style.DeepDiveDesc>Universal sync primitive</Style.DeepDiveDesc>
+          </Style.DeepDiveLink>
           <Style.DeepDiveLink to="/deep-dives/mesh" $color="#16a34a">
             <Style.DeepDiveTitle $color="#16a34a">P2P Mesh</Style.DeepDiveTitle>
             <Style.DeepDiveDesc>Gossip + DHT + Reputation</Style.DeepDiveDesc>
@@ -1379,7 +1383,7 @@ export function Architecture() {
 
       <ChapterNav
         prev={{ to: '/insight', title: '02. The Insight' }}
-        next={{ to: '/genesis', title: '04. Genesis' }}
+        next={{ to: '/history', title: '04. History' }}
       />
     </Style.BlogContainer>
   );

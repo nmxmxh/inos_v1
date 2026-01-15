@@ -318,7 +318,12 @@ const Style = {
     color: ${p => p.theme.colors.inkMedium};
   `,
 
-  MeterBar: styled.div<{ $percent: number; $color?: string }>`
+  MeterBar: styled.div.attrs<{ $percent: number; $color?: string }>(props => ({
+    style: {
+      '--meter-width': `${props.$percent}%`,
+      '--meter-color': props.$color || '#8b5cf6',
+    } as React.CSSProperties,
+  }))<{ $percent: number; $color?: string }>`
     height: 4px;
     background: rgba(0, 0, 0, 0.1);
     border-radius: 2px;
@@ -331,8 +336,8 @@ const Style = {
       left: 0;
       top: 0;
       height: 100%;
-      width: ${p => p.$percent}%;
-      background: ${p => p.$color || p.theme.colors.accent};
+      width: var(--meter-width);
+      background: var(--meter-color);
       transition: width 0.3s ease;
     }
   `,
@@ -443,7 +448,7 @@ function ParadigmComparisonDiagram() {
       svg.selectAll('*').remove();
       if (!isPlaying) return;
 
-      const designWidth = 600;
+      const designWidth = 700;
       const scale = Math.min(1, width / designWidth);
       const timelineY = 120;
       const cpuY = 320;
@@ -1726,8 +1731,8 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/zero-copy', title: 'Zero-Copy I/O' }}
-        next={{ to: '/deep-dives/mesh', title: 'P2P Mesh' }}
+        prev={{ title: 'Zero-Copy I/O', to: '/deep-dives/zero-copy' }}
+        next={{ title: 'Atomics', to: '/deep-dives/atomics' }}
       />
     </Style.BlogContainer>
   );

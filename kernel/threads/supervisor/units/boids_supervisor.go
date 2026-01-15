@@ -136,23 +136,39 @@ func (s *BoidsSupervisor) autoDetectBirdCount() {
 	utils.Debug("Using default bird count", utils.Int("count", s.birdCount))
 }
 
-// learningLoop monitors SAB and executes genetic algorithm using low-latency wait-free signaling
+// learningLoop executes genetic algorithm based on physics epochs (zero CPU when idle)
 func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
-	utils.Info("Boids learning loop starting (Wait-Free Mode)")
+	// Evolution trigger: every N physics frames (60fps * 3 seconds = ~180 frames)
+	const evolutionFrameThreshold int32 = 180
 
-	// Determine initial epoch state
-	currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
+	utils.Info("Boids learning loop starting (Epoch Mode)", utils.Int("threshold_frames", int(evolutionFrameThreshold)))
+
+	// Track physics epochs (Rust increments IDX_BIRD_EPOCH after every physics step)
+	var lastPhysicsEpoch int32 = 0
+	var lastEvolutionEpoch int32 = 0
 
 	for {
-		// 1. Wait for Signal from Rust/JS or Kernel Dispatch (Zero-Latency)
-		// We wait for IDX_EVOLUTION_EPOCH using Wait-Free Atomic Monitoring
 		select {
 		case <-ctx.Done():
 			return
-		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_EVOLUTION_EPOCH, currentEpoch):
-			// Signal received!
-			currentEpoch = s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
-			s.checkEvolution()
+		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_BIRD_EPOCH, lastPhysicsEpoch):
+			// Physics frame completed - Rust incremented the bird epoch
+			currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
+
+			// Check if enough frames have passed since last evolution
+			framesSinceEvolution := currentEpoch - lastEvolutionEpoch
+			if framesSinceEvolution < 0 {
+				// Epoch wrapped around - reset baseline
+				lastEvolutionEpoch = currentEpoch
+				framesSinceEvolution = 0
+			}
+
+			if framesSinceEvolution >= evolutionFrameThreshold && s.birdCount > 0 && s.bridge.IsReady() {
+				s.checkEvolution()
+				lastEvolutionEpoch = currentEpoch
+			}
+
+			lastPhysicsEpoch = currentEpoch
 		}
 	}
 }
@@ -191,9 +207,8 @@ func (s *BoidsSupervisor) checkEvolution() {
 		return // Nothing to do
 	}
 
-	if time.Since(s.lastEvolutionTime) < s.evolutionInterval {
-		return // Not time yet
-	}
+	// Note: Evolution frequency is controlled by the epoch-driven learningLoop
+	// (every N physics frames), so no time check needed here.
 
 	// Log evolution start
 	utils.Info("Starting Evolution Cycle", utils.Int("gen", s.generation+1))

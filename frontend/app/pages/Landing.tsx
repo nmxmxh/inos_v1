@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Landing Page
+ * INOS Technical Codex : Landing Page
  *
  * Renaissance-inspired narrative, framed with hero/villain arc.
  * Refactored to Style object pattern.
@@ -56,6 +56,31 @@ const Style = {
     display: flex;
     flex-direction: column;
     gap: ${p => p.theme.spacing[1]};
+  `,
+
+  ContentCard: styled.div`
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[6]} 0;
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: ${p => p.theme.spacing[4]};
+    }
+  `,
+
+  SectionDivider: styled.div`
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      ${p => p.theme.colors.borderSubtle},
+      transparent
+    );
+    margin: ${p => p.theme.spacing[10]} 0;
   `,
 
   TOCSection: styled.section`
@@ -162,6 +187,38 @@ const Style = {
     margin: 0;
     border-top: 1px solid ${p => p.theme.colors.borderSubtle};
   `,
+
+  DeepDiveLink: styled(NavLink)<{ $color: string }>`
+    display: block;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid ${p => p.$color}30;
+    border-left: 3px solid ${p => p.$color};
+    border-radius: 6px;
+    padding: ${p => p.theme.spacing[4]};
+    text-decoration: none;
+    transition:
+      transform 0.2s,
+      box-shadow 0.2s;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+  `,
+
+  DeepDiveTitle: styled.div<{ $color: string }>`
+    font-weight: 700;
+    color: ${p => p.$color};
+    margin-bottom: ${p => p.theme.spacing[1]};
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+  `,
+
+  DeepDiveDesc: styled.div`
+    font-size: ${p => p.theme.fontSizes.sm};
+    color: ${p => p.theme.colors.inkMedium};
+  `,
 };
 
 const MANUSCRIPT_VARIANTS = {
@@ -187,35 +244,35 @@ const CHAPTERS = [
     title: 'The Problem',
     path: '/problem',
     description:
-      'Global data centers consume 200+ TWh annually. Bitcoin mining alone drains 150 TWh for 7 transactions per second. A significant fraction of modern compute is spent on coordination, translation, and duplication—not useful work. What if we could reclaim it?',
+      "Global data centers consume 200+ TWh annually, yet the majority of modern compute is wasted on coordination, translation, and data duplication: the 'Copy Tax'. We are building to reclaim the lost efficiency of the internet.",
   },
   {
     number: '02',
     title: 'The Insight',
     path: '/insight',
     description:
-      'What if data could move between threads without copying? What if every browser became a compute node? WebAssembly, WebGPU, WebRTC, SharedArrayBuffer. The pieces exist. Someone just had to wire them together.',
+      'The pieces of the future are already here: WebAssembly, WebGPU, and SharedArrayBuffer. By wiring them into a zero-copy architecture, we turn every browser into an active participant in a global shared reality.',
   },
   {
     number: '03',
     title: 'The Architecture',
     path: '/architecture',
     description:
-      'A tri-layer stack where Go orchestrates, Rust executes, and JavaScript renders. Built on a zero-copy build pipeline synchronized by binary schemas. Pure shared reality.',
+      'A tri-layer symphony where Go orchestrates policy, Rust executes SIMD-accelerated logic, and TypeScript renders at 60fps. All read from the same absolute memory buffer. No serialization. No latency.',
   },
   {
     number: '04',
-    title: 'Genesis',
-    path: '/genesis',
+    title: 'History',
+    path: '/history',
     description:
-      'The 30-year legacy of message-passing has cost us 60% of CPU cycles in translation alone. INOS is a technical correction—a return to Distributed Shared Memory.',
+      'The 30-year legacy of message-passing has cost us 60% of CPU cycles. INOS is a technical correction: a return to Distributed Shared Memory and the original promise of a unified network.',
   },
   {
     number: '05',
-    title: 'The Cosmos',
-    path: '/cosmos',
+    title: "What's Next",
+    path: '/whats-next',
     description:
-      'The moonshot: browsers as compute nodes. From 10–100 nodes (collaborative simulations) to 1k–10k (regional meshes) to 100k+ (global workloads). Fidelity scales with the network.',
+      'The path forward: from experimental prototype to planetary infrastructure. Proof-of-Useful-Work consensus, autonomous sensor swarms, and a substrate where knowing is not enough—we must apply.',
   },
 ];
 
@@ -260,7 +317,7 @@ export function Landing() {
   return (
     <Style.BlogContainer>
       <Style.HeroSection variants={MANUSCRIPT_VARIANTS} initial="initial" animate="animate">
-        <Style.Subtitle>The Internet-Native Operating System</Style.Subtitle>
+        <Style.Subtitle>Phase 1: Experimental Research System</Style.Subtitle>
         <Style.PageTitle>The Technical Codex</Style.PageTitle>
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
@@ -268,8 +325,8 @@ export function Landing() {
         {/* ═══════════════════════════════════════════════════════════════════ */}
         <Style.LeadParagraph>
           <strong>
-            INOS is a browser-native operating system that eliminates data copying, turning every
-            device into a peer in a global supercomputer.
+            INOS is an experimental shared-memory distributed runtime exploring post-HTTP
+            architectures.
           </strong>
         </Style.LeadParagraph>
 
@@ -279,15 +336,22 @@ export function Landing() {
         <ScrollReveal variant="fade">
           <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7 }}>
             <strong>The Villain:</strong> Modern distributed systems spend over 60% of compute
-            cycles on serialization, coordination, and redundancy. Not useful work. We call this the{' '}
-            <strong>Copy Tax</strong>.
+            cycles on serialization and coordination. This is the <strong>Copy Tax</strong>, a
+            silent drain on global energy. We spend more time translating data than processing it.
           </p>
           <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7, marginTop: '1rem' }}>
-            <strong>The Solution:</strong> INOS reclaims this waste through shared memory and
-            zero-copy architectures. Data flows like blood through the body. No stopping. No pumping
-            between containers. One buffer, shared by all.
+            <strong>The Solution:</strong> INOS eliminates translation through a single shared
+            buffer. Data flows like blood through a body, reaching Go, Rust, and TypeScript without
+            the friction of copying. One reality, shared by all.
+          </p>
+          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7, marginTop: '1rem' }}>
+            <strong>The Why:</strong> We seek the limit of connectivity. By removing the
+            request-response cycle, we are creating a nervous system for a planetary-scale
+            supercomputer. This is our research into a future where every device is a neuron in a
+            global brain, synchronized at the speed of light.
           </p>
         </ScrollReveal>
+        <br />
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
         {/* LAYER 3: HOW IT WORKS (Live proof) */}
@@ -296,8 +360,9 @@ export function Landing() {
           <p style={{ fontWeight: 500, color: '#2d2d2d' }}>
             Right now, in your browser,{' '}
             <strong>{stats.birdCount.toLocaleString()} autonomous agents</strong> are performing a
-            collective ballet within a <strong>single shared buffer</strong>. Go orchestrates. Rust
-            executes. JavaScript renders. Zero copies between them.
+            collective ballet within a <strong>single shared buffer</strong>. Go orchestrates the
+            policy. Rust executes the physics. JavaScript renders the reality. This is a nervous
+            system for a new kind of machine.
           </p>
         </ScrollReveal>
 
@@ -379,6 +444,63 @@ export function Landing() {
             </Style.TOCItem>
           ))}
         </Style.TOCList>
+
+        <ScrollReveal variant="fade">
+          <Style.SectionDivider style={{ margin: '6rem 0 4rem' }} />
+          <Style.ContentCard
+            style={{
+              background: 'rgba(139, 92, 246, 0.03)',
+              border: '1px solid rgba(139, 92, 246, 0.15)',
+            }}
+          >
+            <Style.Subtitle style={{ color: '#8b5cf6' }}>Advanced Technicals</Style.Subtitle>
+            <Style.ChapterTitle>The Deep Dive Library</Style.ChapterTitle>
+            <p style={{ color: '#4b5563', marginBottom: '2rem' }}>
+              Explore the specific technical pillars that enable INOS to eliminate the 'Copy Tax'
+              and achieve sub-10µs reactivity.
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '1rem',
+              }}
+            >
+              <Style.DeepDiveLink to="/deep-dives/zero-copy" $color="#8b5cf6">
+                <Style.DeepDiveTitle $color="#8b5cf6">Zero-Copy I/O</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>Pointers over data copies</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/signaling" $color="#dc2626">
+                <Style.DeepDiveTitle $color="#dc2626">Epoch Signaling</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>Hardware-latency reactivity</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/atomics" $color="#8b5cf6">
+                <Style.DeepDiveTitle $color="#8b5cf6">Atomics</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>The indivisible units of logic</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/mesh" $color="#16a34a">
+                <Style.DeepDiveTitle $color="#16a34a">P2P Mesh</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>Gossip + DHT + Reputation</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/economy" $color="#f59e0b">
+                <Style.DeepDiveTitle $color="#f59e0b">Economic Mesh</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>Credits and storage tiers</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/threads" $color="#00add8">
+                <Style.DeepDiveTitle $color="#00add8">Supervisor Threads</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>Genetic coordination</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/graphics" $color="#ec4899">
+                <Style.DeepDiveTitle $color="#ec4899">Graphics Pipeline</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>WebGPU + instanced rendering</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+              <Style.DeepDiveLink to="/deep-dives/database" $color="#10b981">
+                <Style.DeepDiveTitle $color="#10b981">Storage & DB</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>OPFS + BLAKE3 Addressing</Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+            </div>
+          </Style.ContentCard>
+        </ScrollReveal>
       </Style.TOCSection>
 
       <ChapterNav next={{ to: '/problem', title: '01. The Problem' }} />

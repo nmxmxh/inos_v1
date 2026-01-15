@@ -165,7 +165,7 @@ const (
 	IDX_OUTBOX_MUTEX    = system.IdxOutboxMutex
 	IDX_INBOX_MUTEX     = system.IdxInboxMutex
 	IDX_METRICS_EPOCH   = system.IdxMetricsEpoch
-	IDX_BOIDS_COUNT     = system.IdxBirdEpoch // Note: Schema uses IdxBirdEpoch, aliased here
+	IDX_BIRD_EPOCH      = system.IdxBirdEpoch // Index 12: Physics epoch (incremented by Rust every physics step)
 	IDX_MATRIX_EPOCH    = system.IdxMatrixEpoch
 	IDX_PINGPONG_ACTIVE = system.IdxPingpongActive
 
@@ -175,7 +175,7 @@ const (
 	IDX_HEALTH_EPOCH         = system.IdxHealthEpoch
 	IDX_LEARNING_EPOCH       = system.IdxLearningEpoch
 	IDX_ECONOMY_EPOCH        = system.IdxEconomyEpoch
-	IDX_BIRD_COUNT           = system.IdxBirdCount // Index 20
+	IDX_BIRD_COUNT           = system.IdxBirdCount // Index 20: Bird population count
 	IDX_GLOBAL_METRICS_EPOCH = system.IdxGlobalMetricsEpoch
 	IDX_ROBOT_EPOCH          = system.IdxRobotEpoch
 

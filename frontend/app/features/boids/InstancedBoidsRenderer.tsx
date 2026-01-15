@@ -218,7 +218,19 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     const sab = (window as any).__INOS_SAB__;
     if (!sab) return;
 
-    // Optimization: Cache persistent flags view to avoid per-frame TypedArray creation
+    // 1. ALWAYS dispatch physics and matrix generation (they update SAB and flip epochs)
+    dispatch.execute('boids', 'step_physics', {
+      bird_count: CONFIG.BIRD_COUNT,
+      dt: delta,
+    });
+
+    dispatch.execute('math', 'compute_instance_matrices', {
+      count: CONFIG.BIRD_COUNT,
+      source_offset: CONFIG.SAB_OFFSET,
+      pivots: [],
+    });
+
+    // 2. Check if matrix epoch changed (indicates new data available)
     if (!flagsRef.current || flagsRef.current.buffer !== sab) {
       flagsRef.current = new Int32Array(sab, 0, 16);
     }
@@ -226,30 +238,14 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // STALL RESILIENCE: If epoch unchanged, skip dispatch and reuse last buffer.
-    // This provides automatic graceful degradation:
-    // - If physics/math stalls, we simply render the last valid frame
-    // - No partial frames, no jitter, no wasted CPU cycles on redundant dispatch
+    // STALL RESILIENCE: If epoch unchanged, skip matrix update (reuse GPU buffer).
+    // Dispatch ALWAYS runs (to drive physics forward), but we only upload to GPU
+    // when new data is ready. This prevents redundant GPU uploads, not stalls.
     // ═══════════════════════════════════════════════════════════════════════════
     if (matrixEpoch === lastEpochRef.current) {
-      // Epoch unchanged - physics/math hasn't produced new data
-      // GPU already has the last valid buffer, nothing to update
-      return;
+      return; // GPU already has latest data, skip redundant upload
     }
     lastEpochRef.current = matrixEpoch;
-
-    // 1. Dispatch physics step to WASM (runs in worker pool)
-    dispatch.execute('boids', 'step_physics', {
-      bird_count: CONFIG.BIRD_COUNT,
-      dt: delta,
-    });
-
-    // 2. Dispatch matrix generation to WASM
-    dispatch.execute('math', 'compute_instance_matrices', {
-      count: CONFIG.BIRD_COUNT,
-      source_offset: CONFIG.SAB_OFFSET,
-      pivots: [],
-    });
 
     // 3. Determine which ping-pong buffer to read from
     const isBufferA = Number(matrixEpoch) % 2 === 0;
