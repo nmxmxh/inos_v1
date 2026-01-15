@@ -7,7 +7,7 @@ test.describe('INOS Mesh Telemetry & User Insights E2E', () => {
     
     // Wait for system to be ready (including store status)
     await page.waitForFunction(() => {
-      return window.inosModules && Object.keys(window.inosModules).length > 0;
+      return window.inos?.ready && window.INOSBridge?.isReady?.();
     }, { timeout: 45000 });
 
     // Wait for the metrics bar to appear on the main page
@@ -54,7 +54,7 @@ test.describe('INOS Mesh Telemetry & User Insights E2E', () => {
     // Check Ops/s: 2.5k
     const opsLabel = page.getByTestId('metric-ops');
     await expect(opsLabel).toBeVisible();
-    await expect(opsLabel).toContainText('K');
+    await expect(opsLabel).toHaveText(/Ops\/s\d+/);
     
     // Check Cap (Total Compute): 500G
     const capLabel = page.getByTestId('metric-cap');

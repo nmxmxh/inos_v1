@@ -48,4 +48,5 @@ type SABInterface interface {
 	IsReady() bool                                    // Check if SAB is initialized
 	RegisterJob(jobID string) chan *foundation.Result // Register job for completion
 	WriteJob(job *foundation.Job) error               // Write job to inbox
+	WriteResult(result *foundation.Result) error      // Write result to outbox
 }

@@ -1,5 +1,9 @@
 const { defineConfig, devices } = require('@playwright/test');
 
+const frontendCommand =
+  process.env.INOS_E2E_WEB_SERVER ||
+  'yarn --cwd ../frontend dev --host 127.0.0.1 --port 5173';
+
 module.exports = defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -10,7 +14,7 @@ module.exports = defineConfig({
   reporter: 'html',
   
   use: {
-    baseURL: 'https://localhost:5173',
+    baseURL: 'http://127.0.0.1:5173',
     trace: 'on-first-retry',
     ignoreHTTPSErrors: true,
   },
@@ -26,10 +30,10 @@ module.exports = defineConfig({
     },
   ],
 
-  // webServer disabled - using externally running dev server
-  // webServer: {
-  //   command: 'cd ../frontend && yarn dev',
-  //   url: 'https://localhost:5173',
-  //   reuseExistingServer: true,
-  // },
+  webServer: {
+    command: frontendCommand,
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: !process.env.CI,
+    timeout: 120000,
+  },
 });

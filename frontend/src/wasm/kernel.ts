@@ -1,6 +1,7 @@
 import { MEMORY_PAGES, type ResourceTier } from './layout';
 import { clearViewCache } from '../../app/features/scenes/SceneWrapper';
 import { initializeBridge, clearBridge, INOSBridge } from './bridge-state';
+import { fetchWasmWithFallback, instantiateWasm, loadGoRuntime } from './kernel.shared';
 
 // Vite worker import syntax
 import KernelWorkerUrl from './kernel.worker?worker&url';
@@ -20,6 +21,31 @@ function stringHash(s: string): number {
   return hash;
 }
 
+function ensureInosApi(): void {
+  const global = window as any;
+  if (!global.INOSBridge) {
+    global.INOSBridge = INOSBridge;
+  }
+  if (!global.inos) {
+    global.inos = {};
+  }
+  if (typeof global.inos.ready !== 'boolean') {
+    global.inos.ready = false;
+  }
+
+  if (global.inos.invoke === undefined) {
+    global.inos.invoke = undefined;
+  }
+}
+
+function setInosReady(): void {
+  const global = window as any;
+  if (!global.inos) {
+    global.inos = {};
+  }
+  global.inos.ready = true;
+}
+
 declare global {
   interface Window {
     Go: any;
@@ -33,11 +59,12 @@ declare global {
     __INOS_KERNEL_WORKER__?: Worker;
     getSystemSABAddress?: () => number;
     getSystemSABSize?: () => number;
-    economics?: {
-      getBalance: (did?: string) => Promise<number>;
-      getAccountInfo: (did?: string) => Promise<{ offset: number; exists: boolean } | null>;
-      getStats: () => Promise<any>;
-      grantBonus: (did: string, bonus: number) => Promise<boolean>;
+    kernel?: {
+      submitJob: (job: any) => Promise<any>;
+      deserializeResult: (data: Uint8Array) => Promise<any>;
+    };
+    mesh?: {
+      delegateJob: (job: any) => Promise<any>;
     };
   }
 }
@@ -133,6 +160,11 @@ async function initializeKernelInWorker(
   console.log('[Kernel] Spawning Kernel Worker...');
   const worker = new Worker(KernelWorkerUrl, { type: 'module' });
   window.__INOS_KERNEL_WORKER__ = worker;
+  let workerReadyResolve: (() => void) | null = null;
+  let workerReadyResolved = false;
+  const workerReady = new Promise<void>(resolve => {
+    workerReadyResolve = resolve;
+  });
 
   return new Promise<KernelInitResult>((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -166,6 +198,7 @@ async function initializeKernelInWorker(
 
         // Initialize centralized SAB bridge
         initializeBridge(sab, sabOffset, sabSize, memory);
+        (window as any).INOSBridge = INOSBridge;
 
         // Write Context ID Hash
         const contextHash = stringHash(contextId);
@@ -178,6 +211,120 @@ async function initializeKernelInWorker(
 
         // Economics data is read directly from SAB at OFFSET_ECONOMICS
         // Use the useEconomics() hook for zero-copy access - no worker messaging needed
+
+        // Expose kernel and mesh APIs via proxy to worker
+        window.kernel = {
+          submitJob: (job: any) => {
+            return new Promise((resolve, reject) => {
+              const requestId = Math.random().toString(36).substring(7);
+              const handler = (e: MessageEvent) => {
+                if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  if (e.data.error) reject(new Error(e.data.error));
+                  else resolve(e.data.result);
+                }
+                if (e.data.type === 'error' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  reject(new Error(e.data.error));
+                }
+              };
+              workerReady.then(() => {
+                worker.addEventListener('message', handler);
+                worker.postMessage({
+                  type: 'kernel_call',
+                  method: 'submitJob',
+                  args: [job],
+                  requestId,
+                });
+              });
+            });
+          },
+          deserializeResult: (data: Uint8Array) => {
+            return new Promise((resolve, reject) => {
+              const requestId = Math.random().toString(36).substring(7);
+              const handler = (e: MessageEvent) => {
+                if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  if (e.data.error) reject(new Error(e.data.error));
+                  else resolve(e.data.result);
+                }
+                if (e.data.type === 'error' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  reject(new Error(e.data.error));
+                }
+              };
+              workerReady.then(() => {
+                worker.addEventListener('message', handler);
+                worker.postMessage({
+                  type: 'kernel_call',
+                  method: 'deserializeResult',
+                  args: [data],
+                  requestId,
+                });
+              });
+            });
+          },
+        };
+
+        window.mesh = {
+          delegateJob: (job: any) => {
+            return new Promise((resolve, reject) => {
+              const requestId = Math.random().toString(36).substring(7);
+              const handler = (e: MessageEvent) => {
+                if (e.data.type === 'mesh_response' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  if (e.data.error) reject(new Error(e.data.error));
+                  else resolve(e.data.result);
+                }
+                if (e.data.type === 'error' && e.data.requestId === requestId) {
+                  worker.removeEventListener('message', handler);
+                  reject(new Error(e.data.error));
+                }
+              };
+              workerReady.then(() => {
+                worker.addEventListener('message', handler);
+                worker.postMessage({
+                  type: 'mesh_call',
+                  method: 'delegateJob',
+                  args: [job],
+                  requestId,
+                });
+              });
+            });
+          },
+        };
+
+        ensureInosApi();
+        workerReady.then(() => {
+          setInosReady();
+        });
+
+        // Proxy getKernelStats
+        (window as any).getKernelStats = () => {
+          return new Promise((resolve, reject) => {
+            const requestId = Math.random().toString(36).substring(7);
+            const handler = (e: MessageEvent) => {
+              if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
+                worker.removeEventListener('message', handler);
+                if (e.data.error) reject(new Error(e.data.error));
+                else resolve(e.data.result);
+              }
+              if (e.data.type === 'error' && e.data.requestId === requestId) {
+                worker.removeEventListener('message', handler);
+                reject(new Error(e.data.error));
+              }
+            };
+            workerReady.then(() => {
+              worker.addEventListener('message', handler);
+              worker.postMessage({
+                type: 'kernel_call',
+                method: 'getStats',
+                args: [],
+                requestId,
+              });
+            });
+          });
+        };
 
         resolve({
           memory,
@@ -196,10 +343,34 @@ async function initializeKernelInWorker(
       reject(new Error(`Worker error: ${e.message}`));
     });
 
+    const readyHandler = (event: MessageEvent<any>) => {
+      if (event.data?.type === 'ready') {
+        if (!workerReadyResolved) {
+          workerReadyResolved = true;
+          workerReadyResolve?.();
+        }
+        console.log('[Kernel] Kernel Worker ready');
+        worker.removeEventListener('message', readyHandler);
+      }
+    };
+    worker.addEventListener('message', readyHandler);
+
+    const readyFallback = setTimeout(() => {
+      if (!workerReadyResolved) {
+        console.warn('[Kernel] Worker ready signal not received; continuing');
+        workerReadyResolved = true;
+        workerReadyResolve?.();
+      }
+    }, 5000);
+
     worker.postMessage({
       type: 'init',
       tier,
       wasmUrl,
+    });
+
+    workerReady.then(() => {
+      clearTimeout(readyFallback);
     });
   });
 }
@@ -216,14 +387,7 @@ async function initializeKernelOnMainThread(
   console.log('[Kernel] 🔄 Initializing kernel on MAIN THREAD (fallback mode)');
 
   // 1. Load Go runtime
-  const response = await fetch('/wasm_exec.js');
-  const script = await response.text();
-  const fn = new Function(script);
-  fn.call(window);
-
-  if (!window.Go) {
-    throw new Error('Go runtime failed to load on main thread');
-  }
+  await loadGoRuntime(window, '/wasm_exec.js', '[Kernel]');
 
   // 2. Create shared memory (or fallback to non-shared if unavailable)
   const config = MEMORY_PAGES[tier];
@@ -261,81 +425,8 @@ async function initializeKernelOnMainThread(
         console.warn(`[Kernel] Retrying WASM fetch (attempt ${attempt + 1}/${MAX_RETRIES})...`);
       }
 
-      let wasmResponse = await fetch(currentUrl);
-
-      // If .br fails or is not found, try the uncompressed version (only on first attempt logic preserverd)
-      if (!wasmResponse.ok && currentUrl.endsWith('.br')) {
-        const fallbackUrl = currentUrl.replace('.wasm.br', '.wasm').split('?')[0];
-        console.warn(
-          `[Kernel] Failed to load compressed WASM from ${currentUrl}, trying fallback: ${fallbackUrl}`
-        );
-        wasmResponse = await fetch(fallbackUrl);
-      }
-
-      if (!wasmResponse.ok) {
-        throw new Error(`HTTP ${wasmResponse.status} ${wasmResponse.statusText}`);
-      }
-
-      const contentType = wasmResponse.headers.get('Content-Type');
-      if (contentType && contentType.includes('text/html')) {
-        throw new Error('Received HTML instead of WASM (check server SPA fallback)');
-      }
-
-      // Clone for fallback
-      const fallbackResponse = wasmResponse.clone();
-
-      try {
-        // Try streaming first
-        result = await WebAssembly.instantiateStreaming(wasmResponse, {
-          ...go.importObject,
-          env: { ...go.importObject.env, memory },
-        });
-      } catch (streamingError) {
-        console.warn(
-          '[Kernel] instantiateStreaming failed, falling back to arrayBuffer:',
-          streamingError
-        );
-        const bytes = await fallbackResponse.arrayBuffer();
-
-        // Diagnostics
-        const view = new Uint8Array(bytes);
-        const hex = Array.from(view.slice(0, 16))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join(' ');
-
-        const isWasm = view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d;
-
-        if (!isWasm) {
-          // Check for the specific Safari ghost bytes
-          if (hex.startsWith('85 ff 1f')) {
-            throw new Error(`MAGIC_MISMATCH_85FF1F: Received hex: ${hex}`);
-          }
-
-          const text = new TextDecoder().decode(view.slice(0, 50)).replace(/\0/g, '.');
-          console.log(`[Kernel] WASM Diagnostics - First 16 bytes (hex): ${hex}`);
-          console.log(`[Kernel] WASM Diagnostics - First 50 bytes (text): ${text}`);
-
-          if (view[0] === 0x1f && view[1] === 0x8b) {
-            throw new Error(
-              'WASM is Gzip-compressed but the server is missing Content-Encoding: gzip'
-            );
-          }
-
-          if (
-            text.toLowerCase().includes('<!doctype html') ||
-            text.toLowerCase().includes('<html')
-          ) {
-            throw new Error('Received HTML error page instead of WASM. Hex: ' + hex);
-          }
-
-          throw new Error(`WASM magic number mismatch ('\\0asm' expected). Received hex: ${hex}`);
-        }
-
-        result = await WebAssembly.instantiate(bytes, {
-          ...go.importObject,
-          env: { ...go.importObject.env, memory },
-        });
-      }
+      const wasmResponse = await fetchWasmWithFallback(currentUrl, '[Kernel]');
+      result = await instantiateWasm(wasmResponse, go, memory, '[Kernel]');
 
       // If we got here, success
       break;
@@ -396,9 +487,10 @@ async function initializeKernelOnMainThread(
   window.__INOS_SAB_SIZE__ = sabSize;
   window.__INOS_TIER__ = tier;
 
-  if (isShared) {
-    initializeBridge(buffer, sabOffset, sabSize, memory);
-  }
+    if (isShared) {
+      initializeBridge(buffer, sabOffset, sabSize, memory);
+      (window as any).INOSBridge = INOSBridge;
+    }
 
   // Write Context ID Hash
   const contextHash = stringHash(contextId);
@@ -413,15 +505,21 @@ async function initializeKernelOnMainThread(
 
   console.log(`[Kernel] ✅ Main thread kernel initialized (shared: ${isShared})`);
 
-  // Direct Economic local access (for main thread mode)
-  if (!window.economics) {
-    (window as any).economics = {
-      getBalance: (did?: string) => (window as any).getEconomicBalance?.(did),
-      getAccountInfo: (did?: string) => (window as any).getAccountInfo?.(did),
-      getStats: () => (window as any).getEconomicStats?.(),
-      grantBonus: (did: string, bonus: number) => (window as any).grantEconomicBonus?.(did, bonus),
+  // Direct access to Kernel and Mesh APIs
+  if (!window.kernel) {
+    (window as any).kernel = {
+      submitJob: (job: any) => (window as any).jsSubmitJob?.(job),
+      deserializeResult: (data: Uint8Array) => (window as any).jsDeserializeResult?.(data),
     };
   }
+  if (!window.mesh) {
+    (window as any).mesh = {
+      delegateJob: (job: any) => (window as any).jsDelegateJob?.(job),
+    };
+  }
+
+  ensureInosApi();
+  setInosReady();
 
   return {
     memory,

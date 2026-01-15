@@ -179,6 +179,7 @@ func (us *UnifiedSupervisor) Submit(job *foundation.Job) (<-chan *foundation.Res
 	resultChan := make(chan *foundation.Result, 1)
 	job.ResultChan = resultChan
 	job.SubmittedAt = time.Now()
+	us.Logger.Info("Job queued", utils.String("job_id", job.ID), utils.String("type", job.Type), utils.String("op", job.Operation))
 
 	// Increment counter
 	us.jobsSubmitted.Add(1)
@@ -511,14 +512,23 @@ func (us *UnifiedSupervisor) healthLoop() {
 
 func (us *UnifiedSupervisor) processJob(job *foundation.Job) {
 	startTime := time.Now()
+	us.Logger.Info("Processing job", utils.String("job_id", job.ID), utils.String("type", job.Type), utils.String("operation", job.Operation))
 
 	// Security check
 	if !us.validateJob(job) {
 		us.jobsFailed.Add(1)
-		job.ResultChan <- &foundation.Result{
+		result := &foundation.Result{
 			JobID:   job.ID,
 			Success: false,
 			Error:   "Security validation failed",
+		}
+		job.ResultChan <- result
+		if us.bridge != nil {
+			if err := us.bridge.WriteResult(result); err != nil {
+				us.Logger.Error("Failed to write rejected job result", utils.String("job_id", job.ID), utils.Err(err))
+			} else {
+				us.Logger.Info("Bridge wrote rejected job result", utils.String("job_id", job.ID))
+			}
 		}
 		return
 	}
@@ -538,6 +548,14 @@ func (us *UnifiedSupervisor) processJob(job *foundation.Job) {
 
 	// Send result
 	job.ResultChan <- result
+	us.Logger.Info("Job result ready", utils.String("job_id", job.ID), utils.String("success", fmt.Sprintf("%v", result.Success)))
+	if us.bridge != nil {
+		if err := us.bridge.WriteResult(result); err != nil {
+			us.Logger.Error("Failed to write job result", utils.String("job_id", job.ID), utils.Err(err))
+		} else {
+			us.Logger.Info("Bridge wrote result", utils.String("job_id", job.ID))
+		}
+	}
 }
 
 func (us *UnifiedSupervisor) validateJob(job *foundation.Job) bool {

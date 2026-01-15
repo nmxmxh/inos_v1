@@ -4,11 +4,14 @@
 package main
 
 import (
+	"context"
 	"syscall/js"
 	"time"
 	"unsafe"
 
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 // notifyHost sends events to the JS environment
@@ -38,16 +41,18 @@ func jsInitializeSharedMemory(this js.Value, args []js.Value) interface{} {
 	}
 
 	// Address from JS is absolute offset in linear memory.
-	// Using raw pointer arithmetic to avoid unsafe.Slice(nil,...) panic.
-	ptrVal := uintptr(args[0].Int())
-	ptr := unsafe.Pointer(ptrVal) //nolint:govet,unsafeptr // intentional: FFI boundary from JS (Foreign Pointer)
+	uptr := uintptr(args[0].Int())
+	ptr := unsafe.Pointer(uptr) //nolint:govet,unsafeptr // intentional: FFI boundary from JS (Foreign Pointer)
 
 	// Store base pointer for Dynamic Grounding (exposed via getSystemSABAddress)
-	sabBasePtr = ptrVal
+	sabBasePtr = uptr
 
-	if err := kernelInstance.InjectSAB(ptr, uint32(args[1].Int())); err != nil {
-		return js.ValueOf(map[string]interface{}{"success": false, "error": err.Error()})
-	}
+	size := uint32(args[1].Int())
+	go func() {
+		if err := kernelInstance.InjectSAB(ptr, size); err != nil {
+			kernelInstance.logger.Error("InjectSAB failed", utils.Err(err))
+		}
+	}()
 
 	return js.ValueOf(map[string]interface{}{"success": true})
 }
@@ -165,4 +170,147 @@ func jsGetAccountInfo(this js.Value, args []js.Value) interface{} {
 	}
 	// Delegate to domain-owned method
 	return credits.JSGetAccountInfo(this, args)
+}
+
+func jsSubmitJob(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return js.ValueOf(map[string]interface{}{"error": "missing job argument"})
+	}
+	jobVal := args[0]
+
+	job := &foundation.Job{
+		ID:        jobVal.Get("id").String(),
+		Type:      jobVal.Get("type").String(),
+		Operation: jobVal.Get("op").String(),
+	}
+
+	if job.ID == "" {
+		job.ID = utils.GenerateID()
+	}
+
+	// Data (Optional)
+	if dataVal := jobVal.Get("data"); !dataVal.IsUndefined() && !dataVal.IsNull() {
+		job.Data = make([]byte, dataVal.Get("length").Int())
+		js.CopyBytesToGo(job.Data, dataVal)
+	}
+
+	// Parameters (Optional)
+	if paramsVal := jobVal.Get("params"); !paramsVal.IsUndefined() && !paramsVal.IsNull() {
+		job.Parameters = make(map[string]interface{})
+		keys := js.Global().Get("Object").Call("keys", paramsVal)
+		for i := 0; i < keys.Length(); i++ {
+			k := keys.Index(i).String()
+			v := paramsVal.Get(k)
+			switch v.Type() {
+			case js.TypeString:
+				job.Parameters[k] = v.String()
+			case js.TypeNumber:
+				job.Parameters[k] = v.Float()
+			case js.TypeBoolean:
+				job.Parameters[k] = v.Bool()
+			}
+		}
+	}
+
+	// FIRE AND FORGET
+	// Routes through supervisor hierarchy (Storage, Crypto, etc.)
+	// Supervisors will decide whether to execute locally (Rust) or delegate to Mesh.
+	utils.Info("JS submitted job", utils.String("job_id", job.ID), utils.String("type", job.Type), utils.String("op", job.Operation))
+	go func() {
+		if kernelInstance != nil && kernelInstance.supervisor != nil {
+			_, _ = kernelInstance.supervisor.Submit(job)
+		}
+	}()
+
+	return js.ValueOf(map[string]interface{}{
+		"success": true,
+		"jobId":   job.ID,
+		"status":  "submitted",
+	})
+}
+
+func jsDelegateJob(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return js.ValueOf(map[string]interface{}{"error": "missing job argument"})
+	}
+	jobVal := args[0]
+
+	job := &foundation.Job{
+		ID:        jobVal.Get("id").String(),
+		Type:      jobVal.Get("type").String(),
+		Operation: jobVal.Get("op").String(),
+	}
+
+	if job.ID == "" {
+		job.ID = utils.GenerateID()
+	}
+
+	// Data (Optional)
+	if dataVal := jobVal.Get("data"); !dataVal.IsUndefined() && !dataVal.IsNull() {
+		job.Data = make([]byte, dataVal.Get("length").Int())
+		js.CopyBytesToGo(job.Data, dataVal)
+	}
+
+	// EXPLICIT DELEGATION
+	// Specifically forces Mesh Coordinator handling
+	utils.Info("JS delegated job", utils.String("job_id", job.ID), utils.String("op", job.Operation))
+	go func() {
+		if kernelInstance == nil {
+			return
+		}
+
+		if kernelInstance.meshCoordinator != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			result, err := kernelInstance.meshCoordinator.DelegateJob(ctx, job)
+			if err == nil && result != nil {
+				if kernelInstance.supervisor != nil {
+					if bridge := kernelInstance.supervisor.GetBridge(); bridge != nil {
+						_ = bridge.WriteResult(result)
+					}
+				}
+				return
+			}
+		}
+
+		if kernelInstance.supervisor != nil {
+			_, _ = kernelInstance.supervisor.Submit(job)
+		}
+	}()
+
+	return js.ValueOf(map[string]interface{}{
+		"success": true,
+		"jobId":   job.ID,
+		"status":  "delegated",
+	})
+}
+
+// jsDeserializeResult deserializes raw Cap'n Proto bytes into a JS result object
+func jsDeserializeResult(this js.Value, args []js.Value) interface{} {
+	if len(args) < 1 {
+		return js.ValueOf(map[string]interface{}{"error": "missing data argument"})
+	}
+
+	if kernelInstance == nil || kernelInstance.supervisor == nil {
+		return js.ValueOf(map[string]interface{}{"error": "kernel or supervisor not initialized"})
+	}
+
+	data := make([]byte, args[0].Length())
+	js.CopyBytesToGo(data, args[0])
+
+	result := kernelInstance.supervisor.GetBridge().DeserializeResult(data)
+
+	res := map[string]interface{}{
+		"jobId":   result.JobID,
+		"success": result.Success,
+		"error":   result.Error,
+	}
+
+	if len(result.Data) > 0 {
+		uint8Arr := js.Global().Get("Uint8Array").New(len(result.Data))
+		js.CopyBytesToJS(uint8Arr, result.Data)
+		res["data"] = uint8Arr
+	}
+
+	return js.ValueOf(res)
 }

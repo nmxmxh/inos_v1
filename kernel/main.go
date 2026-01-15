@@ -41,6 +41,18 @@ func main() {
 	economics.Set("getAccountInfo", js.FuncOf(jsGetAccountInfo))
 	js.Global().Set("economics", economics)
 
+	// Kernel API
+	kernel := js.Global().Get("Object").New()
+	kernel.Set("submitJob", js.FuncOf(jsSubmitJob))
+	kernel.Set("deserializeResult", js.FuncOf(jsDeserializeResult))
+	kernel.Set("getStats", js.FuncOf(jsGetKernelStats))
+	js.Global().Set("kernel", kernel)
+
+	// Mesh API (Explicit Delegation)
+	mesh := js.Global().Get("Object").New()
+	mesh.Set("delegateJob", js.FuncOf(jsDelegateJob))
+	js.Global().Set("mesh", mesh)
+
 	// Expose SAB metadata to Host (Dynamic Grounding)
 	js.Global().Set("getSystemSABAddress", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		// Return the actual SAB base pointer (set by InjectSAB at runtime)

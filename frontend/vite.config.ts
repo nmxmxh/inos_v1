@@ -1,12 +1,12 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import viteCompression from 'vite-plugin-compression';
-import basicSsl from '@vitejs/plugin-basic-ssl';
+// import basicSsl from '@vitejs/plugin-basic-ssl';
 
 export default defineConfig({
   plugins: [
     react(),
-    basicSsl(),
+    // basicSsl(),
     // Gzip compression for static assets
     viteCompression({
       algorithm: 'gzip',

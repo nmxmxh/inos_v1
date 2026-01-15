@@ -77,8 +77,23 @@ func NewEconomicLedger() *EconomicLedger {
 // SetVault sets the grounded economic authority
 func (el *EconomicLedger) SetVault(vault foundation.EconomicVault) {
 	el.mu.Lock()
-	defer el.mu.Unlock()
 	el.vault = vault
+	balances := make(map[string]int64, len(el.balances))
+	for did, balance := range el.balances {
+		balances[did] = balance
+	}
+	el.mu.Unlock()
+
+	if vault == nil {
+		return
+	}
+
+	for did, balance := range balances {
+		if balance <= 0 {
+			continue
+		}
+		_ = vault.GrantBonus(did, balance)
+	}
 }
 
 // RegisterAccount initializes an account with optional starting balance

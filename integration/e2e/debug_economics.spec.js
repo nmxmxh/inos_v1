@@ -12,36 +12,36 @@ test('Debug economics API', async ({ page }) => {
   
   // Wait for kernel modules to be loaded
   await page.waitForFunction(() => {
-    return window.inosModules && Object.keys(window.inosModules).length > 0;
+    return window.inos?.ready && window.INOSBridge?.isReady?.() && window.__INOS_SAB__;
   }, { timeout: 30000 });
   
-  console.log('[DEBUG] Modules loaded, checking economics...');
+  console.log('[DEBUG] Modules loaded, checking economics SAB...');
   
-  // Check if economics is defined
-  const hasEconomics = await page.evaluate(() => {
+  // Check if SAB bridge is defined
+  const hasBridge = await page.evaluate(() => {
     return {
-      hasEconomics: typeof window.economics !== 'undefined',
-      economicsType: typeof window.economics,
-      hasGetBalance: typeof window.economics?.getBalance === 'function',
-      hasGrantBonus: typeof window.economics?.grantBonus === 'function',
+      hasBridge: typeof window.INOSBridge !== 'undefined',
+      bridgeReady: !!window.INOSBridge?.isReady?.(),
+      hasSAB: !!window.__INOS_SAB__,
     };
   });
   
-  console.log('[DEBUG] Economics check:', JSON.stringify(hasEconomics));
-  expect(hasEconomics.hasEconomics).toBe(true);
-  expect(hasEconomics.hasGetBalance).toBe(true);
+  console.log('[DEBUG] Bridge check:', JSON.stringify(hasBridge));
+  expect(hasBridge.hasBridge).toBe(true);
+  expect(hasBridge.bridgeReady).toBe(true);
   
-  // Try calling getBalance directly with timeout
-  const balanceResult = await page.evaluate(async () => {
+  // Try reading balance directly from SAB
+  const balanceResult = await page.evaluate(() => {
     try {
-      if (!window.economics) return { error: 'economics not defined' };
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Timeout after 5s')), 5000)
-      );
-      const balance = await Promise.race([
-        window.economics.getBalance(),
-        timeoutPromise
-      ]);
+      if (!window.INOSBridge?.isReady?.() || !window.__INOS_SAB__) {
+        return { error: 'bridge not ready' };
+      }
+
+      const OFFSET_ECONOMICS = 0x004200;
+      const ECONOMICS_METADATA_SIZE = 64;
+      const accountOffset = OFFSET_ECONOMICS + ECONOMICS_METADATA_SIZE;
+      const balance = window.INOSBridge.readU64AsNumber(accountOffset);
+
       return { success: true, balance };
     } catch (e) {
       return { error: e.message, stack: e.stack };

@@ -261,7 +261,73 @@ export const INOSBridge = {
   readU64,
   readU64AsNumber,
   atomicLoad,
+  /**
+   * Observe an epoch change (polling-friendly version of atomicLoad)
+   */
+  getEpoch: (index: number) => atomicLoad(index),
   waitForEpoch,
+  /**
+   * Peek at the Outbox without advancing the head pointer.
+   */
+  peekOutbox: (len: number = 4096) => {
+    // Data starts after 8-byte header (head, tail)
+    return getRegionDataView(0x0d0008, len);
+  },
+  /**
+   * Pop a result from the Outbox ringbuffer.
+   * This handles the head/tail pointers and wrap-around.
+   */
+  popResult: (): Uint8Array | null => {
+    if (!_dataView || !_sab) return null;
+
+    const outboxBase = _offset + 0x0d0000;
+    const regionSize = 0x080000; // SIZE_OUTBOX_TOTAL
+    const headerSize = 8;
+    const dataCapacity = regionSize - headerSize;
+
+    // 1. Read metadata
+    const head = _dataView.getUint32(outboxBase, true);
+    const tail = _dataView.getUint32(outboxBase + 4, true);
+
+    if (head === tail) return null;
+
+    // 2. Read message length
+    // We need to handle potential wrap-around for the length field itself
+    // but the system ensures message length (4 bytes) is never split if possible,
+    // or we handle it via a helper.
+    const readRaw = (idx: number, len: number): Uint8Array => {
+      const res = new Uint8Array(len);
+      const dataBase = outboxBase + headerSize;
+      const firstChunk = dataCapacity - idx;
+      if (len <= firstChunk) {
+        res.set(new Uint8Array(_sab!, dataBase + idx, len));
+      } else {
+        res.set(new Uint8Array(_sab!, dataBase + idx, firstChunk));
+        res.set(new Uint8Array(_sab!, dataBase, len - firstChunk), firstChunk);
+      }
+      return res;
+    };
+
+    const lenBytes = readRaw(head, 4);
+    const msgLen = new DataView(lenBytes.buffer).getUint32(0, true);
+
+    if (msgLen === 0 || msgLen > dataCapacity) {
+      console.warn('[INOSBridge] Invalid msgLen in outbox:', msgLen);
+      return null;
+    }
+
+    // 3. Read payload
+    const dataHead = (head + 4) % dataCapacity;
+    const payload = readRaw(dataHead, msgLen);
+
+    // 4. Advance head
+    const nextHead = (dataHead + msgLen) % dataCapacity;
+    Atomics.store(_flagsView!, 16, 1); // IDX_OUTBOX_MUTEX (Simple lock)
+    _dataView.setUint32(outboxBase, nextHead, true);
+    Atomics.store(_flagsView!, 16, 0);
+
+    return payload;
+  },
   getRegionDataView,
   getRegionFloat32View,
 };

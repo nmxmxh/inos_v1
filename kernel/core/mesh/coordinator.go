@@ -18,14 +18,19 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
+	"github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/sab"
+	capnp "zombiezen.com/go/capnproto2"
 )
 
 // SABWriter defines the interface for writing to the SharedArrayBuffer.
 type SABWriter interface {
 	WriteRaw(offset uint32, data []byte) error
+	ReadRaw(offset uint32, size uint32) ([]byte, error)
 	SignalEpoch(index uint32)
+	// GetAddress returns the SAB offset of the data if it's backed by the SAB
+	GetAddress(data []byte) (uint32, bool)
 }
 
 // MeshCoordinator orchestrates shared compute and storage across the global mesh.
@@ -1276,21 +1281,26 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 
 	// 2. Prepare request
 	req := DelegateRequest{
-		ID:          fmt.Sprintf("deleg_%d", time.Now().UnixNano()),
-		Operation:   operation,
-		InputDigest: inputDigest,
+		ID:        fmt.Sprintf("deleg_%d", time.Now().UnixNano()),
+		Operation: operation,
 	}
+
+	// Create Resource payload
+	resBytes, err := m.packResource(req.ID, inputDigest, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack resource: %w", err)
+	}
+	req.Resource = resBytes
 
 	// 3. Dispatch via RPC
 	var resp DelegationResponse
-	err := m.transport.SendRPC(ctx, bestPeer, "mesh.DelegateCompute", req, &resp)
+	err = m.transport.SendRPC(ctx, bestPeer, "mesh.DelegateCompute", req, &resp)
 	if err != nil {
 		m.updateCircuitBreaker(bestPeer, false)
 		return nil, fmt.Errorf("compute delegation RPC failed: %w", err)
 	}
 
 	if resp.Status == "input_missing" {
-		// TODO: Implement chunk push flow
 		return nil, errors.New("remote peer missing input chunk")
 	}
 
@@ -1298,11 +1308,22 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 		return nil, fmt.Errorf("compute delegation failed: %s", resp.Error)
 	}
 
-	// 4. Verification (Simplified for now - should re-hash)
+	// 4. Unpack Result Resource
+	if len(resp.Resource) == 0 {
+		return nil, errors.New("delegation response missing resource")
+	}
+
+	res, err := m.unpackResource(resp.Resource)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack response resource: %w", err)
+	}
+
+	// Verification (Simplified for now - should re-hash)
 	m.logger.Info("compute delegation successful", "peer", getShortID(bestPeer), "latency", resp.LatencyMs)
 	m.updateCircuitBreaker(bestPeer, true)
 
-	return resp.OutputData, nil
+	// Return data (inline for now)
+	return res.Inline()
 }
 
 func (m *MeshCoordinator) registerRPCHandlers() {
@@ -1318,21 +1339,40 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 
 		m.logger.Debug("received delegation request", "operation", req.Operation, "from_peer", getShortID(peerID))
 
-		// 1. Check if we have the input chunk
-		if m.storage != nil {
-			has, err := m.storage.HasChunk(ctx, req.InputDigest)
+		// 1. Unpack Resource
+		res, err := m.unpackResource(req.Resource)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unpack resource: %w", err)
+		}
+
+		digest, _ := res.Digest()
+		var data []byte
+
+		// 2. Resolve data from Resource (SABRef > Storage)
+		if res.Which() == system.Resource_Which_sabRef && m.bridge != nil {
+			ref, _ := res.SabRef()
+			m.logger.Debug("resolved input via sabRef", "offset", ref.Offset(), "size", ref.Size())
+			data, err = m.bridge.ReadRaw(ref.Offset(), ref.Size())
+			if err != nil {
+				return nil, fmt.Errorf("failed to read from sabRef: %w", err)
+			}
+		} else if m.storage != nil {
+			// Check if we have the input chunk
+			has, err := m.storage.HasChunk(ctx, string(digest))
 			if err != nil || !has {
 				return DelegationResponse{Status: "input_missing"}, nil
 			}
+
+			// Fetch data
+			data, err = m.storage.FetchChunk(ctx, string(digest))
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch input chunk: %w", err)
+			}
+		} else {
+			return nil, errors.New("no data source available (storage/bridge missing)")
 		}
 
-		// 2. Fetch data (simplified for now - assumes it's in storage)
-		data, err := m.storage.FetchChunk(ctx, req.InputDigest)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch input chunk: %w", err)
-		}
-
-		// 3. Execute locally
+		// 4. Execute locally
 		job := &foundation.Job{
 			ID:        req.ID,
 			Operation: req.Operation,
@@ -1345,12 +1385,16 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 			return DelegationResponse{Status: "failed", Error: result.Error}, nil
 		}
 
-		// 4. Return result with verification digest
+		// 5. Pack Result with verification digest
+		resOutBytes, err := m.packResource(req.ID, string(digest), result.Data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pack result resource: %w", err)
+		}
+
 		return DelegationResponse{
-			Status:       "success",
-			OutputData:   result.Data,
-			OutputDigest: req.InputDigest, // TODO: Compute actual output hash
-			LatencyMs:    float32(result.Latency),
+			Status:    "success",
+			Resource:  resOutBytes,
+			LatencyMs: float32(result.Latency),
 		}, nil
 	})
 
@@ -1374,19 +1418,69 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 
 // DelegateRequest represents a compute delegation request
 type DelegateRequest struct {
-	ID          string `json:"id"`
-	Operation   string `json:"operation"`
-	InputDigest string `json:"input_digest"`
-	Params      string `json:"params"`
+	ID        string `json:"id"`
+	Operation string `json:"operation"`
+	// Resource carries the serialized system.Resource Cap'n Proto message
+	Resource []byte `json:"resource,omitempty"`
+	Params   string `json:"params,omitempty"`
 }
 
 // DelegationResponse represents the result of a compute delegation
 type DelegationResponse struct {
-	Status       string  `json:"status"`
-	OutputData   []byte  `json:"output_data,omitempty"`
-	OutputDigest string  `json:"output_digest,omitempty"`
-	Error        string  `json:"error,omitempty"`
-	LatencyMs    float32 `json:"latency_ms"`
+	Status string `json:"status"`
+	// Resource carries the serialized system.Resource Cap'n Proto result
+	Resource  []byte  `json:"resource,omitempty"`
+	Error     string  `json:"error,omitempty"`
+	LatencyMs float32 `json:"latency_ms"`
+}
+
+// packResource creates a serialized system.Resource
+func (m *MeshCoordinator) packResource(id, digest string, data []byte) ([]byte, error) {
+	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := system.NewRootResource(seg)
+	if err != nil {
+		return nil, err
+	}
+
+	res.SetId(id)
+	res.SetDigest([]byte(digest))
+	res.SetRawSize(uint32(len(data)))
+
+	// 1. Try to use SABRef if data is in bridge
+	if m.bridge != nil {
+		if offset, ok := m.bridge.GetAddress(data); ok {
+			ref, err := res.NewSabRef()
+			if err == nil {
+				ref.SetOffset(offset)
+				ref.SetSize(uint32(len(data)))
+				return msg.Marshal()
+			}
+		}
+	}
+
+	// 2. Fallback: Inline data
+	res.SetInline(data)
+
+	bytes, err := msg.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes, nil
+}
+
+// unpackResource deserializes a system.Resource
+func (m *MeshCoordinator) unpackResource(data []byte) (system.Resource, error) {
+	msg, err := capnp.Unmarshal(data)
+	if err != nil {
+		return system.Resource{}, err
+	}
+
+	return system.ReadRootResource(msg)
 }
 
 func minInt(a, b int) int {

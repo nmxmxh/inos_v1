@@ -267,6 +267,17 @@ func (sb *SABBridge) WriteInbox(data []byte) error {
 	return sb.writeToSAB(sb.inboxOffset, data)
 }
 
+func (sb *SABBridge) WriteOutbox(data []byte) error {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	if err := sb.writeToSAB(sb.outboxOffset, data); err != nil {
+		return err
+	}
+	sb.SignalEpoch(sab_layout.IDX_OUTBOX_DIRTY)
+	return nil
+}
+
 func (sb *SABBridge) SignalInbox() {
 	ptr := unsafe.Add(sb.sab, sab_layout.IDX_INBOX_DIRTY*4)
 	atomic.AddUint32((*uint32)(ptr), 1)
@@ -278,6 +289,23 @@ func (sb *SABBridge) SignalEpoch(index uint32) {
 	ptr := unsafe.Add(sb.sab, index*4)
 	atomic.AddUint32((*uint32)(ptr), 1)
 	sb.NotifyEpochWaiters(index)
+}
+
+// GetAddress returns the SAB offset of the data if it's backed by the SAB
+func (sb *SABBridge) GetAddress(data []byte) (uint32, bool) {
+	if len(data) == 0 {
+		return 0, false
+	}
+
+	// Address of the slice data in linear memory
+	ptr := uintptr(unsafe.Pointer(&data[0]))
+	sabBase := uintptr(sb.sab)
+
+	if ptr >= sabBase && ptr < sabBase+uintptr(sb.sabSize) {
+		return uint32(ptr - sabBase), true
+	}
+
+	return 0, false
 }
 
 // WaitForEpochAsync returns a channel that closes when the epoch changes (Zero-Latency, Non-Blocking)
@@ -837,6 +865,46 @@ func (sb *SABBridge) serializeJob(job *foundation.Job) ([]byte, error) {
 	req.SetParams(params)
 	req.SetInput(job.Data)
 	return msg.Marshal()
+}
+
+func (sb *SABBridge) serializeResult(result *foundation.Result) ([]byte, error) {
+	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+	res, err := compute.NewRootCompute_JobResult(seg)
+	if err != nil {
+		return nil, err
+	}
+	if err := res.SetJobId(result.JobID); err != nil {
+		return nil, err
+	}
+
+	if result.Success {
+		res.SetStatus(compute.Compute_Status_success)
+	} else {
+		res.SetStatus(compute.Compute_Status_failed)
+	}
+
+	if len(result.Data) > 0 {
+		_ = res.SetOutput(result.Data)
+	}
+	if result.Error != "" {
+		_ = res.SetErrorMessage(result.Error)
+	}
+	if result.Latency > 0 {
+		res.SetExecutionTimeNs(uint64(result.Latency.Nanoseconds()))
+	}
+
+	return msg.Marshal()
+}
+
+func (sb *SABBridge) WriteResult(result *foundation.Result) error {
+	data, err := sb.serializeResult(result)
+	if err != nil {
+		return err
+	}
+	return sb.WriteOutbox(data)
 }
 
 func (sb *SABBridge) DeserializeResult(data []byte) *foundation.Result {

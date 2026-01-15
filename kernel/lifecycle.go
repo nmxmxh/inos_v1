@@ -85,7 +85,7 @@ func NewKernel() *Kernel {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize Mesh Components
-	nodeID := utils.GenerateID()
+	nodeID := "did:inos:nmxmxh"
 	tr, _ := transport.NewWebRTCTransport(nodeID, transport.DefaultTransportConfig(), nil)
 	m := mesh.NewMeshCoordinator(nodeID, "global", tr, nil)
 
@@ -196,7 +196,9 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 		return fmt.Errorf("injected SAB size cannot be 0")
 	}
 
-	k.logger.Info("Injecting SharedArrayBuffer", utils.Uint64("size", uint64(size)))
+	time.AfterFunc(0, func() {
+		k.logger.Info("Injecting SharedArrayBuffer", utils.Uint64("size", uint64(size)))
+	})
 	k.sabSize.Store(size)
 
 	// Initialize Root Supervisor with the real pointer immediately
@@ -208,7 +210,9 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 	})
 
 	k.setState(StateRunning)
-	k.notifyHost("kernel:running", nil)
+	time.AfterFunc(0, func() {
+		k.notifyHost("kernel:running", nil)
+	})
 
 	// Trigger Boot sequence to continue
 	close(k.sabReady)

@@ -15,6 +15,12 @@
 
 declare const self: DedicatedWorkerGlobalScope;
 import { INOSBridge } from './bridge-state';
+import {
+  checkSharedMemoryCapability,
+  fetchWasmWithFallback,
+  instantiateWasm,
+  loadGoRuntime,
+} from './kernel.shared';
 
 // Worker-scoped globals (no window.*)
 let _sab: SharedArrayBuffer | null = null;
@@ -22,24 +28,28 @@ let _memory: WebAssembly.Memory | null = null;
 let _go: any = null;
 
 interface KernelWorkerMessage {
-  type: 'init' | 'shutdown' | 'inject_sab' | 'economics_call';
+  type: 'init' | 'shutdown' | 'inject_sab' | 'kernel_call' | 'mesh_call';
   sab?: SharedArrayBuffer;
   sabOffset?: number;
   sabSize?: number;
   tier?: 'light' | 'moderate' | 'heavy' | 'dedicated';
   wasmUrl?: string;
-  // Economics proxy
-  method?: 'getBalance' | 'getStats' | 'grantBonus';
+  method?: string;
   args?: any[];
   requestId?: string;
 }
 
 interface KernelWorkerResponse {
-  type: 'ready' | 'error' | 'shutdown_complete' | 'sab_functions_ready' | 'economics_response';
+  type:
+    | 'ready'
+    | 'error'
+    | 'shutdown_complete'
+    | 'sab_functions_ready'
+    | 'kernel_response'
+    | 'mesh_response';
   error?: string;
   sabOffset?: number;
   sabSize?: number;
-  // Economics proxy
   result?: any;
   requestId?: string;
 }
@@ -51,62 +61,6 @@ const MEMORY_PAGES: Record<string, { initial: number; maximum: number }> = {
   heavy: { initial: 2048, maximum: 4096 }, // 128-256MB
   dedicated: { initial: 4096, maximum: 16384 }, // 256MB-1GB
 };
-
-/**
- * Load Go runtime (wasm_exec.js) in worker context
- */
-async function loadGoRuntime(): Promise<void> {
-  // In worker context, we import the script differently
-  // Vite will bundle this, or we fetch and eval
-  const response = await fetch('/wasm_exec.js');
-  const script = await response.text();
-
-  // Execute in worker global scope
-  const fn = new Function(script);
-  fn.call(self);
-
-  if (!(self as any).Go) {
-    throw new Error('Go runtime failed to load in worker');
-  }
-}
-
-/**
- * Check if SharedArrayBuffer and shared WebAssembly.Memory are available.
- * iOS Safari and some contexts lack support for these features.
- */
-function checkSharedMemoryCapability(): { supported: boolean; reason?: string } {
-  // 1. Check if SharedArrayBuffer exists
-  if (typeof SharedArrayBuffer === 'undefined') {
-    return {
-      supported: false,
-      reason:
-        'SharedArrayBuffer is not available. This may be due to missing COOP/COEP headers or an unsupported browser.',
-    };
-  }
-
-  // 2. Check if we can create shared WebAssembly.Memory
-  try {
-    const testMemory = new WebAssembly.Memory({
-      initial: 1,
-      maximum: 1,
-      shared: true,
-    });
-    // Verify buffer is actually a SharedArrayBuffer
-    if (!(testMemory.buffer instanceof SharedArrayBuffer)) {
-      return {
-        supported: false,
-        reason: 'WebAssembly.Memory does not produce SharedArrayBuffer. Check COOP/COEP headers.',
-      };
-    }
-  } catch (e) {
-    return {
-      supported: false,
-      reason: `Shared WebAssembly.Memory is not supported: ${e instanceof Error ? e.message : String(e)}`,
-    };
-  }
-
-  return { supported: true };
-}
 
 /**
  * Initialize and run the Go kernel
@@ -127,7 +81,7 @@ async function initializeKernel(
   }
 
   // 1. Load Go runtime
-  await loadGoRuntime();
+  await loadGoRuntime(self, '/wasm_exec.js', '[KernelWorker]');
 
   const config = MEMORY_PAGES[tier];
 
@@ -143,26 +97,7 @@ async function initializeKernel(
 
   let response: Response;
   try {
-    response = await fetch(wasmUrl);
-
-    // If .br fails or is not found, try the uncompressed version
-    if (!response.ok && wasmUrl.endsWith('.br')) {
-      const fallbackUrl = wasmUrl.replace('.wasm.br', '.wasm').split('?')[0];
-      console.warn(
-        `[KernelWorker] Failed to load compressed WASM from ${wasmUrl}, trying fallback: ${fallbackUrl}`
-      );
-      response = await fetch(fallbackUrl);
-    }
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-
-    // Check for SPA fallback
-    const contentType = response.headers.get('Content-Type');
-    if (contentType && contentType.includes('text/html')) {
-      throw new Error('Received HTML instead of WASM (check server SPA fallback)');
-    }
+    response = await fetchWasmWithFallback(wasmUrl, '[KernelWorker]');
   } catch (err) {
     throw new Error(
       `Failed to fetch WASM from ${wasmUrl}: ${err instanceof Error ? err.message : String(err)}`
@@ -172,48 +107,7 @@ async function initializeKernel(
   let result: WebAssembly.WebAssemblyInstantiatedSource;
 
   try {
-    const fallbackResponse = response.clone();
-    try {
-      result = await WebAssembly.instantiateStreaming(response, {
-        ..._go.importObject,
-        env: { ..._go.importObject.env, memory: _memory },
-      });
-    } catch (streamingError) {
-      console.warn(
-        '[KernelWorker] instantiateStreaming failed, falling back to arrayBuffer:',
-        streamingError
-      );
-      const bytes = await fallbackResponse.arrayBuffer();
-
-      // Loud diagnostics: Is this actually WASM?
-      const view = new Uint8Array(bytes);
-      const hex = Array.from(view.slice(0, 16))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join(' ');
-      const text = new TextDecoder().decode(view.slice(0, 50)).replace(/\0/g, '.');
-
-      console.log(`[KernelWorker] WASM Diagnostics - First 16 bytes (hex): ${hex}`);
-      console.log(`[KernelWorker] WASM Diagnostics - First 50 bytes (text): ${text}`);
-
-      const isWasm = view[0] === 0x00 && view[1] === 0x61 && view[2] === 0x73 && view[3] === 0x6d;
-
-      if (!isWasm) {
-        if (view[0] === 0x1f && view[1] === 0x8b) {
-          throw new Error(
-            'WASM is Gzip-compressed but the server is missing Content-Encoding: gzip. Hex: ' + hex
-          );
-        }
-        if (text.toLowerCase().includes('<!doctype html') || text.toLowerCase().includes('<html')) {
-          throw new Error('Received HTML error page instead of WASM. Hex: ' + hex);
-        }
-        throw new Error(`WASM magic number mismatch ('\\0asm' expected). Received hex: ${hex}`);
-      }
-
-      result = await WebAssembly.instantiate(bytes, {
-        ..._go.importObject,
-        env: { ..._go.importObject.env, memory: _memory },
-      });
-    }
+    result = await instantiateWasm(response, _go, _memory, '[KernelWorker]');
   } catch (err) {
     throw new Error(
       `Failed to instantiate WASM in worker: ${err instanceof Error ? err.message : String(err)}`
@@ -262,10 +156,9 @@ async function initializeKernel(
 }
 
 /**
- * Inject SAB into Go kernel to start supervisor threads
+ * Inject SAB into Go kernel to start supervisor threads.
  */
 async function injectSAB(sabOffset: number, sabSize: number): Promise<void> {
-  // Wait for initializeSharedMemory to be available
   const maxWaitMs = 5000;
   const startTime = Date.now();
 
@@ -277,12 +170,21 @@ async function injectSAB(sabOffset: number, sabSize: number): Promise<void> {
     await new Promise(r => setTimeout(r, 10));
   }
 
-  const result = (self as any).initializeSharedMemory(sabOffset, sabSize);
-  if (result?.error) {
+  const injectStart = Date.now();
+  while (true) {
+    const result = (self as any).initializeSharedMemory(sabOffset, sabSize);
+    if (!result?.error) {
+      break;
+    }
+    if (typeof result.error === 'string' && result.error.includes('kernel not waiting')) {
+      if (Date.now() - injectStart > maxWaitMs) {
+        throw new Error(`Failed to inject SAB: ${result.error}`);
+      }
+      await new Promise(r => setTimeout(r, 25));
+      continue;
+    }
     throw new Error(`Failed to inject SAB: ${result.error}`);
   }
-
-  console.log('[KernelWorker] ✅ Supervisor threads started');
 }
 
 /**
@@ -328,7 +230,9 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
         self.postMessage(response);
 
         // Now inject SAB to start supervisors
+        console.log('[KernelWorker] Injecting SAB...');
         await injectSAB(sabOffset, sabSize);
+        console.log('[KernelWorker] SAB injection complete, signaling ready');
 
         const readyResponse: KernelWorkerResponse = { type: 'ready' };
         self.postMessage(readyResponse);
@@ -342,45 +246,44 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
         break;
       }
 
-      case 'economics_call': {
+      case 'kernel_call': {
         const { method, args, requestId } = event.data;
-        console.log(
-          `[KernelWorker] economics_call received: method=${method}, requestId=${requestId}`
-        );
-
-        // Access the economics object exposed by Go kernel (self.economics.*)
-        const economics = (self as any).economics;
-        console.log(`[KernelWorker] economics object exists: ${!!economics}`);
-        let result: any;
+        const kernel = (self as any).kernel;
+        if (!kernel || !kernel[method!]) {
+          self.postMessage({
+            type: 'error',
+            error: `Kernel method ${method} not available`,
+            requestId,
+          });
+          return;
+        }
         try {
-          if (!economics) {
-            console.error('[KernelWorker] Economics API not available');
-            self.postMessage({
-              type: 'error',
-              error: 'Economics API not available (kernel not initialized)',
-              requestId,
-            });
-            return;
-          }
-          switch (method) {
-            case 'getBalance':
-              result = economics.getBalance?.(...(args || [])) ?? 0;
-              break;
-            case 'getStats':
-              result = economics.getStats?.() ?? {};
-              break;
-            case 'grantBonus':
-              result = economics.grantBonus?.(...(args || [])) ?? false;
-              break;
-            default:
-              self.postMessage({
-                type: 'error',
-                error: `Unknown economics method: ${method}`,
-                requestId,
-              });
-              return;
-          }
-          self.postMessage({ type: 'economics_response', result, requestId });
+          const result = kernel[method!](...(args || []));
+          self.postMessage({ type: 'kernel_response', result, requestId });
+        } catch (err) {
+          self.postMessage({
+            type: 'error',
+            error: err instanceof Error ? err.message : String(err),
+            requestId,
+          });
+        }
+        break;
+      }
+
+      case 'mesh_call': {
+        const { method, args, requestId } = event.data;
+        const mesh = (self as any).mesh;
+        if (!mesh || !mesh[method!]) {
+          self.postMessage({
+            type: 'error',
+            error: `Mesh method ${method} not available`,
+            requestId,
+          });
+          return;
+        }
+        try {
+          const result = mesh[method!](...(args || []));
+          self.postMessage({ type: 'mesh_response', result, requestId });
         } catch (err) {
           self.postMessage({
             type: 'error',

@@ -291,6 +291,39 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 
 // runDiscoveryLoop waits for module registration signals (zero-CPU blocking)
 // Replaces polling with Atomics.wait on IDX_REGISTRY_EPOCH
+// Submit routes a job to the appropriate unit supervisor and returns a result channel
+func (s *Supervisor) Submit(job *foundation.Job) (<-chan *foundation.Result, error) {
+	s.mu.RLock()
+	unit, ok := s.units[job.Type]
+	s.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("unit not found: %s", job.Type)
+	}
+
+	// Most unit supervisors embed UnifiedSupervisor which has Submit()
+	if submitter, ok := unit.(interface {
+		Submit(*foundation.Job) (<-chan *foundation.Result, error)
+	}); ok {
+		return submitter.Submit(job)
+	}
+
+	// Fallback: Use ExecuteJob directly if the unit doesn't have a queue
+	if exec, ok := unit.(interface {
+		ExecuteJob(*foundation.Job) *foundation.Result
+	}); ok {
+		resChan := make(chan *foundation.Result, 1)
+		go func() {
+			res := exec.ExecuteJob(job)
+			resChan <- res
+			close(resChan)
+		}()
+		return resChan, nil
+	}
+
+	return nil, fmt.Errorf("unit does not support job submission: %s", job.Type)
+}
+
 func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 	// Cast MeshCoordinator for metrics sharing
 	var mp units.MetricsProvider
