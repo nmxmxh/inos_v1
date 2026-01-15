@@ -207,24 +207,6 @@ export const OFFSET_BIRD_STATE = 0x160000 as const;
 /** 4KB */
 export const SIZE_BIRD_STATE = 0x001000 as const;
 
-/** Robot global state (Phase, Syntropy) */
-export const OFFSET_ROBOT_STATE = 0x1200000 as const;
-
-/** 256 bytes */
-export const SIZE_ROBOT_STATE = 256 as const;
-
-/** Node matrices (32KB for 512 nodes) */
-export const OFFSET_ROBOT_NODES = 0x1200100 as const;
-
-/** 32KB */
-export const SIZE_ROBOT_NODES = 0x008000 as const;
-
-/** Filament data (12KB for 1024 links) */
-export const OFFSET_ROBOT_FILAMENTS = 0x1208100 as const;
-
-/** 12KB */
-export const SIZE_ROBOT_FILAMENTS = 0x003000 as const;
-
 /** Ping-pong coordination */
 export const OFFSET_PINGPONG_CONTROL = 0x161000 as const;
 
@@ -321,8 +303,14 @@ export const IDX_BIRD_COUNT = 20 as const;
 /** Global diagnostics complete */
 export const IDX_GLOBAL_METRICS_EPOCH = 21 as const;
 
-/** Robot simulation update complete */
-export const IDX_ROBOT_EPOCH = 22 as const;
+/** Remote job delegation complete */
+export const IDX_DELEGATED_JOB_EPOCH = 22 as const;
+
+/** Local user job complete */
+export const IDX_USER_JOB_EPOCH = 23 as const;
+
+/** Remote chunk fetch/store complete */
+export const IDX_DELEGATED_CHUNK_EPOCH = 24 as const;
 
 /** Hash of initialization context ID */
 export const IDX_CONTEXT_ID_HASH = 31 as const;
@@ -417,12 +405,6 @@ export const CONSTS = {
   MAX_ARENA_REQUESTS,
   OFFSET_BIRD_STATE,
   SIZE_BIRD_STATE,
-  OFFSET_ROBOT_STATE,
-  SIZE_ROBOT_STATE,
-  OFFSET_ROBOT_NODES,
-  SIZE_ROBOT_NODES,
-  OFFSET_ROBOT_FILAMENTS,
-  SIZE_ROBOT_FILAMENTS,
   OFFSET_PINGPONG_CONTROL,
   SIZE_PINGPONG_CONTROL,
   OFFSET_BIRD_BUFFER_A,
@@ -455,7 +437,9 @@ export const CONSTS = {
   IDX_ECONOMY_EPOCH,
   IDX_BIRD_COUNT,
   IDX_GLOBAL_METRICS_EPOCH,
-  IDX_ROBOT_EPOCH,
+  IDX_DELEGATED_JOB_EPOCH,
+  IDX_USER_JOB_EPOCH,
+  IDX_DELEGATED_CHUNK_EPOCH,
   IDX_CONTEXT_ID_HASH,
   SUPERVISOR_POOL_BASE,
   SUPERVISOR_POOL_SIZE,

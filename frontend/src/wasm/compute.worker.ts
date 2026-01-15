@@ -21,7 +21,6 @@ import { createBaseEnv, createPlaceholders } from './bridge';
 import { INOSBridge } from './bridge-state';
 
 // Worker-scoped state
-let _sab: SharedArrayBuffer | null = null;
 let _memory: WebAssembly.Memory | null = null;
 let _modules: Record<string, ModuleExports> = {};
 let _dispatcher: WorkerDispatcher | null = null;
@@ -314,8 +313,6 @@ self.onmessage = async (event: MessageEvent<any>) => {
       case 'init': {
         const { sab, memory, sabOffset, sabSize } = event.data;
         if (!sab) throw new Error('SAB is required');
-
-        _sab = sab;
         _memory =
           memory ||
           new WebAssembly.Memory({
@@ -328,6 +325,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
 
         (self as any).__INOS_SAB__ = sab;
         (self as any).__INOS_SAB_OFFSET__ = sabOffset || 0;
+        (self as any).__INOS_SAB_SIZE__ = sabSize || sab.byteLength;
         (self as any).__INOS_SAB_INT32__ = INOSBridge.getFlagsView();
 
         // Load modules
@@ -355,7 +353,6 @@ self.onmessage = async (event: MessageEvent<any>) => {
       case 'shutdown': {
         _modules = {};
         _dispatcher = null;
-        _sab = null;
         _memory = null;
         self.postMessage({ type: 'shutdown_complete' });
         break;

@@ -114,10 +114,22 @@ async function initializeKernel(
     );
   }
 
-  // 4. Run Go kernel (this starts the Go runtime)
-  _go.run(result.instance);
+  // 4. Pre-initialize __INOS_SAB_INT32__ BEFORE Go runs (critical for Go's SABBridge)
+  // Go's WaitForEpochAsync uses Atomics.waitAsync(sb.jsInt32View, ...) which fails if undefined
+  const buffer = _memory.buffer as unknown as SharedArrayBuffer;
+  _sab = buffer;
 
-  // 5. Wait for SAB functions to be available
+  // Expose SAB to Go Bridge (Pre-initialization)
+  (self as any).__INOS_SAB__ = buffer;
+  (self as any).__INOS_SAB_SIZE__ = buffer.byteLength;
+  (self as any).__INOS_SAB_INT32__ = new Int32Array(buffer, 0, 128);
+
+  // 5. Run Go kernel (this starts the Go runtime)
+  // This must happen AFTER __INOS_SAB_INT32__ is set for Go's SABBridge to work
+  _go.run(result.instance);
+  console.log('[KernelWorker] Go runtime started in background');
+
+  // 6. Wait for SAB functions to be available
   const maxWaitMs = 5000;
   const startTime = Date.now();
 
@@ -129,11 +141,7 @@ async function initializeKernel(
     await new Promise(r => setTimeout(r, 10));
   }
 
-  // 6. Get SAB info from kernel
-  // The memory.buffer IS a SharedArrayBuffer when created with shared: true
-  const buffer = _memory.buffer as unknown as SharedArrayBuffer;
-  _sab = buffer;
-
+  // 7. Get SAB info from kernel
   let sabOffset = 0;
   let sabSize = buffer.byteLength;
 
@@ -146,11 +154,8 @@ async function initializeKernel(
     }
   }
 
-  // Initialize centralized bridge for worker-local atomic access
+  // 8. Initialize centralized bridge for worker-local atomic access
   INOSBridge.initialize(buffer, sabOffset, sabSize, _memory);
-
-  // Inject global view for Go's SABBridge (atomic signaling)
-  (self as any).__INOS_SAB_INT32__ = INOSBridge.getFlagsView();
 
   return { sabOffset, sabSize };
 }

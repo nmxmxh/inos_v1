@@ -97,6 +97,11 @@ func (m *MockSABBridge) IsReady() bool {
 	return true // Always ready in tests
 }
 
+func (m *MockSABBridge) WriteResult(result *foundation.Result) error {
+	// No-op for testing - store if needed for verification
+	return nil
+}
+
 func TestNewBoidsSupervisor(t *testing.T) {
 	bridge := NewMockSABBridge()
 	// Create dummy SAB for patterns/knowledge

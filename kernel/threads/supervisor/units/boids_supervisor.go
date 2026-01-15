@@ -108,7 +108,7 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	// Auto-detect bird count from SAB epoch (IDX_BOIDS_COUNT)
 	s.autoDetectBirdCount()
 
-	utils.Info("Boids supervisor started", utils.Int("bird_count", s.birdCount))
+	s.Logger.Info("Boids supervisor started", utils.Int("bird_count", s.birdCount))
 
 	// Run learning loop - this BLOCKS until ctx.Done()
 	// (spawnChild expects the function to block)
@@ -141,20 +141,18 @@ func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
 	// Evolution trigger: every N physics frames (60fps * 3 seconds = ~180 frames)
 	const evolutionFrameThreshold int32 = 180
 
-	utils.Info("Boids learning loop starting (Epoch Mode)", utils.Int("threshold_frames", int(evolutionFrameThreshold)))
+	s.Logger.Info("Boids learning loop starting (Epoch Mode)", utils.Int("threshold_frames", int(evolutionFrameThreshold)))
 
 	// Track physics epochs (Rust increments IDX_BIRD_EPOCH after every physics step)
 	var lastPhysicsEpoch int32 = 0
 	var lastEvolutionEpoch int32 = 0
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_BIRD_EPOCH, lastPhysicsEpoch):
-			// Physics frame completed - Rust incremented the bird epoch
-			currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
+		// Non-blocking check first - try to observe epoch change immediately
+		currentEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
 
+		// If epoch already changed, process it
+		if currentEpoch != lastPhysicsEpoch {
 			// Check if enough frames have passed since last evolution
 			framesSinceEvolution := currentEpoch - lastEvolutionEpoch
 			if framesSinceEvolution < 0 {
@@ -163,12 +161,30 @@ func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
 				framesSinceEvolution = 0
 			}
 
+			// Debug: Log every 60 frames (~1 second at 60fps)
+			if currentEpoch%60 == 0 && currentEpoch > 0 {
+				utils.Info("Boids learningLoop tick",
+					utils.Int("epoch", int(currentEpoch)),
+					utils.Int("frames_since_evo", int(framesSinceEvolution)),
+					utils.Int("threshold", int(evolutionFrameThreshold)))
+			}
+
 			if framesSinceEvolution >= evolutionFrameThreshold && s.birdCount > 0 && s.bridge.IsReady() {
 				s.checkEvolution()
 				lastEvolutionEpoch = currentEpoch
 			}
 
 			lastPhysicsEpoch = currentEpoch
+		}
+
+		// Wait for next epoch change with timeout to allow context cancellation checks
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.bridge.WaitForEpochAsync(sab_layout.IDX_BIRD_EPOCH, lastPhysicsEpoch):
+			// Channel closed, epoch changed - continue to next iteration
+		case <-time.After(500 * time.Millisecond):
+			// Timeout - poll again to catch any missed signals
 		}
 	}
 }

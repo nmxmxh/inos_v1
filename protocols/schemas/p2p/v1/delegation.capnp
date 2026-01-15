@@ -1,7 +1,6 @@
 @0xd8a9b7c6e5d4c3b2;
 
-using Base = import "/base/v1/base.capnp";
-using Resource = import "/system/v1/resource.capnp".Resource;
+using Resource = import "../../system/v1/resource.capnp".Resource;
 
 # INOS Mesh Delegation Protocol
 # Standardizes how compute tasks are offloaded, verified, and settled.

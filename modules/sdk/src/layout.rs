@@ -119,14 +119,6 @@ pub const OFFSET_MATRIX_BUFFER_B: usize = sab::OFFSET_MATRIX_BUFFER_B as usize;
 pub const SIZE_MATRIX_BUFFER: usize = sab::SIZE_MATRIX_BUFFER as usize;
 pub const MATRIX_STRIDE: usize = sab::MATRIX_STRIDE as usize;
 
-// ========== ROBOT / LATTICE STATE (Moonshot) ==========
-pub const OFFSET_ROBOT_STATE: usize = sab::OFFSET_ROBOT_STATE as usize;
-pub const SIZE_ROBOT_STATE: usize = sab::SIZE_ROBOT_STATE as usize;
-pub const OFFSET_ROBOT_NODES: usize = sab::OFFSET_ROBOT_NODES as usize;
-pub const SIZE_ROBOT_NODES: usize = sab::SIZE_ROBOT_NODES as usize;
-pub const OFFSET_ROBOT_FILAMENTS: usize = sab::OFFSET_ROBOT_FILAMENTS as usize;
-pub const SIZE_ROBOT_FILAMENTS: usize = sab::SIZE_ROBOT_FILAMENTS as usize;
-
 // ========== EPOCH INDEX ALLOCATION ==========
 
 pub const IDX_KERNEL_READY: u32 = sab::IDX_KERNEL_READY;
@@ -153,7 +145,12 @@ pub const IDX_LEARNING_EPOCH: u32 = sab::IDX_LEARNING_EPOCH;
 pub const IDX_ECONOMY_EPOCH: u32 = sab::IDX_ECONOMY_EPOCH;
 pub const IDX_BIRD_COUNT: u32 = sab::IDX_BIRD_COUNT;
 pub const IDX_GLOBAL_METRICS_EPOCH: u32 = sab::IDX_GLOBAL_METRICS_EPOCH;
-pub const IDX_ROBOT_EPOCH: u32 = sab::IDX_ROBOT_EPOCH;
+
+// Mesh Delegation Epochs (P2P Coordination)
+pub const IDX_DELEGATED_JOB_EPOCH: u32 = sab::IDX_DELEGATED_JOB_EPOCH;
+pub const IDX_USER_JOB_EPOCH: u32 = sab::IDX_USER_JOB_EPOCH;
+pub const IDX_DELEGATED_CHUNK_EPOCH: u32 = sab::IDX_DELEGATED_CHUNK_EPOCH;
+
 pub const IDX_CONTEXT_ID_HASH: u32 = sab::IDX_CONTEXT_ID_HASH;
 
 pub const SUPERVISOR_POOL_BASE: u32 = sab::SUPERVISOR_POOL_BASE;
@@ -197,10 +194,8 @@ pub fn get_region_name(offset: usize) -> &'static str {
         o if o < OFFSET_SUPERVISOR_HEADERS => "ModuleRegistry",
         o if o < OFFSET_PATTERN_EXCHANGE => "SupervisorHeaders",
         o if o < OFFSET_JOB_HISTORY => "PatternExchange",
-        o if o < OFFSET_COORDINATION => "JobHistory",
         o if o < OFFSET_INBOX_OUTBOX => "Coordination",
-        o if o < OFFSET_ROBOT_STATE => "InboxOutbox",
-        o if o < OFFSET_ARENA => "RobotState",
+        o if o < OFFSET_ARENA => "InboxOutbox",
         _ => "Arena",
     }
 }

@@ -16,6 +16,7 @@ import (
 	compute "github.com/nmxmxh/inos_v1/kernel/gen/compute/v1"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 	capnp "zombiezen.com/go/capnproto2"
 )
 
@@ -52,6 +53,9 @@ type SABBridge struct {
 	waitAsyncMisses  uint64
 	totalReadTime    int64 // Nanoseconds
 	totalWriteTime   int64 // Nanoseconds
+
+	// Optimization: Unified synchronization
+	initOnce sync.Once
 
 	// GC Pressure Management: Track wait calls to yield for finalizer cleanup
 	waitCallCount uint64
@@ -92,35 +96,30 @@ func (sb *SABBridge) IsReady() bool {
 
 // initJSCache initializes cached JS values (called once)
 func (sb *SABBridge) initJSCache() {
-	sb.mu.Lock()
-	defer sb.mu.Unlock()
+	sb.initOnce.Do(func() {
+		sb.mu.Lock()
+		defer sb.mu.Unlock()
 
-	if sb.jsInitialized {
-		return
-	}
+		// Only attempt JS calls if we're in a WASM environment
+		defer func() {
+			if r := recover(); r != nil {
+				sb.jsInitialized = true
+			}
+		}()
 
-	// Only attempt JS calls if we're in a WASM environment
-	// (Prevents panic during host-side testing if syscall/js is mocked/stubbed)
-	defer func() {
-		if r := recover(); r != nil {
-			// Failed to Get globals, likely host-side test
-			sb.jsInitialized = true
+		sb.jsAtomics = js.Global().Get("Atomics")
+		sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
+
+		// Cache Uint8Array view of the SAME buffer
+		if !sb.jsInt32View.IsUndefined() {
+			buffer := sb.jsInt32View.Get("buffer")
+			sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer)
 		}
-	}()
 
-	sb.jsAtomics = js.Global().Get("Atomics")
-	sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
-
-	// Cache Uint8Array view of the SAME buffer
-	if !sb.jsInt32View.IsUndefined() {
-		buffer := sb.jsInt32View.Get("buffer")
-		sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer)
-	}
-
-	// Cache worker context status
-	sb.isWorker = sb.detectWorkerContext()
-
-	sb.jsInitialized = true
+		// Cache worker context status
+		sb.isWorker = sb.detectWorkerContext()
+		sb.jsInitialized = true
+	})
 }
 
 // RegisterJob adds a job to the pending registry and returns a result channel
@@ -258,7 +257,12 @@ func (sb *SABBridge) ReadSystemEpoch() uint64 {
 
 func (sb *SABBridge) ReadAtomicI32(epochIndex uint32) int32 {
 	ptr := unsafe.Add(sb.sab, epochIndex*4)
-	return int32(atomic.LoadUint32((*uint32)(ptr)))
+	val := int32(atomic.LoadUint32((*uint32)(ptr)))
+	// Log only occasionally to avoid flooding
+	if epochIndex == 12 && val%100 == 0 && val > 0 {
+		utils.Debug("ReadAtomicI32", utils.Any("idx", epochIndex), utils.Any("val", val))
+	}
+	return val
 }
 
 func (sb *SABBridge) WriteInbox(data []byte) error {
@@ -327,12 +331,13 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 	go func() {
 		defer close(ch)
 
-		// 1. Try waitAsync if available
-		if !sb.jsAtomics.IsUndefined() {
+		// 1. Try waitAsync if available AND jsInt32View is valid
+		if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
 			waitAsync := sb.jsAtomics.Get("waitAsync")
 			if !waitAsync.IsUndefined() {
 				// Promise-based wait
 				// Atomics.waitAsync(typedArray, index, value) -> { async: boolean, value: "ok" | "not-equal" | "timed-out" | Promise }
+				utils.Debug("WaitForEpochAsync triggering waitAsync", utils.Any("idx", epochIndex), utils.Any("expected", expectedValue))
 				result := waitAsync.Invoke(sb.jsInt32View, epochIndex, expectedValue)
 
 				isAsync := result.Get("async").Bool()
@@ -744,10 +749,10 @@ func (sb *SABBridge) ReadBatch(regions []ReadRegion) error {
 	return nil
 }
 
+// getJsUint8View returns the cached Uint8Array view of the SAB.
+// CRITICAL: This method NO LONGER LOCKS to avoid recursive deadlock when called from locked methods.
 func (sb *SABBridge) getJsUint8View() js.Value {
-	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
-		sb.initJSCache()
-	}
+	// initJSCache is guaranteed to have run in constructor
 	return sb.jsUint8View
 }
 

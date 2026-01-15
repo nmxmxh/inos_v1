@@ -453,6 +453,14 @@ async function initializeKernelOnMainThread(
   }
 
   // 4. Run Go kernel (non-blocking - runs async via goroutines)
+  // Set metadata BEFORE starting Go to avoid race conditions in supervisor init
+  const buffer = memory.buffer as unknown as SharedArrayBuffer;
+  window.__INOS_SAB__ = buffer;
+  window.__INOS_SAB_SIZE__ = buffer.byteLength;
+  if (isShared) {
+    (window as any).__INOS_SAB_INT32__ = new Int32Array(buffer, 0, 128);
+  }
+
   go.run(result.instance);
 
   // 5. Wait for SAB functions
@@ -467,7 +475,6 @@ async function initializeKernelOnMainThread(
   }
 
   // 6. Get SAB info
-  const buffer = memory.buffer as unknown as SharedArrayBuffer;
   let sabOffset = 0;
   let sabSize = buffer.byteLength;
 
@@ -481,16 +488,15 @@ async function initializeKernelOnMainThread(
   }
 
   // 7. Set globals and initialize bridge
-  window.__INOS_SAB__ = buffer;
   window.__INOS_MEM__ = memory;
   window.__INOS_SAB_OFFSET__ = sabOffset;
   window.__INOS_SAB_SIZE__ = sabSize;
   window.__INOS_TIER__ = tier;
 
-    if (isShared) {
-      initializeBridge(buffer, sabOffset, sabSize, memory);
-      (window as any).INOSBridge = INOSBridge;
-    }
+  if (isShared) {
+    initializeBridge(buffer, sabOffset, sabSize, memory);
+    (window as any).INOSBridge = INOSBridge;
+  }
 
   // Write Context ID Hash
   const contextHash = stringHash(contextId);

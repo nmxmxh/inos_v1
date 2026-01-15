@@ -1,5 +1,6 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use async_trait::async_trait;
+use sdk::js_interop;
 use sdk::pingpong::PingPongBuffer;
 use sdk::sab::SafeSAB;
 use serde_json::Value as JsonValue;
@@ -684,13 +685,8 @@ impl BoidUnit {
         .map_err(|e| format!("Failed to write bird count to SAB: {}", e))?;
 
         // --- STEP 6: Flip buffers ---
+        // ping_pong.flip() atomically increments the epoch and notifies waiters
         let new_epoch = ping_pong.flip();
-
-        sab.write(
-            OFFSET_ATOMIC_FLAGS + IDX_BIRD_EPOCH as usize * 4,
-            &(new_epoch as u32).to_le_bytes(),
-        )
-        .map_err(|e| format!("Epoch write failed: {}", e))?;
 
         Ok(new_epoch as u32)
     }

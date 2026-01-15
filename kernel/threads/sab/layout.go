@@ -141,14 +141,6 @@ const (
 	SIZE_MATRIX_BUFFER     = system.SizeMatrixBuffer
 	MATRIX_STRIDE          = system.MatrixStride
 
-	// ========== ROBOT / LATTICE STATE (Moonshot) ==========
-	OFFSET_ROBOT_STATE     = system.OffsetRobotState
-	SIZE_ROBOT_STATE       = system.SizeRobotState
-	OFFSET_ROBOT_NODES     = system.OffsetRobotNodes
-	SIZE_ROBOT_NODES       = system.SizeRobotNodes
-	OFFSET_ROBOT_FILAMENTS = system.OffsetRobotFilaments
-	SIZE_ROBOT_FILAMENTS   = system.SizeRobotFilaments
-
 	// ========== EPOCH INDEX ALLOCATION ==========
 	// Fixed system epochs (0-31 Reserved)
 	IDX_KERNEL_READY  = system.IdxKernelReady
@@ -177,7 +169,11 @@ const (
 	IDX_ECONOMY_EPOCH        = system.IdxEconomyEpoch
 	IDX_BIRD_COUNT           = system.IdxBirdCount // Index 20: Bird population count
 	IDX_GLOBAL_METRICS_EPOCH = system.IdxGlobalMetricsEpoch
-	IDX_ROBOT_EPOCH          = system.IdxRobotEpoch
+
+	// Mesh Delegation Epochs (P2P Coordination)
+	IDX_DELEGATED_JOB_EPOCH   = system.IdxDelegatedJobEpoch   // Index 22: Remote job delegation complete
+	IDX_USER_JOB_EPOCH        = system.IdxUserJobEpoch        // Index 23: Local user job complete
+	IDX_DELEGATED_CHUNK_EPOCH = system.IdxDelegatedChunkEpoch // Index 24: Remote chunk fetch/store complete
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = system.SupervisorPoolBase

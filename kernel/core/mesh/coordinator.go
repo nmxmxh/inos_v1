@@ -459,6 +459,11 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 		"replicas", replicas,
 		"duration", time.Since(start))
 
+	// 9. Signal chunk distribution complete
+	if m.bridge != nil {
+		m.bridge.SignalEpoch(sab.IDX_DELEGATED_CHUNK_EPOCH)
+	}
+
 	return replicas, nil
 }
 
@@ -509,6 +514,11 @@ func (m *MeshCoordinator) FetchChunk(ctx context.Context, chunkHash string) ([]b
 				"peer", getShortID(peer.PeerID),
 				"size", len(data),
 				"latency", latency)
+
+			// Signal chunk fetch complete
+			if m.bridge != nil {
+				m.bridge.SignalEpoch(sab.IDX_DELEGATED_CHUNK_EPOCH)
+			}
 
 			return data, nil
 		}
@@ -1033,6 +1043,7 @@ func (m *MeshCoordinator) updateMetrics() {
 
 		if err := m.bridge.WriteRaw(sab.OFFSET_MESH_METRICS, buf); err == nil {
 			m.bridge.SignalEpoch(sab.IDX_METRICS_EPOCH)
+			m.bridge.SignalEpoch(sab.IDX_SYSTEM_EPOCH) // Heartbeat for analytics and other watchers
 		}
 	}
 }
@@ -1254,6 +1265,12 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 	if err != nil {
 		m.logger.Error("mesh delegation failed", "job_id", job.ID, "peer", getShortID(bestPeer), "error", err)
 		return nil, fmt.Errorf("mesh delegation failed to peer %s: %w", bestPeer, err)
+	}
+
+	// 3. Signal delegation completion for observers
+	if m.bridge != nil {
+		m.bridge.SignalEpoch(sab.IDX_DELEGATED_JOB_EPOCH)
+		m.bridge.SignalEpoch(sab.IDX_OUTBOX_DIRTY) // Legacy compatibility for E2E tests
 	}
 
 	return &result, nil
