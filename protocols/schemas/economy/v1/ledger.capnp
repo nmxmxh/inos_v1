@@ -1,9 +1,12 @@
 @0xc42e032179831952;
 
+using Base = import "/base/v1/base.capnp";
+
 # INOS Unified Economic Ledger Schema v1.2
 # Philosophy: "Performance-driven growth through incentivized exploration."
 
 struct Wallet {
+  metadata @19 :Base.Base.Metadata;
   publicKey @0 :Data;           # TSS Group Public Key
   balance @1 :Int64;             # Signed to allow debt for compute
   did @2 :Text;                  # root Identity (did:inos:...)
@@ -71,6 +74,7 @@ enum EconomicTier {
 }
 
 struct Transaction {
+  metadata @11 :Base.Base.Metadata;
   id @0 :Text;
   fromDid @1 :Text;              # Special: "Mint", "Treasury"
   toDid @2 :Text;

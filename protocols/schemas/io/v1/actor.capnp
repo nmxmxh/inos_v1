@@ -1,6 +1,6 @@
 @0xc3d4e5f678901234;
 
-using Base = import "../../base/v1/base.capnp";
+using Base = import "/base/v1/base.capnp";
 
 interface Actor {
   struct Command {

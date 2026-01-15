@@ -507,13 +507,9 @@ func (g *GossipManager) ReceiveMessage(sender string, msg *common.GossipMessage)
 		} else if ts, ok := payload["timestamp"].(int64); ok {
 			timestamp = ts
 		}
-	} else if data, ok := msg.Payload.([]byte); ok {
-		var payload map[string]interface{}
-		if err := json.Unmarshal(data, &payload); err == nil {
-			if ts, ok := payload["timestamp"].(float64); ok {
-				timestamp = int64(ts)
-			}
-		}
+	} else if _, ok := msg.Payload.([]byte); ok {
+		// For binary payloads, timestamp is the message's own timestamp usually
+		timestamp = msg.Timestamp
 	}
 
 	if timestamp > 0 {
@@ -565,24 +561,21 @@ func (g *GossipManager) forwardMessage(msg *common.GossipMessage) {
 
 // Broadcast propagates a message to the entire network
 func (g *GossipManager) Broadcast(topic string, payload interface{}) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal gossip payload: %w", err)
-	}
-
 	msg := &common.GossipMessage{
 		ID:        fmt.Sprintf("msg_%d_%d", time.Now().UnixNano(), rand.Uint64()),
 		Type:      topic,
-		Payload:   data,
+		Payload:   payload,
 		Sender:    g.nodeID,
 		Timestamp: time.Now().UnixNano(),
 		TTL:       g.config.MaxHops,
 		MaxHops:   g.config.MaxHops,
 	}
 
-	// Sign the message
+	// Sign the message (using binary data if possible, or ID+Payload string)
 	if g.signKey != nil {
-		sig := ed25519.Sign(g.signKey, append([]byte(msg.ID), data...))
+		// Use binary repr for signing if possible
+		data, _ := msg.Marshal()
+		sig := ed25519.Sign(g.signKey, data)
 		msg.Signature = sig
 		msg.PublicKey = g.publicKey
 	}

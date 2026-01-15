@@ -1,6 +1,6 @@
 @0xb1c2d3e4f5a67890;
 
-using Base = import "../../base/v1/base.capnp";
+using Base = import "/base/v1/base.capnp";
 
 interface IO {
   struct SensorFrame {

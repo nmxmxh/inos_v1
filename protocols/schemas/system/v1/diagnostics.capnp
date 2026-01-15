@@ -1,8 +1,11 @@
 @0xd3a2b1c4e5f67890;
 
+using Base = import "/base/v1/base.capnp";
+
 struct DiagnosticsRequest {
   id @0 :UInt64;
   method @1 :Method;
+  metadata @2 :Base.Base.Metadata;
   
   enum Method {
     ping @0;

@@ -1,8 +1,11 @@
 @0xa3b4c5d6e7f89012;
 
+using Base = import "/base/v1/base.capnp";
+
 # ML Model Distribution Protocol
 interface Model {
     struct ModelManifest {
+        metadata @11 :Base.Base.Metadata;
         modelId @0 :Text;
         architecture @1 :Text;
         version @2 :Text;          # "v4.1"
@@ -111,5 +114,50 @@ interface Model {
         confidence @1 :Float32;
         latencyMs @2 :UInt64;
         explanation @3 :List(Text);
+    }
+    
+    # ---------------------------------------------------------------------------
+    # Knowledge Graph (Zero-Copy SAB Storage)
+    # ---------------------------------------------------------------------------
+
+    struct KnowledgeNode {
+        id @0 :UInt64;
+        type @1 :NodeType;
+        confidence @2 :Float32;
+        timestamp @3 :Int64;
+        version @4 :UInt32;
+        metadata @5 :Base.Base.Metadata;
+        data @6 :Base.Base.Payload;
+    }
+
+    enum NodeType {
+        pattern @0;
+        metric @1;
+        prediction @2;
+        rule @3;
+        model @4;
+    }
+
+    struct KnowledgeEdge {
+        fromId @0 :UInt64;
+        toId @1 :UInt64;
+        relation @2 :RelationType;
+        strength @3 :Float32;
+        evidence @4 :List(Evidence);
+    }
+
+    enum RelationType {
+        causes @0;
+        correlates @1;
+        dependsOn @2;
+        similarTo @3;
+        conflictsWith @4;
+    }
+
+    struct Evidence {
+        source @0 :Text;
+        field @1 :Text;
+        value @2 :Float32;
+        timestamp @3 :Int64;
     }
 }

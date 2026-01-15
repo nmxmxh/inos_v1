@@ -60,26 +60,26 @@ export class Compute_JobRequest extends $.Struct {
   set input(value: $.Data) {
     $.utils.copyFrom(value, $.utils.getPointer(3, this));
   }
-  _adoptParams(value: $.Orphan<$.Data>): void {
+  _adoptParams(value: $.Orphan<Compute_JobParams>): void {
     $.utils.adopt(value, $.utils.getPointer(4, this));
   }
-  _disownParams(): $.Orphan<$.Data> {
+  _disownParams(): $.Orphan<Compute_JobParams> {
     return $.utils.disown(this.params);
   }
   /**
-* JSON (UTF-8 bytes) OR Binary Cap'n Proto (Tier 2)
+* Structured binary parameters
 *
 */
-  get params(): $.Data {
-    return $.utils.getData(4, this);
+  get params(): Compute_JobParams {
+    return $.utils.getStruct(4, Compute_JobParams, this);
   }
   _hasParams(): boolean {
     return !$.utils.isNull($.utils.getPointer(4, this));
   }
-  _initParams(length: number): $.Data {
-    return $.utils.initData(4, length, this);
+  _initParams(): Compute_JobParams {
+    return $.utils.initStructAt(4, Compute_JobParams, this);
   }
-  set params(value: $.Data) {
+  set params(value: Compute_JobParams) {
     $.utils.copyFrom(value, $.utils.getPointer(4, this));
   }
   /**
@@ -145,7 +145,8 @@ export const Compute_JobParams_Which = {
   PHYSICS_PARAMS: 5,
   AUDIO_PARAMS: 6,
   RENDER3D_PARAMS: 7,
-  DATA_PARAMS: 8
+  DATA_PARAMS: 8,
+  BINARY: 9
 } as const;
 export type Compute_JobParams_Which = (typeof Compute_JobParams_Which)[keyof typeof Compute_JobParams_Which];
 export class Compute_JobParams extends $.Struct {
@@ -158,6 +159,7 @@ export class Compute_JobParams extends $.Struct {
   static readonly AUDIO_PARAMS = Compute_JobParams_Which.AUDIO_PARAMS;
   static readonly RENDER3D_PARAMS = Compute_JobParams_Which.RENDER3D_PARAMS;
   static readonly DATA_PARAMS = Compute_JobParams_Which.DATA_PARAMS;
+  static readonly BINARY = Compute_JobParams_Which.BINARY;
   static readonly _capnp = {
     displayName: "JobParams",
     id: "f4235eec00563d5d",
@@ -386,6 +388,31 @@ export class Compute_JobParams extends $.Struct {
   }
   set dataParams(value: Compute_DataParams) {
     $.utils.setUint16(0, 8, this);
+    $.utils.copyFrom(value, $.utils.getPointer(0, this));
+  }
+  _adoptBinary(value: $.Orphan<$.Data>): void {
+    $.utils.setUint16(0, 9, this);
+    $.utils.adopt(value, $.utils.getPointer(0, this));
+  }
+  _disownBinary(): $.Orphan<$.Data> {
+    return $.utils.disown(this.binary);
+  }
+  get binary(): $.Data {
+    $.utils.testWhich("binary", $.utils.getUint16(0, this), 9, this);
+    return $.utils.getData(0, this);
+  }
+  _hasBinary(): boolean {
+    return !$.utils.isNull($.utils.getPointer(0, this));
+  }
+  _initBinary(length: number): $.Data {
+    $.utils.setUint16(0, 9, this);
+    return $.utils.initData(0, length, this);
+  }
+  get _isBinary(): boolean {
+    return $.utils.getUint16(0, this) === 9;
+  }
+  set binary(value: $.Data) {
+    $.utils.setUint16(0, 9, this);
     $.utils.copyFrom(value, $.utils.getPointer(0, this));
   }
   toString(): string { return "Compute_JobParams_" + super.toString(); }

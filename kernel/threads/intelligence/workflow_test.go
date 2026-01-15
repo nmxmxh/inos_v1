@@ -114,7 +114,7 @@ func TestWorkflowMonitor_GetExecution(t *testing.T) {
 
 func TestWorkflowOrchestrator_RealEngineIntegration(t *testing.T) {
 	// 1. Setup Coordinator with Real Engines (Optimization/Scheduling)
-	uic := NewUnifiedIntelligenceCoordinator(unsafe.Pointer(uintptr(0)), 0, 0, nil, nil, nil)
+	uic := NewUnifiedIntelligenceCoordinator(unsafe.Pointer(nil), 0, 0, nil, nil, nil)
 	uic.optimization = optimization.NewOptimizationEngine()
 	uic.scheduling = scheduling.NewSchedulingEngine()
 

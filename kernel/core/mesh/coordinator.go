@@ -18,6 +18,7 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
+	"github.com/nmxmxh/inos_v1/kernel/gen/p2p/v1"
 	"github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/sab"
@@ -1449,6 +1450,158 @@ type DelegationResponse struct {
 	Resource  []byte  `json:"resource,omitempty"`
 	Error     string  `json:"error,omitempty"`
 	LatencyMs float32 `json:"latency_ms"`
+}
+
+// ToCapnp converts DelegateRequest to p2p.DelegateRequest.
+func (r *DelegateRequest) ToCapnp(seg *capnp.Segment) (p2p.DelegateRequest, error) {
+	req, err := p2p.NewDelegateRequest(seg)
+	if err != nil {
+		return p2p.DelegateRequest{}, err
+	}
+
+	req.SetId(r.ID)
+
+	// Operation handling
+	op, _ := req.NewOperation()
+	op.SetCustom(r.Operation)
+
+	if r.Params != "" {
+		req.SetParams([]byte(r.Params))
+	}
+
+	if len(r.Resource) > 0 {
+		// Resource is already a serialized system.Resource
+		msg, err := capnp.Unmarshal(r.Resource)
+		if err == nil {
+			sysRes, _ := system.ReadRootResource(msg)
+			req.SetResource(sysRes)
+		}
+	}
+
+	return req, nil
+}
+
+// FromCapnp updates DelegateRequest from p2p.DelegateRequest.
+func (r *DelegateRequest) FromCapnp(req p2p.DelegateRequest) error {
+	id, _ := req.Id()
+	r.ID = id
+
+	op, _ := req.Operation()
+	switch op.Which() {
+	case p2p.DelegateRequest_Operation_Which_custom:
+		r.Operation, _ = op.Custom()
+	}
+
+	params, _ := req.Params()
+	r.Params = string(params)
+
+	if req.HasResource() {
+		res, _ := req.Resource()
+		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+		root, _ := system.NewRootResource(seg)
+
+		// Manual copy to ensure seg usage and clean serialization
+		id, _ := res.Id()
+		_ = root.SetId(id)
+		digest, _ := res.Digest()
+		_ = root.SetDigest(digest)
+		root.SetRawSize(res.RawSize())
+
+		switch res.Which() {
+		case system.Resource_Which_inline:
+			data, _ := res.Inline()
+			_ = root.SetInline(data)
+		case system.Resource_Which_sabRef:
+			ref, _ := res.SabRef()
+			newRef, _ := root.NewSabRef()
+			newRef.SetOffset(ref.Offset())
+			newRef.SetSize(ref.Size())
+		}
+
+		_ = msg.SetRootPtr(root.Struct.ToPtr())
+		r.Resource, _ = msg.Marshal()
+	}
+
+	return nil
+}
+
+// ToCapnp converts DelegationResponse to p2p.DelegateResponse.
+func (r *DelegationResponse) ToCapnp(seg *capnp.Segment) (p2p.DelegateResponse, error) {
+	res, err := p2p.NewDelegateResponse(seg)
+	if err != nil {
+		return p2p.DelegateResponse{}, err
+	}
+
+	switch r.Status {
+	case "failed":
+		res.SetStatus(p2p.DelegateResponse_Status_failed)
+	case "input_missing":
+		res.SetStatus(p2p.DelegateResponse_Status_inputMissing)
+	default:
+		res.SetStatus(p2p.DelegateResponse_Status_success)
+	}
+
+	res.SetError(r.Error)
+
+	if len(r.Resource) > 0 {
+		msg, err := capnp.Unmarshal(r.Resource)
+		if err == nil {
+			sysRes, _ := system.ReadRootResource(msg)
+			res.SetResult(sysRes)
+		}
+	}
+
+	metrics, _ := res.NewMetrics()
+	metrics.SetExecutionTimeNs(uint64(r.LatencyMs * 1000000))
+
+	return res, nil
+}
+
+// FromCapnp updates DelegationResponse from p2p.DelegateResponse.
+func (r *DelegationResponse) FromCapnp(res p2p.DelegateResponse) error {
+	switch res.Status() {
+	case p2p.DelegateResponse_Status_success:
+		r.Status = "success"
+	case p2p.DelegateResponse_Status_failed:
+		r.Status = "failed"
+	case p2p.DelegateResponse_Status_inputMissing:
+		r.Status = "input_missing"
+	}
+
+	err, _ := res.Error()
+	r.Error = err
+
+	if res.HasResult() {
+		resObj, _ := res.Result()
+		msg, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+		root, _ := system.NewRootResource(seg)
+
+		// Manual copy to ensure seg usage and clean serialization
+		id, _ := resObj.Id()
+		_ = root.SetId(id)
+		digest, _ := resObj.Digest()
+		_ = root.SetDigest(digest)
+		root.SetRawSize(resObj.RawSize())
+
+		switch resObj.Which() {
+		case system.Resource_Which_inline:
+			data, _ := resObj.Inline()
+			_ = root.SetInline(data)
+		case system.Resource_Which_sabRef:
+			ref, _ := resObj.SabRef()
+			newRef, _ := root.NewSabRef()
+			newRef.SetOffset(ref.Offset())
+			newRef.SetSize(ref.Size())
+		}
+
+		_ = msg.SetRootPtr(root.Struct.ToPtr())
+		r.Resource, _ = msg.Marshal()
+	}
+
+	metrics, _ := res.Metrics()
+	r.LatencyMs = float32(metrics.ExecutionTimeNs()) / 1000000
+
+	return nil
 }
 
 // packResource creates a serialized system.Resource

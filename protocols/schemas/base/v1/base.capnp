@@ -30,21 +30,22 @@ interface Base {
   
   # DNA of the request
   struct Metadata {
-    userId @0 :Text;
-    deviceId @1 :Text;
+    moduleId @0 :UInt32;
+    userId @1 :Text;
+    deviceId @2 :Text;
     
     # Trace Context (OpenTelemetry W3C)
-    traceParent @2 :Text;
-    traceState @3 :Text;
+    traceParent @3 :Text;
+    traceState @4 :Text;
     
     # Security
-    authToken @4 :Text;
+    authToken @5 :Text;
     
     # Economics
-    creditLedgerId @5 :Text;
+    creditLedgerId @6 :Text;
     
     # Metadata version for evolution
-    version @6 :UInt32;
+    version @7 :UInt32;
   }
 
   # Standard Error Type

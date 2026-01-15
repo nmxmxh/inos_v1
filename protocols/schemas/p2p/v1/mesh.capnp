@@ -1,7 +1,6 @@
 @0xf434190284712409;
 
-using Base = import "../../base/v1/base.capnp".Base;
-using Delegation = import "delegation.capnp";
+using Base = import "/base/v1/base.capnp";
 
 interface P2PMesh {
 
@@ -46,7 +45,7 @@ interface P2PMesh {
   # 5. Compute Delegation (The "Brain")
   # =================================================================
 
-  delegateCompute @17 (request :Delegation.DelegateRequest) -> (response :Delegation.DelegateResponse);
+  delegateCompute @17 (envelope :Base.Base.Envelope) -> (response :Base.Base.Envelope);
 
   # =================================================================
   # 6. Reactive Events (Envelope Compatible)
@@ -59,7 +58,7 @@ interface P2PMesh {
 
 interface EventListener {
   # Callback for receiving events wrapped in Base.Envelope
-  onEvent @0 (envelope :Base.Envelope) -> ();
+  onEvent @0 (envelope :Base.Base.Envelope) -> ();
 }
 
 # =================================================================
@@ -223,4 +222,11 @@ struct ReputationUpdate {
   peerId @0 :Text;
   newScore @1 :Float32;
   reason @2 :Text;
+}
+
+struct DHTEntry {
+  key @0 :Text;
+  value @1 :List(Text);
+  timestamp @2 :Int64;
+  ttl @3 :Int64;
 }

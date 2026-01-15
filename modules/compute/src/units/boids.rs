@@ -1,6 +1,5 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use async_trait::async_trait;
-use sdk::js_interop;
 use sdk::pingpong::PingPongBuffer;
 use sdk::sab::SafeSAB;
 use serde_json::Value as JsonValue;
@@ -169,7 +168,7 @@ impl BoidUnit {
     /// Step boids physics in SAB with full flocking behavior using Ping-Pong Buffers
     /// Memory flow: Read from active buffer → compute in linear memory → write to inactive buffer → flip
     pub fn step_physics_sab(&self, sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
-        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, IDX_BIRD_EPOCH, OFFSET_ATOMIC_FLAGS};
+        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, OFFSET_ATOMIC_FLAGS};
         const IDX_EVOLUTION_EPOCH: usize = 16;
 
         // Ensure logging is initialized (idempotent)

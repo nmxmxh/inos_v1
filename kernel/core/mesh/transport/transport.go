@@ -619,11 +619,23 @@ func (t *WebRTCTransport) SendRPC(ctx context.Context, peerID string, method str
 		Timeout: t.config.RPCTimeout.Milliseconds(),
 	}
 
-	// Marshal request
-	_, err = json.Marshal(request)
+	// Marshal request to JSON for the payload (temporary until full RPC schema)
+	payload, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("failed to marshal RPC request: %w", err)
 	}
+
+	// Wrap in Envelope
+	env := &common.Envelope{
+		ID:        rpcID,
+		Type:      "rpc_request",
+		Timestamp: time.Now().UnixNano(),
+		Version:   "1.0",
+		Payload:   payload,
+	}
+
+	// Marshaling is now handled by SendMessage if we pass the Envelope object
+	// but let's be explicit for now during transition.
 
 	// Create response channel
 	responseChan := make(chan RPCResponse, 1)
@@ -643,7 +655,7 @@ func (t *WebRTCTransport) SendRPC(ctx context.Context, peerID string, method str
 	ctx, cancel := context.WithTimeout(ctx, t.config.RPCTimeout)
 	defer cancel()
 
-	if err := t.SendMessage(ctx, peerID, request); err != nil {
+	if err := t.SendMessage(ctx, peerID, env); err != nil {
 		return fmt.Errorf("failed to send RPC request: %w", err)
 	}
 
@@ -692,7 +704,7 @@ func (t *WebRTCTransport) StreamRPC(ctx context.Context, peerID string, method s
 	return int64(n), err
 }
 
-// SendMessage sends a message to a peer
+// SendMessage sends a message to a peer, automatically enveloping it if needed.
 func (t *WebRTCTransport) SendMessage(ctx context.Context, peerID string, message interface{}) error {
 	if !t.IsConnected(peerID) {
 		return errors.New("not connected to peer")
@@ -706,8 +718,27 @@ func (t *WebRTCTransport) SendMessage(ctx context.Context, peerID string, messag
 		return errors.New("connection not found")
 	}
 
-	// Marshal message
-	messageBytes, err := json.Marshal(message)
+	var messageBytes []byte
+	var err error
+
+	switch m := message.(type) {
+	case *common.Envelope:
+		messageBytes, err = m.Marshal()
+	case []byte:
+		// Raw bytes are sent as-is (assumed to be already encoded)
+		messageBytes = m
+	default:
+		// Auto-wrap other types in an Envelope (legacy/convenience)
+		payload, _ := json.Marshal(m)
+		env := &common.Envelope{
+			ID:        fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+			Type:      "json_payload",
+			Timestamp: time.Now().UnixNano(),
+			Payload:   payload,
+		}
+		messageBytes, err = env.Marshal()
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
@@ -1250,61 +1281,54 @@ func (t *WebRTCTransport) handleIncomingMessage(peerID string, data []byte) {
 	// Update metrics
 	t.recordMessageReceived(len(data))
 
-	// Parse message
-	var msg map[string]interface{}
-	if err := json.Unmarshal(data, &msg); err != nil {
-		t.logger.Error("failed to unmarshal incoming message", "error", err)
+	// Parse Envelope
+	env := &common.Envelope{}
+	if err := env.Unmarshal(data); err != nil {
+		// Fallback to legacy JSON for transition if needed, but let's be strict for now
+		t.logger.Error("failed to unmarshal incoming envelope", "error", err)
 		return
 	}
 
 	// Check if it's an RPC response
-	if id, ok := msg["id"].(string); ok {
-		// It's an RPC response
+	if env.Type == "rpc_response" {
 		t.rpcMu.RLock()
-		responseChan, exists := t.rpcResponses[id]
+		responseChan, exists := t.rpcResponses[env.ID]
 		t.rpcMu.RUnlock()
 
 		if exists {
 			var response RPCResponse
-			if err := json.Unmarshal(data, &response); err == nil {
+			if err := json.Unmarshal(env.Payload, &response); err == nil {
 				responseChan <- response
 			}
 		}
 		return
 	}
 
-	// Handle other message types
-	msgType, _ := msg["type"].(string)
-	switch msgType {
+	// Handle other message types based on Envelope Type
+	switch env.Type {
 	case "rpc_request":
-		t.handleRPCRequest(peerID, data)
+		t.handleRPCRequest(peerID, env.Payload)
 	case "ping":
 		// Respond to ping
-		t.SendMessage(context.Background(), peerID, map[string]interface{}{
-			"type": "pong",
+		t.SendMessage(context.Background(), peerID, &common.Envelope{
+			ID:        env.ID,
+			Type:      "pong",
+			Timestamp: time.Now().UnixNano(),
 		})
 	case "pong":
 		// Update latency
-		if timestamp, ok := msg["timestamp"].(float64); ok {
-			latency := time.Since(time.Unix(0, int64(timestamp)))
-			t.updatePeerLatency(peerID, latency)
-		}
+		t.updatePeerLatency(peerID, time.Since(time.Unix(0, env.Timestamp)))
 	case "capability_update":
 		// Update peer capabilities
-		if payload, ok := msg["payload"].(map[string]interface{}); ok {
-			var capability common.PeerCapability
-			capBytes, _ := json.Marshal(payload)
-			if err := json.Unmarshal(capBytes, &capability); err == nil {
-				t.connMu.Lock()
-				if conn, exists := t.connections[peerID]; exists {
-					conn.Capability = &capability
-				}
-				t.connMu.Unlock()
+		var capability common.PeerCapability
+		if err := json.Unmarshal(env.Payload, &capability); err == nil {
+			t.connMu.Lock()
+			if conn, exists := t.connections[peerID]; exists {
+				conn.Capability = &capability
 			}
+			t.connMu.Unlock()
 		}
 	case "chunk_request":
-		// Handle chunk request (forward to mesh coordinator)
-		// This would be handled by the mesh layer
 		t.logger.Debug("received chunk request", "peer", peerID[:8])
 	}
 }
@@ -1343,7 +1367,13 @@ func (t *WebRTCTransport) handleRPCRequest(peerID string, data []byte) {
 		}
 	}
 
-	t.SendMessage(context.Background(), peerID, response)
+	payload, _ := json.Marshal(response)
+	t.SendMessage(context.Background(), peerID, &common.Envelope{
+		ID:        request.ID,
+		Type:      "rpc_response",
+		Timestamp: time.Now().UnixNano(),
+		Payload:   payload,
+	})
 }
 
 // getPeerWebSocketURL returns WebSocket URL for a peer

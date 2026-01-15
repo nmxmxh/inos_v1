@@ -475,7 +475,28 @@ impl ComputeKernel {
         let params_reader = job
             .get_params()
             .map_err(|_| engine::ComputeError::ExecutionFailed("Invalid params field".into()))?;
-        let params = params_reader; // Already &[u8] due to schema change (Data)
+
+        let params_bytes = match params_reader.which() {
+            Ok(sdk::protocols::compute::compute::job_params::Which::Binary(data)) => {
+                data.map_err(|_| {
+                    engine::ComputeError::ExecutionFailed("Invalid binary params".into())
+                })?
+            }
+            Ok(sdk::protocols::compute::compute::job_params::Which::CustomParams(custom_res)) => {
+                let custom = custom_res.map_err(|_| {
+                    engine::ComputeError::ExecutionFailed("Invalid custom params".into())
+                })?;
+                custom
+                    .get_shader_source()
+                    .map_err(|_| {
+                        engine::ComputeError::ExecutionFailed("Invalid shader field".into())
+                    })?
+                    .as_bytes()
+            }
+            _ => &[], // Other structured types fall back to empty bytes for generic engines
+        };
+
+        let params = params_bytes;
 
         let input = job
             .get_input()

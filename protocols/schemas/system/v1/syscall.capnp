@@ -27,6 +27,8 @@ interface Syscall {
     
     # Operation Code (Redundant with Body union, but good for fast peek)
     opcode @5 :Opcode;
+    
+    metadata @6 :Base.Base.Metadata;
   }
   
   struct Body {

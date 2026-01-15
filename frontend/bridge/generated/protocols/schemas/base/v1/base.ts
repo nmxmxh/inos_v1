@@ -91,6 +91,12 @@ export class Base_Metadata extends $.Struct {
     id: "de7bc00ba0c71219",
     size: new $.ObjectSize(8, 6),
   };
+  get moduleId(): number {
+    return $.utils.getUint32(0, this);
+  }
+  set moduleId(value: number) {
+    $.utils.setUint32(0, value, this);
+  }
   get userId(): string {
     return $.utils.getText(0, this);
   }
@@ -128,10 +134,10 @@ export class Base_Metadata extends $.Struct {
     $.utils.setText(5, value, this);
   }
   get version(): number {
-    return $.utils.getUint32(0, this);
+    return $.utils.getUint32(4, this);
   }
   set version(value: number) {
-    $.utils.setUint32(0, value, this);
+    $.utils.setUint32(4, value, this);
   }
   toString(): string { return "Base_Metadata_" + super.toString(); }
 }

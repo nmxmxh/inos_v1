@@ -1,16 +1,16 @@
 package intelligence
 
 import (
-	"encoding/binary"
 	"fmt"
-	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
+	"github.com/nmxmxh/inos_v1/kernel/gen/ml/v1"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+	capnp "zombiezen.com/go/capnproto2"
 )
 
 // KnowledgeGraph stores knowledge in SAB for zero-copy sharing
@@ -192,31 +192,29 @@ func (kg *KnowledgeGraph) FindByType(nodeType foundation.NodeType) ([]*Knowledge
 
 // Helper: Write node to SAB with binary encoding
 func (kg *KnowledgeGraph) writeNode(offset uint32, node *KnowledgeNode) error {
-	if offset+KNOWLEDGE_NODE_SIZE > kg.sabSize {
-		return fmt.Errorf("offset out of bounds")
+	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return err
+	}
+	kn, err := ml.NewModel_KnowledgeNode(seg)
+	if err != nil {
+		return err
 	}
 
-	// Encode node to binary
-	data := make([]byte, KNOWLEDGE_NODE_SIZE)
+	kn.SetId(node.ID)
+	kn.SetType(ml.Model_NodeType(node.Type))
+	kn.SetConfidence(node.Confidence)
+	kn.SetTimestamp(int64(node.Timestamp))
+	kn.SetVersion(node.Version)
 
-	// Magic (8 bytes)
-	binary.LittleEndian.PutUint64(data[0:8], node.Magic)
-	// ID (8 bytes)
-	binary.LittleEndian.PutUint64(data[8:16], node.ID)
-	// Type (2 bytes)
-	binary.LittleEndian.PutUint16(data[16:18], node.Type)
-	// Confidence (4 bytes)
-	binary.LittleEndian.PutUint32(data[18:22], math.Float32bits(node.Confidence))
-	// Timestamp (8 bytes)
-	binary.LittleEndian.PutUint64(data[22:30], node.Timestamp)
-	// Version (4 bytes)
-	binary.LittleEndian.PutUint32(data[30:34], node.Version)
-	// DataOffset (4 bytes)
-	binary.LittleEndian.PutUint32(data[34:38], node.DataOffset)
-	// DataSize (4 bytes)
-	binary.LittleEndian.PutUint32(data[38:42], node.DataSize)
-	// Reserved (24 bytes)
-	copy(data[42:64], node.Reserved[:])
+	data, err := msg.Marshal()
+	if err != nil {
+		return err
+	}
+
+	if uint32(len(data)) > KNOWLEDGE_NODE_SIZE {
+		return fmt.Errorf("capnp node too large: %d > %d", len(data), KNOWLEDGE_NODE_SIZE)
+	}
 
 	// Atomic write to SAB
 	ptr := unsafe.Add(kg.sabPtr, offset)
@@ -235,21 +233,22 @@ func (kg *KnowledgeGraph) readNode(offset uint32) (*KnowledgeNode, error) {
 	ptr := unsafe.Add(kg.sabPtr, offset)
 	data := unsafe.Slice((*byte)(ptr), KNOWLEDGE_NODE_SIZE)
 
-	node := &KnowledgeNode{
-		Magic:      binary.LittleEndian.Uint64(data[0:8]),
-		ID:         binary.LittleEndian.Uint64(data[8:16]),
-		Type:       binary.LittleEndian.Uint16(data[16:18]),
-		Confidence: math.Float32frombits(binary.LittleEndian.Uint32(data[18:22])),
-		Timestamp:  binary.LittleEndian.Uint64(data[22:30]),
-		Version:    binary.LittleEndian.Uint32(data[30:34]),
-		DataOffset: binary.LittleEndian.Uint32(data[34:38]),
-		DataSize:   binary.LittleEndian.Uint32(data[38:42]),
+	msg, err := capnp.Unmarshal(data)
+	if err != nil {
+		return nil, err
 	}
-	copy(node.Reserved[:], data[42:64])
 
-	// Validate magic
-	if node.Magic != KNOWLEDGE_MAGIC {
-		return nil, fmt.Errorf("invalid node magic")
+	kn, err := ml.ReadRootModel_KnowledgeNode(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	node := &KnowledgeNode{
+		ID:         kn.Id(),
+		Type:       uint16(kn.Type()),
+		Confidence: kn.Confidence(),
+		Timestamp:  uint64(kn.Timestamp()),
+		Version:    kn.Version(),
 	}
 
 	return node, nil

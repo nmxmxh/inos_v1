@@ -38,7 +38,7 @@ mod benchmarks {
     #[test]
     fn benchmark_epoch_latency() {
         let sab = JsValue::UNDEFINED;
-        let mut epoch = Epoch::new(&sab, 0);
+        let mut epoch = Epoch::new(SafeSAB::new(&sab), 0);
         let iterations = 1_000_000;
 
         println!("\n--- Epoch Signaling Latency ---");

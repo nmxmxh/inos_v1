@@ -1,6 +1,7 @@
 @0xd8a9b7c6e5d4c3b2;
 
-using Resource = import "../../system/v1/resource.capnp".Resource;
+using Base = import "/base/v1/base.capnp";
+using Resource = import "/system/v1/resource.capnp".Resource;
 
 # INOS Mesh Delegation Protocol
 # Standardizes how compute tasks are offloaded, verified, and settled.
@@ -13,6 +14,7 @@ struct DelegateRequest {
   deadline @4 :UInt64;          # Unix Nanoseconds
   bid @5 :UInt32;               # Max credits offered for this job
   priority @6 :UInt8;           # 0-255
+  metadata @7 :Base.Base.Metadata;
   
   struct Operation {
     union {

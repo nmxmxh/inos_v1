@@ -34,6 +34,11 @@ impl SyscallClient {
             header.set_source_module_id(crate::identity::get_module_id());
             header.set_opcode(syscall::syscall::Opcode::FetchChunk);
 
+            // Populate Metadata
+            let mut meta = header.init_metadata();
+            meta.set_module_id(crate::identity::get_module_id());
+            // Other fields (user_id, device_id, etc.) will be populated when available in context
+
             let body = root.init_body();
             let mut fetch = body.init_fetch_chunk();
             fetch.set_hash(hash.as_bytes());
@@ -71,6 +76,10 @@ impl SyscallClient {
             header.set_call_id(call_id);
             header.set_source_module_id(crate::identity::get_module_id());
             header.set_opcode(syscall::syscall::Opcode::StoreChunk);
+
+            // Populate Metadata
+            let mut meta = header.init_metadata();
+            meta.set_module_id(crate::identity::get_module_id());
 
             let body = root.init_body();
             let mut store = body.init_store_chunk();
@@ -130,6 +139,10 @@ impl SyscallClient {
             header.set_call_id(call_id);
             header.set_source_module_id(crate::identity::get_module_id());
             header.set_opcode(syscall::syscall::Opcode::SendMessage);
+
+            // Populate Metadata
+            let mut meta = header.init_metadata();
+            meta.set_module_id(crate::identity::get_module_id());
 
             let body = root.init_body();
             let mut send = body.init_send_message();

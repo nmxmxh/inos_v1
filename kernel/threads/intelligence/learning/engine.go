@@ -7,9 +7,11 @@ import (
 
 	"github.com/cdipaolo/goml/base"
 	"github.com/cdipaolo/goml/linear"
+	"github.com/nmxmxh/inos_v1/kernel/gen/ml/v1"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
+	capnp "zombiezen.com/go/capnproto2"
 )
 
 // EnhancedLearningEngine implements online learning for kernel heuristics
@@ -268,6 +270,110 @@ type Observation struct {
 	Label     bool
 	Timestamp time.Time
 	Success   bool
+}
+
+// ToCapnp converts PredictionContext to ml.Model_BrainRequest.
+func (c *PredictionContext) ToCapnp(seg *capnp.Segment) (ml.Model_BrainRequest, error) {
+	req, err := ml.NewModel_BrainRequest(seg)
+	if err != nil {
+		return ml.Model_BrainRequest{}, err
+	}
+
+	req.SetOp(ml.Model_BrainOp_predict)
+
+	feats, _ := req.NewFeatures(int32(len(c.Features)))
+	i := 0
+	for k, v := range c.Features {
+		entry := feats.At(i)
+		_ = entry.SetKey(k)
+		entry.SetValue(v)
+		i++
+	}
+
+	req.SetContext(fmt.Sprintf("type:%v", c.Type))
+	return req, nil
+}
+
+// FromCapnp updates PredictionContext from ml.Model_BrainRequest.
+func (c *PredictionContext) FromCapnp(req ml.Model_BrainRequest) error {
+	feats, _ := req.Features()
+	c.Features = make(map[string]float32)
+	for i := 0; i < feats.Len(); i++ {
+		entry := feats.At(i)
+		k, _ := entry.Key()
+		c.Features[k] = entry.Value()
+	}
+
+	ctx, _ := req.Context()
+	fmt.Sscanf(ctx, "type:%v", &c.Type)
+	return nil
+}
+
+// ToCapnp converts Prediction to ml.Model_BrainResult.
+func (p *Prediction) ToCapnp(seg *capnp.Segment) (ml.Model_BrainResult, error) {
+	res, err := ml.NewModel_BrainResult(seg)
+	if err != nil {
+		return ml.Model_BrainResult{}, err
+	}
+
+	res.SetConfidence(p.Confidence)
+	if p.Value != nil {
+		res.SetDecision(fmt.Sprintf("%v", p.Value))
+	}
+
+	return res, nil
+}
+
+// FromCapnp updates Prediction from ml.Model_BrainResult.
+func (p *Prediction) FromCapnp(res ml.Model_BrainResult) error {
+	p.Confidence = res.Confidence()
+	dec, _ := res.Decision()
+	p.Value = dec
+	return nil
+}
+
+// ToCapnp converts Observation to ml.Model_BrainRequest.
+func (o *Observation) ToCapnp(seg *capnp.Segment) (ml.Model_BrainRequest, error) {
+	req, err := ml.NewModel_BrainRequest(seg)
+	if err != nil {
+		return ml.Model_BrainRequest{}, err
+	}
+
+	req.SetOp(ml.Model_BrainOp_learn)
+
+	feats, _ := req.NewFeatures(int32(len(o.Features)))
+	i := 0
+	for k, v := range o.Features {
+		entry := feats.At(i)
+		_ = entry.SetKey(k)
+		entry.SetValue(v)
+		i++
+	}
+
+	label := "0"
+	if o.Label {
+		label = "1"
+	}
+	req.SetContext(fmt.Sprintf("label:%s;success:%v", label, o.Success))
+	return req, nil
+}
+
+// FromCapnp updates Observation from ml.Model_BrainRequest.
+func (o *Observation) FromCapnp(req ml.Model_BrainRequest) error {
+	feats, _ := req.Features()
+	o.Features = make(map[string]float32)
+	for i := 0; i < feats.Len(); i++ {
+		entry := feats.At(i)
+		k, _ := entry.Key()
+		o.Features[k] = entry.Value()
+	}
+
+	ctx, _ := req.Context()
+	var labelStr string
+	fmt.Sscanf(ctx, "label:%s;success:%v", &labelStr, &o.Success)
+	o.Label = (labelStr == "1")
+	o.Timestamp = time.Now()
+	return nil
 }
 
 func (ele *EnhancedLearningEngine) runLearningLoop() {

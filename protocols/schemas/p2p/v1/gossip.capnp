@@ -1,5 +1,7 @@
 @0xf1a2b3c4d5e6f789;
 
+using Base = import "/base/v1/base.capnp";
+
 # P2P Gossip Protocol for state synchronization
 # Wire Format: Base.Envelope
 # Payload: GossipPayload (serialized as Data in Envelope.payload)
@@ -7,11 +9,13 @@
 interface Gossip {
     # The payload structure that goes inside Base.Envelope.payload.data
     struct GossipPayload {
+        metadata @4 :Base.Base.Metadata;
         union {
             ledgerSync @0 :LedgerSync;
             peerList @1 :PeerList;
             chunkAd @2 :ChunkAdvertisement;
             modelAd @3 :ModelAdvertisement;
+            custom @5 :Data;
         }
     }
     

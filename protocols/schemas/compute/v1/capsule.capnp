@@ -16,7 +16,7 @@ interface Compute {
     library @1 :Text;            # Library name: "image", "video", "audio", "crypto", "data", "gpu", "storage", "ml"
     method @2 :Text;             # Method name: "resize", "encode", "sha256", "store_chunk", etc.
     input @3 :Data;              # Input data (zero-copy reference to SAB)
-    params @4 :Data;             # JSON (UTF-8 bytes) OR Binary Cap'n Proto (Tier 2)
+    params @4 :JobParams;         # Structured binary parameters
     budget @5 :UInt64;           # Credits allocated for this job
     priority @6 :UInt8;          # 0-255 (higher = more urgent)
     timeout @7 :UInt64;          # Maximum execution time (ms)
@@ -40,6 +40,7 @@ interface Compute {
       audioParams @6 :AudioParams;
       render3dParams @7 :Render3DParams;
       dataParams @8 :DataParams;
+      binary @9 :Data;
     }
   }
   

@@ -1,5 +1,7 @@
 @0xf58a7b3c2e1d0942;
 
+using Base = import "/base/v1/base.capnp";
+
 
 # INOS Identity Schema v1.0
 # Defines the distributed trust anchor (DID) and device binding.
@@ -9,6 +11,7 @@ struct IdentityRegistry {
 }
 
 struct IdentityEntry {
+  metadata @8 :Base.Base.Metadata;
   did @0 :Text;
   publicKey @1 :Data;
   status @2 :IdentityStatus;
@@ -26,6 +29,7 @@ struct IdentityEntry {
 }
 
 struct DeviceEntry {
+  metadata @9 :Base.Base.Metadata;
   deviceId @0 :Text;            # device:<blake3(fingerprint)>
   nodeId @1 :Text;              # node:<blake3(device_id)>
   name @2 :Text;                # User-friendly name

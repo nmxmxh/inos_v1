@@ -3,6 +3,7 @@
 package ml
 
 import (
+	base "github.com/nmxmxh/inos_v1/kernel/gen/base/v1"
 	math "math"
 	capnp "zombiezen.com/go/capnproto2"
 	text "zombiezen.com/go/capnproto2/encoding/text"
@@ -37,12 +38,12 @@ type Model_ModelManifest struct{ capnp.Struct }
 const Model_ModelManifest_TypeID = 0xbb0230c85c56ab5d
 
 func NewModel_ModelManifest(s *capnp.Segment) (Model_ModelManifest, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 10})
 	return Model_ModelManifest{st}, err
 }
 
 func NewRootModel_ModelManifest(s *capnp.Segment) (Model_ModelManifest, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 10})
 	return Model_ModelManifest{st}, err
 }
 
@@ -54,6 +55,31 @@ func ReadRootModel_ModelManifest(msg *capnp.Message) (Model_ModelManifest, error
 func (s Model_ModelManifest) String() string {
 	str, _ := text.Marshal(0xbb0230c85c56ab5d, s.Struct)
 	return str
+}
+
+func (s Model_ModelManifest) Metadata() (base.Base_Metadata, error) {
+	p, err := s.Struct.Ptr(9)
+	return base.Base_Metadata{Struct: p.Struct()}, err
+}
+
+func (s Model_ModelManifest) HasMetadata() bool {
+	p, err := s.Struct.Ptr(9)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_ModelManifest) SetMetadata(v base.Base_Metadata) error {
+	return s.Struct.SetPtr(9, v.Struct.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated base.Base_Metadata struct, preferring placement in s's segment.
+func (s Model_ModelManifest) NewMetadata() (base.Base_Metadata, error) {
+	ss, err := base.NewBase_Metadata(s.Struct.Segment())
+	if err != nil {
+		return base.Base_Metadata{}, err
+	}
+	err = s.Struct.SetPtr(9, ss.Struct.ToPtr())
+	return ss, err
 }
 
 func (s Model_ModelManifest) ModelId() (string, error) {
@@ -256,7 +282,7 @@ type Model_ModelManifest_List struct{ capnp.List }
 
 // NewModel_ModelManifest creates a new list of Model_ModelManifest.
 func NewModel_ModelManifest_List(s *capnp.Segment, sz int32) (Model_ModelManifest_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 9}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 10}, sz)
 	return Model_ModelManifest_List{l}, err
 }
 
@@ -279,6 +305,10 @@ type Model_ModelManifest_Promise struct{ *capnp.Pipeline }
 func (p Model_ModelManifest_Promise) Struct() (Model_ModelManifest, error) {
 	s, err := p.Pipeline.Struct()
 	return Model_ModelManifest{s}, err
+}
+
+func (p Model_ModelManifest_Promise) Metadata() base.Base_Metadata_Promise {
+	return base.Base_Metadata_Promise{Pipeline: p.Pipeline.GetPipeline(9)}
 }
 
 type Model_LayerChunk struct{ capnp.Struct }
@@ -1677,134 +1707,683 @@ func (p Model_BrainResult_Promise) Struct() (Model_BrainResult, error) {
 	return Model_BrainResult{s}, err
 }
 
-const schema_a3b4c5d6e7f89012 = "x\xda\x9cWkl\x1cW\x15>g\xee\xae\xd76\xb6" +
-	"\xd7\xc3l$\x88R9D\xad\xda\x94\xa4\xcd\xc3\x11(" +
-	"j\xe4\xd4nJ\x12b\xd9w\xd7m\x91I\xa4\x8cw" +
-	"\xefz\xc7\xde\x9d\x19\xcf\xdc\x09^+\x91\x93\x92>\x88" +
-	"\x88HD\"R\x11D+R\x01B\xa4\x08\x01R\xd5" +
-	"\x04\xb5\xa8\x91*D%\x8a\x94\xf0(\x12\x7f\x80\x0a\xa4" +
-	"\xf2\xab\x12\xa5U5\xe8\xcc\xee\xcc\x1d6\xb1l\xfa\xc3" +
-	"\xd6\xec\x993\xf7~\xdf\xb9\xe7\xf1\xddm\xefg\xf6j" +
-	"\xdb\xb3\xcfd\x01\xf8\xdelW\xd8\x7f\xff\xd3\xdf\xfe\xc9" +
-	"{\x17O\x01\xdf\x88\x18\xe6\xbf\x8b\xec\xf7\xd7\xf4\x7fB" +
-	"&\x07\xb0\xf3\x87\xda4\x1a\xd7\xb5\x1c\x80\xf1\xb2\xf6\x15" +
-	"\xc0\xf0/WO\xbe]\xba\xf0\xe13\x1d\xceYr\xd9" +
-	"\xb9\x8eM\xa3\xb1\x99\x91\xf7=\xec%\xc0\xf0V\xff\xf0" +
-	"\x87\xce\xf0\xbd\xdf\x00}\xa3\xa6\x9c\x01w\xde`\xa3h" +
-	"\xdc\x8c<\xdfb\x13\x80\xe1\xe8\xae\xbbn]\xbar\xf7" +
-	"yZ\x97u\x80\xf8\x07;\x83\x06F\x8f\x1f\xb1!\x04" +
-	"\x0c\xf1\x97G\xde\xdb\xf4\xeb\xf27;Qd#\x14\xd9" +
-	"3hl\x8d\x1e7g\x9f \xf7\xabg\xff\xf0\x8b\xaf" +
-	"\x1e\xff\xd3\x05rO\xe1\xc8\"\xf9\x9c\xef\x9aF\xe3\xc5" +
-	".\x82\xf2B\x17\x81\xfe\xcdg\xff\xbea\xea\xea\xf7\xaf" +
-	"vzG\x14\xf7\xe4\x96\xd0\xe09\xf2\x1e\xcf\xbd\x03\x18" +
-	"\xbe\xb2\xfd\xaf\x9f\xfb\xe0\xde/\xff\xb4\xc3;B\xbb\xb5" +
-	"{\x1a\x8d\x87\xbb\xc9yO79\x1f\xf9\xd1\xe3\x87\xdf" +
-	"\xd8\xa6\xbd\xd2\x89\xbb\x87\xbc?\xd3\xe3\xa1\xb1+z\xdc" +
-	"\xde\xe3h\x80\xe1\xb6o=\xf1\xf8\xf0k\x1b\xae\xdf1" +
-	"\xd8\xff\xf9\xc4\x12\x1a\xfd}\xb4xO\x1f\xe1\xd6\xf9\x9e" +
-	"\x97_?\x12\xbczG\xef\x1f\xf7\xcd\xa1\xf1Z\xe4}" +
-	"=\xf2\xfe\xda\xf3O?\xd5\xcb6\xdc\xb8#K\xab\x7f" +
-	"\x06\x8d\x13\xfd\xe4\xdd\xec'\xe0\x7f\xde\xb0\xfe%\xf1\xf6" +
-	"\xcfot\xae\x1dE\xb010\x87\xc6\xa9\x01\xf2>1" +
-	"@I\x92\xbc\xd7\xd7\xb3\xf0\x93\xe7\xde\x7f\xe7\xd6\x8d\x9f" +
-	"}\x8f\x8e\xfd\x8f\x03\x1a\x1a\x7f\x1b\xf87\x80q3\x9f" +
-	"\xa3?\x80\xb0K\xde\x9c\xf8\xdd\x9b\xef\xfe\xeb\xb6$\xb9" +
-	"\x9e\x9fC\xe3-\xf21\xde\xccS\x92<|q\xd3\xaf" +
-	"\xae\x89\xdd\x1ft\xa2\xa0<\xda\xf9n\xfeI4p\x90" +
-	"\xbc?\xca\x13\xe6F\xfd\xc1c\xdb\x1fl8\x99\x8a\xa8" +
-	"o\x9du\xb6J\xd1p\x1f(\x9b\xae\xed\xee\x1ew*" +
-	"\xa2\xfe\xc0X-\xb0\xe7\x8b\xa6\xcdf\xc5$\"\xeff" +
-	"\x19\x80\x0c\x02\xe8\x9bw\x00\xf0\xbb\x19\xf2m\x1a\xea\x88" +
-	"\x05$\xe3\xd6M\x00\xfc>\x86|X\xc3!_\x9a\x9e" +
-	"\xc4n\xd0\xb0\x1b0'\xecJ\xfc\xbc\xc6]'=\x87" +
-	"9U\xda\xb5/\xd9u_\x11\x80?\xc2\x90O\xa6v" +
-	"\x1d'(\xfb\x19\xf2)\x0dQ+\xa0\x06\xa0sr\x9c" +
-	"d\xc8\x0fk\x18\x96i\xb9\xfd\xa6\x0fX\xc3>\xd0\xb0" +
-	"\x0fp\xc8\xf5\x1c\xa7\x8a\xfd\xa0a?`(\xad\x86\xf0" +
-	"\xa5\xd9\x00t1\x0b\x1af\xd7\x82r\xd43-{\xc2" +
-	"\x85\x08b\xb4\xeb]\xa3\x00\x88\xfa\xba\x1d\x00\xa8\xe9\xfd" +
-	"E\x80e\xd7\x13\x15\xab,\x87\xea\xc2\xf4\xec\xb0\xecx" +
-	"\x9e\xa8\x9b\x12P$\xebgWZ\xff\x0b\xc2\x16\x9e)" +
-	"-\xc7\x1es\xec\xaa5\x0b\xd1N\x85$\x18'\x88\xe3" +
-	"q\x86\xfc\xd9T0\x9e\x9a\x01\xe0\xa7\x19\xf2s\x1a\xea" +
-	"Z;\x1ag\xef\x07\xe0\xcf2\xe4\x174\xd4\x19+ " +
-	"\x03\xd0\xcf\x93\xf1\xeb\x0c\xf9%\x0d\xf5\xcc\xc9\x02f\x00" +
-	"\xf4\x8b\xbb\x01\xf89\x86\xfc\xb2\x86a\xc3\\\x9cr\xe6" +
-	"\x85\x0d\xe8'gG(\x09\x15\xe4\x02O`/h\xd8" +
-	"\x0b\x98\x97\x8e;\x99\xfe\xf1\xc5\xd8\x7f\xc4\x97\x9e0\x1b" +
-	"\x88\xa0!\xa6\x82\xba\"\xe9\x03vUx\xc2.\x8b\xa2" +
-	"X\x08\x84/[\xa4?\x95\x90~n\x14\x80_`\xc8" +
-	"\x9fO\x91\xfe\x0e\xa1\xbe\xc4\x90_I\x91~\x81\x8c\x97" +
-	"\x19\xf2\x1f\xa4H\xbf8\x0d\xc0\xaf0\xe4\xafj\x88\x99" +
-	"\x16\xe7\xeb\x14\xc7k\x0c\xf9\x1b\x1a\xea\xd9L\x01\xb3\x00" +
-	"\xfa\x0d\x8a\xe3\xeb\x0c\xf9o5\\n\x10\xb4\x03\x958" +
-	"yF\\\xcfi\xb82\xf9Y\x8e\x8e\x07\x07U\x87\x06" +
-	"\xc4A\xc0\xd05=iI\xcb\x01f\xfb8\x008\xc9" +
-	"\x10\x07U\xf3\x04$c(\xec\xb2\xd7t\xa5\x00\xac$" +
-	"q*;\x8eW\xb1l\x13r\xd2\xf1\xe2\x8dVO\xc9" +
-	"CfSxc\xb5\x80\xd9\xf3\x1d\x85Ca\xdb\xcb\x90" +
-	"\x1f\xd20\x8e\xda\x81iU7\xba\x86\xed\xc2\xa1\xac8" +
-	"\xc4\x90\x7fI\xc3\xe5:-w@\x15n\xb9\xdd\x0d\x80" +
-	"\xcd\x0a\x1cTS\xb1E7\xef[K\x02{@\xc3\x9e" +
-	"5c\x9d4\xbd\x91(D6\xe1\x1dL\xf0\x9atx" +
-	"\x87\x19\xf2Z\xea\x98\x05\x01\xae0\xe4\xae*\xf4\x06\x9d" +
-	"S\x9d!_\xa4S\xc6\xd6)\x07s\x00\\2\xe4'" +
-	"5\x1cqE\xc4!\x8ea\xc4iE\x0e\xa1e\xbb\x81" +
-	"\x9c\xa8V!\xe7\x0b\x99\x90q\x02\x19\x99!_M\x9b" +
-	"W\xe5\xf8\x98o\xce\x8a\x924\x99\xf4;\xf8\x11\xc2\xa3" +
-	"\x0cy=\xc5\xcf:\x93\xe2\x12\xa7q0\xa3\xb8$i" +
-	"|\x82\xc2\xb3\xc8\x90\x9f\xd60le\xe3\x94\x03\xf9y" +
-	"a\xabJ-;\x0d\xb7.\xa4\x85\x8e\x1dU\xb1\x0f\xa0" +
-	"\xaa\xd8\x91f}\xca\x99\x87\\\xea\x8b\x11\xea\x82\xe3~" +
-	"\\\xc7\xab\xb3\x8b\xfe\x8f\x9b\xf6\x90U\x15\xbe$\x82[" +
-	"b\x82\xc6=8\x0aP\xda\x88\x0cK[Pq46" +
-	"\xe3\x1c@\xe9>\xb2\x0f\xa3\xa2il\x8f\xfc\xb7\x90\xfd" +
-	"\xf3\xa8\x98\x1a\xbb\xb0\x08P\x1a&\xfb^Lj\xd6\xd8" +
-	"\x833\x00\xa5\x87\xc8\xbc\x9f\xdc\xb3\x18\x95\xad\xb1/r" +
-	"\x7f\x84\xec\x93d\xef\xca\x14\xb0\x8b\x84\x08\xee\x06(\xed" +
-	"'{\x85\xec\xb9l\x81\xe6\xb2aFp\x8e\x92\xfd8" +
-	"\xd9\xbb\xbb\x0a\xd8M#=Zg\x91\xec\xa7\xc9\xde\x93" +
-	"+`\x0f\x80q*\xb2\x9f$\xfbe\xb2\xf7v\x17\xb0" +
-	"\x17\xc0x\x0e\xa7\x01J\x97\xc8~\x05o\xef\x18\xa1\xe9" +
-	"\x95k\x96\x14e\xc8K\xea\x9bm\xf3\xf21\xe1\xf9\x96" +
-	"c'n\x15\xe1\x0a\xbb\xe2O\x00*[tVc\xb5" +
-	"\x00r\xf6\xbc\xff\xbf\xa5X\xb2\x96\x00Er~\x91-" +
-	"i4\xf4\xfd@\x9c\xf0\xe3\xa6\x0by\xd7\xb2gU\x1b" +
-	"J\x14_\xbb\x0d\xf9\xd6\xacm\xca\xc0\xa3\x15\xe3\xb9\xe8" +
-	"z\xce1\xab\"<\x9a\x00\x1d\xcb6\x847_\x17E" +
-	"\x07\x98#\x13\xff\xb5M\xf6\xb1\x9a9R\xaf\x0b\xbb\xa5" +
-	")V\x9b\xeeE\xd5\x90\xe2\xa2\x7f\x8clS\x0c\xf9\xd1" +
-	";O\xf7\xb0\\3\xa3\x0d\xd2\\>\xfe\x8c/\x8a\x85" +
-	"|\xd0\xce\xf0\x14\xda\xf5wh\xa9\x07\xdb-\xb5\x92j" +
-	"\xa9\xe6\xa8\xeae\xccq1\xaf4? \xe6\x01\xc3\xaa" +
-	"\xa0\xc0\x0b\x1f\x00\xd4\xf9$z\xb2u>\xcbe\xc7\x96" +
-	"bQ\xae}\x18\xb4\xb1\xfb\xb9\xa0.;\xba\xcfA\xd5" +
-	"}\x92\xe6C\xcd\xb5\xc6\x90\xcb\x14\xf4\x05\x0a\xb4\xcb\x90" +
-	"\x1fOu\xd7\xe6L\xbb\xf9\\\xd0(c\xcb\x16\xa50" +
-	"AO\xa2O\xf3\xb0\"l`\xe5D\"\x84uS\x0a" +
-	"\xbb\xdc\x1c\xa7T\x8a\xfb\xa7Xt\xeb\xa6Mb\x82\x8a" +
-	"\xa03\xc1V\xe3\xf7h+j\xfb\xf2\xb6\xf4\x9a\x1d\xea" +
-	"t\x93R\xa7\x898\xdd\xa1\xc4in^4\x13)x" +
-	"\xcc\xac\x07\xe2\xb6\xae\xc7V\xd8\x16\xf8C\x98\xba\xa5\xe8" +
-	"\x0b\x9e\xaa$}aZ\x0d\x14\xfa\x91\xdcN\xf4\x85%" +
-	"u/\xa47\xc9\xf5L_8\xa3\x14\x81\x1e,)\x11" +
-	"\xa1\x07g\x94\x9c\xd7\x9bO\xa6n\x01\xcd9u\xa9\xd2" +
-	"\x9b\xd3\xea^Co\xd4\x8d\xb29\xaa\xb2H\x0f\xe6\xd4" +
-	"\x85F\x0ff\xc2\xb8{C\xab}\x87\xb1v\x00f\xcf" +
-	"\x87c\xa9I\x1f\xc6E\x0b\xed\xaa\x0dc}\x0e\xcc\xa9" +
-	"\x86\xb1bC%\xd9\xc2x\xb6C{\xb8\x87\xb1\x96E" +
-	"%f\x93\x0f5Q\x14~P\x97\xf0\xa8e[~\xad" +
-	"(\xf2\xa6\xef\xd8a<;\x81I?\x8c\xeb\x10\xa2B" +
-	"\\nK\xef0N\x01\x88r \xf6\xf2!Jy\x96" +
-	"\x9d\xc4\xb5\xa4Qz\xd7\x94\x96/FZ\xfe\xd3\xc5H" +
-	"\xcb\xaf+\x02\x84\xbet\\\x1a\xa5\x80vZ\x1b\x87\xc2" +
-	"\xaeLT\xa7\xc4\"\xa0\xfc\xbf\x04nDz\x05\xdd\xb3" +
-	"\x98j\x81\xc1\xc1\xb6\x048\xa7Z\xe0\xd9\xb9\x94zg" +
-	"Z\xab2/\xeeP\xea}DFC\xff\xb6i\xe0\xcc" +
-	"\xba\x9e3\x93n5\xbd\xedW\xd5v  \x8a\x04\xe6" +
-	"U\xbe\xb5\xda\xd4P@'\x82\x83*\xf5Z\x9a\xe9\xbf" +
-	"\x01\x00\x00\xff\xff\x14IP\x9e"
+type Model_KnowledgeNode struct{ capnp.Struct }
+
+// Model_KnowledgeNode_TypeID is the unique identifier for the type Model_KnowledgeNode.
+const Model_KnowledgeNode_TypeID = 0xca82c3b7ba6884f9
+
+func NewModel_KnowledgeNode(s *capnp.Segment) (Model_KnowledgeNode, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 2})
+	return Model_KnowledgeNode{st}, err
+}
+
+func NewRootModel_KnowledgeNode(s *capnp.Segment) (Model_KnowledgeNode, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 32, PointerCount: 2})
+	return Model_KnowledgeNode{st}, err
+}
+
+func ReadRootModel_KnowledgeNode(msg *capnp.Message) (Model_KnowledgeNode, error) {
+	root, err := msg.RootPtr()
+	return Model_KnowledgeNode{root.Struct()}, err
+}
+
+func (s Model_KnowledgeNode) String() string {
+	str, _ := text.Marshal(0xca82c3b7ba6884f9, s.Struct)
+	return str
+}
+
+func (s Model_KnowledgeNode) Id() uint64 {
+	return s.Struct.Uint64(0)
+}
+
+func (s Model_KnowledgeNode) SetId(v uint64) {
+	s.Struct.SetUint64(0, v)
+}
+
+func (s Model_KnowledgeNode) Type() Model_NodeType {
+	return Model_NodeType(s.Struct.Uint16(8))
+}
+
+func (s Model_KnowledgeNode) SetType(v Model_NodeType) {
+	s.Struct.SetUint16(8, uint16(v))
+}
+
+func (s Model_KnowledgeNode) Confidence() float32 {
+	return math.Float32frombits(s.Struct.Uint32(12))
+}
+
+func (s Model_KnowledgeNode) SetConfidence(v float32) {
+	s.Struct.SetUint32(12, math.Float32bits(v))
+}
+
+func (s Model_KnowledgeNode) Timestamp() int64 {
+	return int64(s.Struct.Uint64(16))
+}
+
+func (s Model_KnowledgeNode) SetTimestamp(v int64) {
+	s.Struct.SetUint64(16, uint64(v))
+}
+
+func (s Model_KnowledgeNode) Version() uint32 {
+	return s.Struct.Uint32(24)
+}
+
+func (s Model_KnowledgeNode) SetVersion(v uint32) {
+	s.Struct.SetUint32(24, v)
+}
+
+func (s Model_KnowledgeNode) Metadata() (base.Base_Metadata, error) {
+	p, err := s.Struct.Ptr(0)
+	return base.Base_Metadata{Struct: p.Struct()}, err
+}
+
+func (s Model_KnowledgeNode) HasMetadata() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_KnowledgeNode) SetMetadata(v base.Base_Metadata) error {
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewMetadata sets the metadata field to a newly
+// allocated base.Base_Metadata struct, preferring placement in s's segment.
+func (s Model_KnowledgeNode) NewMetadata() (base.Base_Metadata, error) {
+	ss, err := base.NewBase_Metadata(s.Struct.Segment())
+	if err != nil {
+		return base.Base_Metadata{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
+func (s Model_KnowledgeNode) Data() (base.Base_Payload, error) {
+	p, err := s.Struct.Ptr(1)
+	return base.Base_Payload{Struct: p.Struct()}, err
+}
+
+func (s Model_KnowledgeNode) HasData() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_KnowledgeNode) SetData(v base.Base_Payload) error {
+	return s.Struct.SetPtr(1, v.Struct.ToPtr())
+}
+
+// NewData sets the data field to a newly
+// allocated base.Base_Payload struct, preferring placement in s's segment.
+func (s Model_KnowledgeNode) NewData() (base.Base_Payload, error) {
+	ss, err := base.NewBase_Payload(s.Struct.Segment())
+	if err != nil {
+		return base.Base_Payload{}, err
+	}
+	err = s.Struct.SetPtr(1, ss.Struct.ToPtr())
+	return ss, err
+}
+
+// Model_KnowledgeNode_List is a list of Model_KnowledgeNode.
+type Model_KnowledgeNode_List struct{ capnp.List }
+
+// NewModel_KnowledgeNode creates a new list of Model_KnowledgeNode.
+func NewModel_KnowledgeNode_List(s *capnp.Segment, sz int32) (Model_KnowledgeNode_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 32, PointerCount: 2}, sz)
+	return Model_KnowledgeNode_List{l}, err
+}
+
+func (s Model_KnowledgeNode_List) At(i int) Model_KnowledgeNode {
+	return Model_KnowledgeNode{s.List.Struct(i)}
+}
+
+func (s Model_KnowledgeNode_List) Set(i int, v Model_KnowledgeNode) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Model_KnowledgeNode_List) String() string {
+	str, _ := text.MarshalList(0xca82c3b7ba6884f9, s.List)
+	return str
+}
+
+// Model_KnowledgeNode_Promise is a wrapper for a Model_KnowledgeNode promised by a client call.
+type Model_KnowledgeNode_Promise struct{ *capnp.Pipeline }
+
+func (p Model_KnowledgeNode_Promise) Struct() (Model_KnowledgeNode, error) {
+	s, err := p.Pipeline.Struct()
+	return Model_KnowledgeNode{s}, err
+}
+
+func (p Model_KnowledgeNode_Promise) Metadata() base.Base_Metadata_Promise {
+	return base.Base_Metadata_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+func (p Model_KnowledgeNode_Promise) Data() base.Base_Payload_Promise {
+	return base.Base_Payload_Promise{Pipeline: p.Pipeline.GetPipeline(1)}
+}
+
+type Model_NodeType uint16
+
+// Model_NodeType_TypeID is the unique identifier for the type Model_NodeType.
+const Model_NodeType_TypeID = 0xfd880a8d36281db1
+
+// Values of Model_NodeType.
+const (
+	Model_NodeType_pattern    Model_NodeType = 0
+	Model_NodeType_metric     Model_NodeType = 1
+	Model_NodeType_prediction Model_NodeType = 2
+	Model_NodeType_rule       Model_NodeType = 3
+	Model_NodeType_model      Model_NodeType = 4
+)
+
+// String returns the enum's constant name.
+func (c Model_NodeType) String() string {
+	switch c {
+	case Model_NodeType_pattern:
+		return "pattern"
+	case Model_NodeType_metric:
+		return "metric"
+	case Model_NodeType_prediction:
+		return "prediction"
+	case Model_NodeType_rule:
+		return "rule"
+	case Model_NodeType_model:
+		return "model"
+
+	default:
+		return ""
+	}
+}
+
+// Model_NodeTypeFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func Model_NodeTypeFromString(c string) Model_NodeType {
+	switch c {
+	case "pattern":
+		return Model_NodeType_pattern
+	case "metric":
+		return Model_NodeType_metric
+	case "prediction":
+		return Model_NodeType_prediction
+	case "rule":
+		return Model_NodeType_rule
+	case "model":
+		return Model_NodeType_model
+
+	default:
+		return 0
+	}
+}
+
+type Model_NodeType_List struct{ capnp.List }
+
+func NewModel_NodeType_List(s *capnp.Segment, sz int32) (Model_NodeType_List, error) {
+	l, err := capnp.NewUInt16List(s, sz)
+	return Model_NodeType_List{l.List}, err
+}
+
+func (l Model_NodeType_List) At(i int) Model_NodeType {
+	ul := capnp.UInt16List{List: l.List}
+	return Model_NodeType(ul.At(i))
+}
+
+func (l Model_NodeType_List) Set(i int, v Model_NodeType) {
+	ul := capnp.UInt16List{List: l.List}
+	ul.Set(i, uint16(v))
+}
+
+type Model_KnowledgeEdge struct{ capnp.Struct }
+
+// Model_KnowledgeEdge_TypeID is the unique identifier for the type Model_KnowledgeEdge.
+const Model_KnowledgeEdge_TypeID = 0xd5b6bebff8680e68
+
+func NewModel_KnowledgeEdge(s *capnp.Segment) (Model_KnowledgeEdge, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 1})
+	return Model_KnowledgeEdge{st}, err
+}
+
+func NewRootModel_KnowledgeEdge(s *capnp.Segment) (Model_KnowledgeEdge, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 1})
+	return Model_KnowledgeEdge{st}, err
+}
+
+func ReadRootModel_KnowledgeEdge(msg *capnp.Message) (Model_KnowledgeEdge, error) {
+	root, err := msg.RootPtr()
+	return Model_KnowledgeEdge{root.Struct()}, err
+}
+
+func (s Model_KnowledgeEdge) String() string {
+	str, _ := text.Marshal(0xd5b6bebff8680e68, s.Struct)
+	return str
+}
+
+func (s Model_KnowledgeEdge) FromId() uint64 {
+	return s.Struct.Uint64(0)
+}
+
+func (s Model_KnowledgeEdge) SetFromId(v uint64) {
+	s.Struct.SetUint64(0, v)
+}
+
+func (s Model_KnowledgeEdge) ToId() uint64 {
+	return s.Struct.Uint64(8)
+}
+
+func (s Model_KnowledgeEdge) SetToId(v uint64) {
+	s.Struct.SetUint64(8, v)
+}
+
+func (s Model_KnowledgeEdge) Relation() Model_RelationType {
+	return Model_RelationType(s.Struct.Uint16(16))
+}
+
+func (s Model_KnowledgeEdge) SetRelation(v Model_RelationType) {
+	s.Struct.SetUint16(16, uint16(v))
+}
+
+func (s Model_KnowledgeEdge) Strength() float32 {
+	return math.Float32frombits(s.Struct.Uint32(20))
+}
+
+func (s Model_KnowledgeEdge) SetStrength(v float32) {
+	s.Struct.SetUint32(20, math.Float32bits(v))
+}
+
+func (s Model_KnowledgeEdge) Evidence() (Model_Evidence_List, error) {
+	p, err := s.Struct.Ptr(0)
+	return Model_Evidence_List{List: p.List()}, err
+}
+
+func (s Model_KnowledgeEdge) HasEvidence() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_KnowledgeEdge) SetEvidence(v Model_Evidence_List) error {
+	return s.Struct.SetPtr(0, v.List.ToPtr())
+}
+
+// NewEvidence sets the evidence field to a newly
+// allocated Model_Evidence_List, preferring placement in s's segment.
+func (s Model_KnowledgeEdge) NewEvidence(n int32) (Model_Evidence_List, error) {
+	l, err := NewModel_Evidence_List(s.Struct.Segment(), n)
+	if err != nil {
+		return Model_Evidence_List{}, err
+	}
+	err = s.Struct.SetPtr(0, l.List.ToPtr())
+	return l, err
+}
+
+// Model_KnowledgeEdge_List is a list of Model_KnowledgeEdge.
+type Model_KnowledgeEdge_List struct{ capnp.List }
+
+// NewModel_KnowledgeEdge creates a new list of Model_KnowledgeEdge.
+func NewModel_KnowledgeEdge_List(s *capnp.Segment, sz int32) (Model_KnowledgeEdge_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 24, PointerCount: 1}, sz)
+	return Model_KnowledgeEdge_List{l}, err
+}
+
+func (s Model_KnowledgeEdge_List) At(i int) Model_KnowledgeEdge {
+	return Model_KnowledgeEdge{s.List.Struct(i)}
+}
+
+func (s Model_KnowledgeEdge_List) Set(i int, v Model_KnowledgeEdge) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Model_KnowledgeEdge_List) String() string {
+	str, _ := text.MarshalList(0xd5b6bebff8680e68, s.List)
+	return str
+}
+
+// Model_KnowledgeEdge_Promise is a wrapper for a Model_KnowledgeEdge promised by a client call.
+type Model_KnowledgeEdge_Promise struct{ *capnp.Pipeline }
+
+func (p Model_KnowledgeEdge_Promise) Struct() (Model_KnowledgeEdge, error) {
+	s, err := p.Pipeline.Struct()
+	return Model_KnowledgeEdge{s}, err
+}
+
+type Model_RelationType uint16
+
+// Model_RelationType_TypeID is the unique identifier for the type Model_RelationType.
+const Model_RelationType_TypeID = 0x9510cbabf1d0a753
+
+// Values of Model_RelationType.
+const (
+	Model_RelationType_causes        Model_RelationType = 0
+	Model_RelationType_correlates    Model_RelationType = 1
+	Model_RelationType_dependsOn     Model_RelationType = 2
+	Model_RelationType_similarTo     Model_RelationType = 3
+	Model_RelationType_conflictsWith Model_RelationType = 4
+)
+
+// String returns the enum's constant name.
+func (c Model_RelationType) String() string {
+	switch c {
+	case Model_RelationType_causes:
+		return "causes"
+	case Model_RelationType_correlates:
+		return "correlates"
+	case Model_RelationType_dependsOn:
+		return "dependsOn"
+	case Model_RelationType_similarTo:
+		return "similarTo"
+	case Model_RelationType_conflictsWith:
+		return "conflictsWith"
+
+	default:
+		return ""
+	}
+}
+
+// Model_RelationTypeFromString returns the enum value with a name,
+// or the zero value if there's no such value.
+func Model_RelationTypeFromString(c string) Model_RelationType {
+	switch c {
+	case "causes":
+		return Model_RelationType_causes
+	case "correlates":
+		return Model_RelationType_correlates
+	case "dependsOn":
+		return Model_RelationType_dependsOn
+	case "similarTo":
+		return Model_RelationType_similarTo
+	case "conflictsWith":
+		return Model_RelationType_conflictsWith
+
+	default:
+		return 0
+	}
+}
+
+type Model_RelationType_List struct{ capnp.List }
+
+func NewModel_RelationType_List(s *capnp.Segment, sz int32) (Model_RelationType_List, error) {
+	l, err := capnp.NewUInt16List(s, sz)
+	return Model_RelationType_List{l.List}, err
+}
+
+func (l Model_RelationType_List) At(i int) Model_RelationType {
+	ul := capnp.UInt16List{List: l.List}
+	return Model_RelationType(ul.At(i))
+}
+
+func (l Model_RelationType_List) Set(i int, v Model_RelationType) {
+	ul := capnp.UInt16List{List: l.List}
+	ul.Set(i, uint16(v))
+}
+
+type Model_Evidence struct{ capnp.Struct }
+
+// Model_Evidence_TypeID is the unique identifier for the type Model_Evidence.
+const Model_Evidence_TypeID = 0xcc9f53a76215ebd5
+
+func NewModel_Evidence(s *capnp.Segment) (Model_Evidence, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2})
+	return Model_Evidence{st}, err
+}
+
+func NewRootModel_Evidence(s *capnp.Segment) (Model_Evidence, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2})
+	return Model_Evidence{st}, err
+}
+
+func ReadRootModel_Evidence(msg *capnp.Message) (Model_Evidence, error) {
+	root, err := msg.RootPtr()
+	return Model_Evidence{root.Struct()}, err
+}
+
+func (s Model_Evidence) String() string {
+	str, _ := text.Marshal(0xcc9f53a76215ebd5, s.Struct)
+	return str
+}
+
+func (s Model_Evidence) Source() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Model_Evidence) HasSource() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_Evidence) SourceBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Model_Evidence) SetSource(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Model_Evidence) Field() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Model_Evidence) HasField() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Model_Evidence) FieldBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Model_Evidence) SetField(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Model_Evidence) Value() float32 {
+	return math.Float32frombits(s.Struct.Uint32(0))
+}
+
+func (s Model_Evidence) SetValue(v float32) {
+	s.Struct.SetUint32(0, math.Float32bits(v))
+}
+
+func (s Model_Evidence) Timestamp() int64 {
+	return int64(s.Struct.Uint64(8))
+}
+
+func (s Model_Evidence) SetTimestamp(v int64) {
+	s.Struct.SetUint64(8, uint64(v))
+}
+
+// Model_Evidence_List is a list of Model_Evidence.
+type Model_Evidence_List struct{ capnp.List }
+
+// NewModel_Evidence creates a new list of Model_Evidence.
+func NewModel_Evidence_List(s *capnp.Segment, sz int32) (Model_Evidence_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 2}, sz)
+	return Model_Evidence_List{l}, err
+}
+
+func (s Model_Evidence_List) At(i int) Model_Evidence { return Model_Evidence{s.List.Struct(i)} }
+
+func (s Model_Evidence_List) Set(i int, v Model_Evidence) error { return s.List.SetStruct(i, v.Struct) }
+
+func (s Model_Evidence_List) String() string {
+	str, _ := text.MarshalList(0xcc9f53a76215ebd5, s.List)
+	return str
+}
+
+// Model_Evidence_Promise is a wrapper for a Model_Evidence promised by a client call.
+type Model_Evidence_Promise struct{ *capnp.Pipeline }
+
+func (p Model_Evidence_Promise) Struct() (Model_Evidence, error) {
+	s, err := p.Pipeline.Struct()
+	return Model_Evidence{s}, err
+}
+
+const schema_a3b4c5d6e7f89012 = "x\xda\x9cXol\x1c\xd5\x11\x9f\xd9w\xe7\xb3\x0d\xf6" +
+	"\xddf\xcf\xa8A\x89\x0c\x11\x08HeH\x9c\xd0JQ" +
+	"+\x83C 1\xb8\xf6\xde\x99\x7fn\"\xb1\xbe{\xe7" +
+	"[\xfbnw\xb3\xfb.\xd8iR'\x94P\x88\x1a\x11" +
+	"\xd4XMT,\x12A\x95J\xa8\x01*\xa0\xa5$4" +
+	"m\x89\x1aQ\x90hEh)\xd0\xf6C[D\xab " +
+	"!\xf1\x81B\xd1V\xb3w\xbbo{\xb1k\x97\x0fq" +
+	"\xeef\xe7\xde\xce\xdf\xdf\xfb\xcd\xacy\xbc\xe5\x06em" +
+	"\xb2/\x05\xa0\x8f$[\xfc\x8e\xd5\x0f|\xff\xe9\x8ff" +
+	"\xf7\x82~\x19\xa2\x9f~\x0c\xd9\xefO\xaa\xff\x80D\x0a" +
+	"`\xdd>6\x8a\xda\x11\x96\x02\xd0f\xd9\xbd\x80\xfe\x9f" +
+	"O\xecy;\x7f\xe8\xd3o7)'\x15\xd2\xfe\x90\xb4" +
+	"\x93\xf4C\x0d\x13O\x01\xfaov\xac\xff\xd4^\x7f\xd5" +
+	"\xc3\xa0^\xa6He\xc0u\xc7\x12\xfd\xa8=\x13h\xfe" +
+	"(1\x04\xe8\xf7_\xbf\xf2\xcd\xc3O\\\xf1\x08\x9d\xcb" +
+	"\x9a\x8c8\x93\xd8\x8f\xda\xbb\xc1\xc7\xb7\x12\xdd\x08\xe8\xe3" +
+	"K\xdb>Z\xf5J\xe1\xbb\xcdV$\x03+\x92\xfbQ" +
+	"kk\xa1\x8f\xc9\x96;I\xfd\xc4\x81?<\xff\xad]" +
+	"\x7f<D\xea1;\x92H:\xd5\xd4(j{Sd" +
+	"\xca\xee\x14\x19\x9d?\xfe\xfa\x87O\xfe&3{\x81\xd1" +
+	"\xcb['P\xebi%\xcdkZg\x00\xfdW\xbf\xf8" +
+	"\xf7\x15#'\x8e\x9fh>7\x08F\xb5u'j{" +
+	"\x03\xed\xdd\xad\xef\x01\xfa/\xae\xfd\xeb\x97?\xb9\xea\xeb" +
+	"?n\xd2\x0e\xfc\xda\xd66\x8a\xda\xf66R\xae\xb6\x91" +
+	"\xf2\xb6'\xef\xd8zv\x8d\xf2b\xb3\x87\xed\xa4\xad\xb7" +
+	"\xbb\xa8\xf1\xe0\xa3\xd1~\\\x01\xf4\xd7|\xef\xce;\xd6" +
+	"\xffb\xc5\xa9y\xd3bv\xecDmw\x07\x1d>\xdd" +
+	"A\x1e\xaa\xfaW_xy[\xed\xf4\xbc\xda+;'" +
+	"P[\xdbI\xda=\x9d\xa4\xfd\xd0\xd1\x07\xf6\xb5\xb3\x15" +
+	"g\xe6\xf5\xf2\xad\xce1\xd4\xce\x07\xda\xefw\x92\xe1\xef" +
+	"\xac\xb8\xf4)\xfe\xf6sg\x9a\xcf\x0eb\xfdnz\x02" +
+	"\xb5\x0f\xd3\xa4}>M\xe5\xf4\xaf\xfb\xcb?\xfb\xc9\xaf" +
+	"\xee{\x85\xb4\x13\xcdgo\xc9\xb8\xa8m\xcb\xd0\xc7\xbb" +
+	"3\x0fS\"\xcf\xfd\xb3k\xecx\xfe\xb1W\xe75\xe5" +
+	"\xbc:\x80\x1a.\xa3\xc3?S\xc9\x94rg\xf9\xe3\x9f" +
+	"\xbf\xf4\xfc\xb9\xa6\x9a\xaa\x9brn\x99\x8b\xda\xfb\xa4\xbd" +
+	"\xeeo\xcb\x82\xa2\x8a\x14\xd4K\x99\xbf\xec\xe0\xc7\xef\xbd" +
+	"y\xe6\xd9\xc7)\xefjV\xc1u+\xb3\xb7 \x80\xb6" +
+	"\xad+E\xff\x00\xfc\x16qn\xe8w\xaf\x9d\xff\xe0\x82" +
+	"2\xd9\xd45\x81\xda\xdd\xa4\xa3\xdd\xdeE\xb5}\xe3\xec" +
+	"\xaa_\x9e\xe4\x1b>i\x0e\x09\xb5\xd5\xbaZ\xd7}\xa8" +
+	"=\x14h\xef\xeb\"\xab\x9fYy\xf5\x97\x0e\xb4?\xf8" +
+	"\xd9\x05\xe7\xee\xbdd\x00\xb5\xd9KH\xf3\x91K\xa8\xfc" +
+	"\xaa\x95\xebv\xac\xbd\xaej'\x8a\xbc\xd23n\xf7\x08" +
+	"^u\xae-\x18\x8e\xe5l\x18\xb4\x8b\xbcr\xed\xc6r" +
+	"\xcd\x9a\xcc\x19\x16\x1b\xe7\xc3\x88z+K\x00$\x10@" +
+	"\xbd\xa6\x17@\xbf\x82\xa1\xbeFA\x151\x8b$\xecY" +
+	"\x05\xa0_\xcdP_\xaf`\xb7'\x0cW`+(\xd8" +
+	"\x0a\x98\xe2V1\xfc\xbc\xc4\xb7\x0e\xbb6\xb3K\xf4\xd6" +
+	"\x8b\xa3\xb7n\xca\x01\xe871\xd4\x87co\x1d$S" +
+	"63\xd4G\x14D%\x8b\x0a\x80\xaa\x93\xe20C}" +
+	"\xab\x82~\x81\x8e\xdblx\x80e\xbc\x18\x14\xbc\x18\xb0" +
+	"\xdbqm\xbb\x84\x1d\xa0`\x07\xa0/\xcc*\xf7\x84Q" +
+	"\x05t0\x09\x0a&\x97be\xbfk\x98\xd6\x90\x03\x81" +
+	"\x89\xc1[W\xf6\x03 \xaa]\xbd\x00\xa8\xa8\x1d9\x80" +
+	"\x19\xc7\xe5E\xb3 \xba+\xdcp-\xbf`\xbb.\xaf" +
+	"\x18\x02\x90G\xe7'\x17:\xff\x16nq\xd7\x10\xa6m" +
+	"m\xb4\xad\x929\x0e\xc1\x9b\xb2Q0v\x93\x8f\xbb\x18" +
+	"\xea\x0f\xc6\x82\xb1o\x0c@\xbf\x9f\xa1~PAUi" +
+	"D\xe3\xc0j\x00\xfdA\x86\xfa!\x05U\xc6\xb2\xc8\x00" +
+	"\xd4GH\xf8\x1d\x86\xfaa\x05\xd5\xc4\x9e,&\x00\xd4" +
+	"\xd9\x0d\x00\xfaA\x86\xfa\xa3\x0a\xfaUcj\xc4\x9e\xe4" +
+	"\x16\xa0\x17\xe5\x8e\xac$\xab Us9\xb6\x83\x82\xed" +
+	"\x80ia;\xc3\xf1/\xb7\x86\xfa}\x9ep\xb9QE" +
+	"\x04\x051\x16\xd4\x05\x9d\xdeb\x95\xb8\xcb\xad\x02\xcf\xf1" +
+	"\xed5\xee\x89\xba\xd3_\x88\x9c>\xd2\x0f\xa0\x1fb\xa8" +
+	"\x1f\x8d9=GV\x1ff\xa8?\x11s\xfa\x18\x09\x1f" +
+	"e\xa8\xff0\xe6\xf4\x0fF\x01\xf4'\x18\xea\xa7\x15\xc4" +
+	"D\xdd\xe7S\x14\xc7\x93\x0c\xf5\xb3\x0a\xaa\xc9D\x16\x93" +
+	"\x00\xea\x19\x8a\xe3\xcb\x0c\xf5\xd7\x15\x9c\xa9\x92i[\x8a" +
+	"a\xf1\xf49\xae]uD\xf4\xb5\x10\xa4\x073\xf2\x0a" +
+	"\x02\xc4\x0c\xa0\xef\x18\xae0\x85i\x03\xb3<\xec\x04\x1c" +
+	"f\x88\x19\x89\xf9\x80$\xf4\xb9Up\xa7\x1d\xc1\x01\x8b" +
+	"Q\x9c\x0a\xb6\xed\x16M\xcb\x80\x94\xb0\xdd\xf0E\x8b\x97" +
+	"\xe4m\xc64w7\x96k\xcc\x9alj\x1c\x0a\xdb\x0d" +
+	"\x0c\xf5\xdb\x14\x0c\xa3\xb6eT\xf6\x8d\xaa`\xa3q\xa8" +
+	"*nc\xa8\xdf\xa5\xe0L\x85\x8e\xdb\"\x1b\xb7\xd0@" +
+	"\x03`\xe3\x1c3\xf2\xda\xaf\xbb\x9b\xf6\xcc\x9d\x1c\xdb@" +
+	"\xc1\xb6\xa5\xd8\x9a\xa3F0m+=2\xed\x04\xe0R" +
+	"7\xe0\xfa\x0dA\x0f\xf5\x8c\x06=tM\x0e\x00\x99z" +
+	"%\xfd\x97P/w\x01\xfa\x0aF\xcd\xe3\x9el%\xc6" +
+	"=\xbf\xc8\x1dn\x15\xbd!@\xcb\xf7\xcc\xaaY1\xdc" +
+	"\x11@\xdb\xa7\xccT\xcc\x82\x80n\xefNS\x94\x97\x18" +
+	"\xc0a\xc3\xed\x0b\xf2f\x91Y\x99(\x88\x06U\xd4V" +
+	"\x86z9V{\x9c\xa2Xd\xa8;\x12}\xaaT<" +
+	"\x15\x86\xfa\x14\x95\x1e\xd6K\xaf6\x01\xa0\x0b\x86\xfa\x1e" +
+	"\x05\xfb\x1c\x1e\x046Ll\x10\xe8\x05\x03\xeb\x9b\x96S" +
+	"\x13C\xa5\x12\xa4<.\xa2\x08\xdb5\x11\x88!]\x8a" +
+	"\x8b\x17\xf5\xf1v\xcf\x18\xe7ya0\xe15\xf9G\x16" +
+	"\xde\xc3P\xaf\xc4\xfc3\xf7\xc7|\x09{\xab6&}" +
+	"\x89zk7\x85g\x8a\xa1~\xbf\x82~\xbdEFl" +
+	"HOrK\xc2G\xc1\xae:\x15.L\xb4\xad\x00Z" +
+	"<\x00\x09-\xb60*#\xf6$\xa4b\xbf\xe8#h" +
+	"\x1e\xf4BpY\xdc\xbb\xe0\xef\xa0au\x9b%\xee\x09" +
+	"rp\x0dK \x92\x83\xda\x8d\xd8\x0f\x90\xff\x0a2\xcc" +
+	"o\xc6F\xd1\x93|\x13N\x00\xe4o\"\xf90\xc9Y" +
+	"\xddMm0\xd0\xdfL\xf2\x11\x92'\xea\x9ej:\xe6" +
+	"\x00\xf2\xc3$\xdf\x8a\x0ab2\x00\x12\xedn\x1c\x03\xc8" +
+	"\xdfE\xe2\"\xa9\xb7`\x80%\x9a\x11\xa8\xdfC\xf2\x0a" +
+	"\xc9S\x89,\xb6\x00h&n\x00\xc8\x17I\xbe\x87\xe4" +
+	"\xad\xc9,\x06d/0g\x17\xc9\x0f\x93\xbc\xad%\x8b" +
+	"\xad\xc4\x9f\x83s\x0e\x91\xfc(\xc9\xdbSYl\x03\xd0" +
+	"\xe6\x02\xf9\xa3$\xff)\xc9/j\xcdb;\x80\xf6\x1c" +
+	"\x8e\x02\xe4\x9f%\xf9iT0\xd3\x96\xc5\x8b\x00\xb4S" +
+	"8\x00\x90?I\xe2\xb3x!\xba\xf9\x86[(\x9b\x82" +
+	"\x17 -\x08\xe3\x1b\xe2\x99\x1d\xdc\xf5L\xdb\x8a\xd4b" +
+	"=\x17\xc9\x82\x14n,\xd7 eMz\xff\x0d\x1by" +
+	"s' \x8f\xd2\x1a\xc8\"P\xa4\xdfw\x86}0h" +
+	"8\x90vLk\\BfD\xbf\x1b\x90\xe9\x99\xe3\x96" +
+	"!j.\x9d\x18\xde\xe1\x8ek\xef0\x8b\xdc\xa5\xdb\xaa" +
+	"\xe9\xd8*w'+<g\x03\xb3E\xa4_\xe5\xc2(" +
+	"\x1a\xc2\x00\x00\xcc\xf8\xcb\x97\xfd\xfa\xe8E\xa7\xbf\xf1\xa7" +
+	"\xb0\xe5\x96\xc6Q6\x96\x8d\xbeJ\x85[uv\xb4\x18" +
+	"O\xc9Ih\x0d\x91\xe2v\x92\x8d0\xd4\xef\x99\x9f\xa7" +
+	"\xf8\x85\xb2\x11\xbc \xee\xe9\xe7g+9\xbe=]k" +
+	"\xb4E\xcc\xdaK\xe7\xb9\x1c\x06\x1a\x97C1v9\x18" +
+	"\xfd\x12\x00\x99\xed`Z\x8eg\x80\x98\x06\xf4K\x9c\xd2" +
+	"\xc2=\x0aj\x94\xbd\x88\xd0\xd7\xb37S\xb0-\xc1\xa7" +
+	"\xc4\xd2\xaf\xb5\x86\xed^\xaaV\x11M\x905 !+" +
+	"B,B\xe42C]\xc4L\xdfN\x81v\x18\xea\xbb" +
+	"b\x90<=\xd6@\xacC\x0a\xd5s\xc1\xa4\x02'\xd3" +
+	"\xa3\xe8\xd3\xcd^\xe4\x16\xb0BDv\xfc\x8a!\xb8U" +
+	"\x98\x1e\xa4B\x0bA\x97O9\x15\xc3\"ZD-\xd2" +
+	"\\~\x8b\xf9ws=j\x9b\xd2\x96p\xa7\x9bx\xf6" +
+	"*\xc9\xb3#\x9a\xdd+ivj\x92OG\xa4v\x87" +
+	"Q\xa9\xf1\xa5C\xe5\xad\x96}o\x85\x17\xc7\xbb\xf9\xd7" +
+	"\xecbP\xc1+\xa2\xf7>G5\xf14C\xfd$U" +
+	"p\xa2\xfe\xe2\x17\x88\x1c<[gO\xaa\xc2\xea\x91=" +
+	"5\x1a\xa3O\x84\x9c\x14\xd939I\x9f\xd4DK\x9d" +
+	"h\xbdF\xe5s\x96\xa1\xfeF\x1d3\x89g\xfd\x96\x12" +
+	"\xf8:C\xfd\x9d\x06`\xb6\x00\xa8o\xd1{\xde`\xa8" +
+	"\xffEAf\x16\xc3(\xa7\xc5\xb4\xc31-\xe7\x9bF" +
+	"\xd1\xcd\x9b\xa5y\x9a$\x82\xb0h\x10\xf9_\x10\x90\xa6" +
+	"'\x98\xf1G\x86>P\x86\xbe\xb9\xfb\xdfKF\x86M" +
+	"\x04CV\x81\xd7\xa9\xebb\xf4\xa17V\xc0\x0dP0" +
+	"{%\xa5\x88j\xb5\x9a\x93\xf7p\x9fg\xd7\xdcB\x04" +
+	"\xcd\xdd%\x93W\x8a\x0bT\xc1\xe7\x02\x0bY\x19\x9b\x8a" +
+	"ul\x8b\x8d\x1d\xb1k>rc\xef\xea\xd8,\xa2\xb4" +
+	"\xd6\xfd\xd87\x10\x9bEX\xb2\xee\xc7\x81\x019v\x84" +
+	"\x0c|v\xa0A\xea\x9fV\xb0\xaf\xe4\xda\xd5-\xb1\x9c" +
+	"\xdb\xf2\x8b\xef68#%,-\xd7,\x8d:\xa0Y" +
+	"\xc3\x1a\x17ez\x1a\xba\xcf\xa3d\xc4\x00)Z\x024" +
+	"\xae\x930\x1el\x81x\x80>\x8c\xb1\x85\x8az\xc4\x95" +
+	"7\x92zdT\xf25\xfa\x12-R\xd4#;\xe5\xb2" +
+	"\x8b\x9eD;'\xf5\xc8~9\x05\xa8s;\xe5\xe0\xa0" +
+	"\xce\xed\x97\xc3\xbez\xec\xbe\xd8\x8e\xe0\xd8\x84\xdc\xff\xa8" +
+	"\xc7F\xe5\x0a\x86\x9e\xc85\xd9\xb1~\x89\xb7\xea\xdc\x84" +
+	"\xdc\xbd\xa8scrY\xa2\xce\xb9\xb15\xc1\xdc\x80\xdc" +
+	"t\xd0\x13\xb9\xbf\x9a\x9b\x90\xc1\"\xb5\x90]A\x9d^" +
+	"\xf9\xe1\xc0\x01\xcc\x9a\xf47\xc6\xc6\x03?\xbc\x1f\xa1q" +
+	"A\xfa\xe1P\x0f\xcc.\xf9\xe1\x98\x87r\xce\xf3C\xee" +
+	"\x0d\x0d\xf2\xed\x87\x030\xca\x098\xfa\xa1\xc2s\xdc\xab" +
+	"U\x04\xdclZ\xa6W\xce\xf1\xb4\xe1\xd9\x96\x1fr[" +
+	"`\xc2\xf3\xc3+\x0f\x82;o\xa61\xaf\xfb!\xdaB" +
+	"\x00\xb7\xa1\x96\x07t\xbb\xf8a\xe5C\x1d\x14}\xfaC" +
+	"\x03\x0a\x00\xc4\x9fQ[\xf8\xe1\x04\x03\xc1\x08\xe3\xcb\xbe" +
+	"\x87a\x96\xa4\x8aY\x1c\xf8\xe3\xc6\xc7\xf6\x08\xb9`\x06" +
+	"Z\x9e\x0bf\xa0\xae\x1c\x80\xef\x09\xdb!\xc6L\x13N" +
+	"l.\xf7\xb9U\x1c*\x8d\xf0)@\xf1\x7f\x0d\xd7A" +
+	"\xec\x16\xc0\xa7\xa9Xc\xd7\x06\x1aL\xff\xa0\xc4\xa7\x03" +
+	"\x13\xb1\xcdA\x88\xf8\xb3\xbdrs\xd0'\x02n\x7f\x01" +
+	"\xbb\xb3\xc7\x1d\xd7\x1e\x8b\x93\x83\xf6\xc6\xa3R#\x10\x10" +
+	"D\x02\xd3\xb2\xee\xeb\xbd\xdd]\xa3\xc4bF\xb6\xc0R" +
+	"\xd1X&06c\xd6\xf74=\x1b\x82\xf8^9\x1a" +
+	"\xcc\x98\x97\xaf\x0ef\xcc\xe5\xbd\x003\x8e!\x04w\xad" +
+	"\xbe*\x17\xaeY\xf0\x1bK\x1c\x13\x98m\xa5\xddZ\x85" +
+	"w\x07\x9c\xf9?\x01\x00\x00\xff\xff\x04\xb8\xe1\xf6"
 
 func init() {
 	schemas.Register(schema_a3b4c5d6e7f89012,
@@ -1814,6 +2393,7 @@ func init() {
 		0x9124a498d61d3542,
 		0x9363ca22f45dbe01,
 		0x94da7c83b6d88dae,
+		0x9510cbabf1d0a753,
 		0xaea7ae541ce62bcc,
 		0xb25b27fa37e431bb,
 		0xbb0230c85c56ab5d,
@@ -1821,7 +2401,11 @@ func init() {
 		0xc0755dc4b93d5111,
 		0xc51c030a8586a089,
 		0xc5b5db65af1a1cdc,
+		0xca82c3b7ba6884f9,
+		0xcc9f53a76215ebd5,
+		0xd5b6bebff8680e68,
 		0xea11bcd703019f0f,
 		0xeeedcdd24fd57406,
-		0xfa3a65bcc2229541)
+		0xfa3a65bcc2229541,
+		0xfd880a8d36281db1)
 }

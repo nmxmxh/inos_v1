@@ -4,7 +4,6 @@ package supervisor
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"runtime"
 	"sync"
@@ -866,8 +865,22 @@ func (sb *SABBridge) serializeJob(job *foundation.Job) ([]byte, error) {
 	req.SetJobId(job.ID)
 	req.SetLibrary(job.Type)
 	req.SetMethod(job.Operation)
-	params, _ := json.Marshal(job.Parameters)
-	req.SetParams(params)
+
+	// Structured parameters (using custom field for now if not mapped)
+	params, _ := req.NewParams()
+	custom, _ := params.NewCustomParams()
+
+	// Check for known parameters in the map
+	if pVal, ok := job.Parameters["shader_source"]; ok {
+		if shader, ok := pVal.(string); ok {
+			_ = custom.SetShaderSource(shader)
+		}
+	} else if pVal, ok := job.Parameters["params"]; ok {
+		if pStr, ok := pVal.(string); ok {
+			_ = custom.SetShaderSource(pStr)
+		}
+	}
+
 	req.SetInput(job.Data)
 	return msg.Marshal()
 }

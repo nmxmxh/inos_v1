@@ -114,31 +114,32 @@ mod layout_tests {
 
 #[cfg(test)]
 mod signal_tests {
+    use crate::sab::SafeSAB;
     use crate::signal::*;
 
     #[test]
     fn test_epoch_creation() {
-        let epoch = Epoch::new(&crate::JsValue::NULL, 0);
+        let epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 0);
         assert_eq!(epoch.current(), 0);
     }
 
     #[test]
     fn test_epoch_increment() {
-        let mut epoch = Epoch::new(&crate::JsValue::NULL, 0);
+        let mut epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 0);
         epoch.increment();
         assert_eq!(epoch.current(), 1);
     }
 
     #[test]
     fn test_epoch_wait() {
-        let _epoch = Epoch::new(&crate::JsValue::NULL, 5);
+        let _epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 5);
         // wait() method not available in current API
     }
 
     #[test]
     fn test_reactor_creation() {
         let mock_sab = &crate::JsValue::NULL;
-        let _reactor = Reactor::new(mock_sab);
+        let _reactor = Reactor::new(SafeSAB::new(mock_sab));
         // Should not panic
     }
 }

@@ -170,7 +170,40 @@ func (e *Envelope) ToCapnp(seg *capnp.Segment) (base.Base_Envelope, error) {
 	return env, nil
 }
 
-// FromCapnp updates Envelope from base.Base_Envelope.
+// Marshal serializes the Envelope to Cap'n Proto binary format.
+func (e *Envelope) Marshal() ([]byte, error) {
+	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	env, err := e.ToCapnp(seg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := msg.SetRootPtr(env.Struct.ToPtr()); err != nil {
+		return nil, err
+	}
+
+	return msg.Marshal()
+}
+
+// Unmarshal populates the Envelope from Cap'n Proto binary data.
+func (e *Envelope) Unmarshal(data []byte) error {
+	msg, err := capnp.Unmarshal(data)
+	if err != nil {
+		return err
+	}
+
+	env, err := base.ReadRootBase_Envelope(msg)
+	if err != nil {
+		return err
+	}
+
+	return e.FromCapnp(env)
+}
+
 func (e *Envelope) FromCapnp(env base.Base_Envelope) error {
 	id, _ := env.Id()
 	e.ID = id
@@ -421,6 +454,47 @@ type DHTEntry struct {
 	TTL       int64    `json:"ttl"`       // Seconds
 }
 
+// ToCapnp converts DHTEntry to p2p.DHTEntry.
+func (d *DHTEntry) ToCapnp(seg *capnp.Segment) (p2p.DHTEntry, error) {
+	entry, err := p2p.NewDHTEntry(seg)
+	if err != nil {
+		return p2p.DHTEntry{}, err
+	}
+
+	entry.SetKey(d.Key)
+
+	val, err := entry.NewValue(int32(len(d.Value)))
+	if err == nil {
+		for i, v := range d.Value {
+			val.Set(i, v)
+		}
+	}
+
+	entry.SetTimestamp(d.Timestamp)
+	entry.SetTtl(d.TTL)
+
+	return entry, nil
+}
+
+// FromCapnp updates DHTEntry from p2p.DHTEntry.
+func (d *DHTEntry) FromCapnp(entry p2p.DHTEntry) error {
+	k, _ := entry.Key()
+	d.Key = k
+
+	val, err := entry.Value()
+	if err == nil {
+		d.Value = make([]string, val.Len())
+		for i := 0; i < val.Len(); i++ {
+			d.Value[i], _ = val.At(i)
+		}
+	}
+
+	d.Timestamp = entry.Timestamp()
+	d.TTL = entry.Ttl()
+
+	return nil
+}
+
 // PeerInfo is the internal routing table representation of a peer.
 type PeerInfo struct {
 	ID           string          `json:"id"`
@@ -428,6 +502,52 @@ type PeerInfo struct {
 	LastContact  time.Time       `json:"last_contact"`
 	BucketIndex  int             `json:"bucket_index"`
 	Capabilities *PeerCapability `json:"capabilities,omitempty"`
+}
+
+// ToCapnp converts PeerInfo to p2p.PeerInfo (internal schema if available, otherwise just use as is).
+// Note: p2p.Gossip_PeerInfo is available in gossip.capnp.
+func (p *PeerInfo) ToCapnp(seg *capnp.Segment) (p2p.Gossip_PeerInfo, error) {
+	info, err := p2p.NewGossip_PeerInfo(seg)
+	if err != nil {
+		return p2p.Gossip_PeerInfo{}, err
+	}
+
+	info.SetId(p.ID)
+	info.SetAddress(p.Address)
+	info.SetLastSeen(p.LastContact.UnixNano())
+
+	if p.Capabilities != nil {
+		caps, _ := info.NewCapabilities(int32(len(p.Capabilities.Capabilities)))
+		for i, c := range p.Capabilities.Capabilities {
+			caps.Set(i, c)
+		}
+		info.SetReputation(p.Capabilities.Reputation)
+	}
+
+	return info, nil
+}
+
+// FromCapnp updates PeerInfo from p2p.Gossip_PeerInfo.
+func (p *PeerInfo) FromCapnp(info p2p.Gossip_PeerInfo) error {
+	id, _ := info.Id()
+	p.ID = id
+	addr, _ := info.Address()
+	p.Address = addr
+	p.LastContact = time.Unix(0, info.LastSeen())
+
+	caps, err := info.Capabilities()
+	if err == nil {
+		p.Capabilities = &PeerCapability{
+			PeerID:     id,
+			Reputation: info.Reputation(),
+		}
+		p.Capabilities.Capabilities = make([]string, caps.Len())
+		for i := 0; i < caps.Len(); i++ {
+			p.Capabilities.Capabilities[i], _ = caps.At(i)
+		}
+	}
+
+	return nil
 }
 
 // MeshMetrics for observability.
@@ -471,6 +591,95 @@ type GossipMessage struct {
 	Payload   interface{} `json:"payload"`
 	PublicKey []byte      `json:"public_key,omitempty"`
 	Signature []byte      `json:"signature,omitempty"`
+}
+
+// ToCapnp converts GossipMessage to its Cap'n Proto Envelope representation.
+func (g *GossipMessage) ToCapnp(seg *capnp.Segment) (base.Base_Envelope, error) {
+	env, err := base.NewBase_Envelope(seg)
+	if err != nil {
+		return base.Base_Envelope{}, err
+	}
+
+	env.SetId(g.ID)
+	env.SetType(g.Type)
+	env.SetTimestamp(g.Timestamp)
+
+	// Create GossipPayload
+	payloadMsg, payloadSeg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	gop, err := p2p.NewGossip_GossipPayload(payloadSeg)
+	if err == nil {
+		// Set metadata
+		meta, _ := gop.NewMetadata()
+		meta.SetDeviceId(g.Sender)
+
+		// Set union based on payload type
+		switch p := g.Payload.(type) {
+		case string:
+			_ = gop.SetCustom([]byte(p))
+		case []byte:
+			_ = gop.SetCustom(p)
+		}
+
+		// Marshal GossipPayload and set in Envelope
+		data, _ := payloadMsg.Marshal()
+		ep, _ := env.NewPayload()
+		ep.SetData(data)
+		ep.SetTypeId("gossip.payload")
+	}
+
+	return env, nil
+}
+
+// Marshal serializes the GossipMessage to Cap'n Proto binary format.
+func (g *GossipMessage) Marshal() ([]byte, error) {
+	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
+	env, err := g.ToCapnp(seg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := msg.SetRootPtr(env.Struct.ToPtr()); err != nil {
+		return nil, err
+	}
+
+	return msg.Marshal()
+}
+
+// Unmarshal populates the GossipMessage from Cap'n Proto binary data.
+func (g *GossipMessage) Unmarshal(data []byte) error {
+	msg, err := capnp.Unmarshal(data)
+	if err != nil {
+		return err
+	}
+
+	env, err := base.ReadRootBase_Envelope(msg)
+	if err != nil {
+		return err
+	}
+
+	return g.FromCapnp(env)
+}
+
+func (g *GossipMessage) FromCapnp(env base.Base_Envelope) error {
+	id, _ := env.Id()
+	g.ID = id
+
+	t, _ := env.Type()
+	g.Type = t
+
+	g.Timestamp = env.Timestamp()
+
+	if env.HasPayload() {
+		payload, _ := env.Payload()
+		data, _ := payload.Data()
+		g.Payload = data // Store raw for now, GossipManager will decode
+	}
+
+	return nil
 }
 
 // ContentMerkleTree represents a merkle tree for content verification and delta replication
