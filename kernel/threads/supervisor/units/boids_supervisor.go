@@ -108,6 +108,12 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	// Auto-detect bird count from SAB epoch (IDX_BOIDS_COUNT)
 	s.autoDetectBirdCount()
 
+	go func() {
+		if err := s.UnifiedSupervisor.Start(ctx); err != nil {
+			s.Logger.Error("Boids unified supervisor failed", utils.Err(err))
+		}
+	}()
+
 	s.Logger.Info("Boids supervisor started", utils.Int("bird_count", s.birdCount))
 
 	// Run learning loop - this BLOCKS until ctx.Done()
@@ -115,6 +121,26 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	s.learningLoop(ctx)
 
 	return nil
+}
+
+func (s *BoidsSupervisor) logEpochs(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			birdEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
+			evoEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
+			systemEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+			s.Logger.Info("Boids epoch snapshot",
+				utils.Int("bird_epoch", int(birdEpoch)),
+				utils.Int("evolution_epoch", int(evoEpoch)),
+				utils.Int("system_epoch", int(systemEpoch)))
+		}
+	}
 }
 
 // autoDetectBirdCount reads the bird count from SAB atomic flags (Zero-Latency)
@@ -159,14 +185,6 @@ func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
 				// Epoch wrapped around - reset baseline
 				lastEvolutionEpoch = currentEpoch
 				framesSinceEvolution = 0
-			}
-
-			// Debug: Log every 60 frames (~1 second at 60fps)
-			if currentEpoch%60 == 0 && currentEpoch > 0 {
-				utils.Info("Boids learningLoop tick",
-					utils.Int("epoch", int(currentEpoch)),
-					utils.Int("frames_since_evo", int(framesSinceEvolution)),
-					utils.Int("threshold", int(evolutionFrameThreshold)))
 			}
 
 			if framesSinceEvolution >= evolutionFrameThreshold && s.birdCount > 0 && s.bridge.IsReady() {
@@ -226,12 +244,11 @@ func (s *BoidsSupervisor) checkEvolution() {
 	// Note: Evolution frequency is controlled by the epoch-driven learningLoop
 	// (every N physics frames), so no time check needed here.
 
-	// Log evolution start
-	utils.Info("Starting Evolution Cycle", utils.Int("gen", s.generation+1))
 	startTime := time.Now()
 
 	// Execute genetic algorithm
-	if err := s.evolveGeneration(); err != nil {
+	stats, err := s.evolveGeneration()
+	if err != nil {
 		utils.Error("Evolution failed", utils.Err(err))
 		return
 	}
@@ -240,12 +257,6 @@ func (s *BoidsSupervisor) checkEvolution() {
 	s.lastEvolutionTime = time.Now()
 	duration := time.Since(startTime)
 	s.lastExecutionDuration = duration // Store for adaptive logic
-
-	// Log evolution complete
-	utils.Info("Evolution Cycle Complete",
-		utils.Int("gen", s.generation),
-		utils.Duration("took", duration),
-		utils.Bool("local_optimized", s.meshNodesActive > 0 && duration < 16*time.Millisecond))
 
 	// Report Latent Compute to Mesh Metrics
 	// Ops = Birds * Genes (44) * ~50 FLOPs (Selection/Crossover/Mutation)
@@ -259,18 +270,41 @@ func (s *BoidsSupervisor) checkEvolution() {
 		}
 	}
 
+	if s.generation%50 == 0 {
+		opsPerSec := 0.0
+		if seconds > 0 {
+			opsPerSec = latentOps / seconds
+		}
+		utils.Info("Boids evolution summary",
+			utils.Int("gen", s.generation),
+			utils.Int("birds", s.birdCount),
+			utils.Duration("took", duration),
+			utils.Float64("best", stats.Max),
+			utils.Float64("avg", stats.Avg),
+			utils.Float64("min", stats.Min),
+			utils.Float64("ops_per_sec", opsPerSec),
+			utils.Float64("gflops", opsPerSec/1e9),
+			utils.Bool("local_optimized", s.meshNodesActive > 0 && duration < 16*time.Millisecond))
+	}
+
 	// Signal epoch update to frontend
 	s.SignalEpoch()
 }
 
 // evolveGeneration executes genetic algorithm on bird population in SAB
-func (s *BoidsSupervisor) evolveGeneration() error {
+type EvolutionStats struct {
+	Avg float64
+	Min float64
+	Max float64
+}
+
+func (s *BoidsSupervisor) evolveGeneration() (EvolutionStats, error) {
 	utils.Debug("Reading population from SAB", utils.Int("count", s.birdCount))
 
 	// 1. Read current population from SAB
 	population, err := s.ReadPopulation()
 	if err != nil {
-		return fmt.Errorf("failed to read population: %w", err)
+		return EvolutionStats{}, fmt.Errorf("failed to read population: %w", err)
 	}
 
 	// Sort by fitness (descending)
@@ -280,13 +314,6 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 	avgFit := avgFitness(population)
 	minFit := population[len(population)-1].Fitness
 	maxFit := population[0].Fitness
-
-	// Log fitness statistics
-	utils.Info("Generation Statistics",
-		utils.Int("gen", s.generation),
-		utils.Float64("best", maxFit),
-		utils.Float64("avg", avgFit),
-		utils.Float64("min", minFit))
 
 	// Selection: keep top 25% (elites)
 	survivalCount := max(2, s.birdCount/4)
@@ -430,17 +457,12 @@ func (s *BoidsSupervisor) evolveGeneration() error {
 
 	wg.Wait()
 
-	utils.Debug("Writing evolved population to SAB",
-		utils.Int("elites", survivalCount),
-		utils.Int("local", localCount),
-		utils.Int("remote", offloadCount))
-
 	// Write new population back to SAB
 	if err := s.WritePopulation(newPopulation); err != nil {
-		return fmt.Errorf("failed to write population: %w", err)
+		return EvolutionStats{}, fmt.Errorf("failed to write population: %w", err)
 	}
 
-	return nil
+	return EvolutionStats{Avg: avgFit, Min: minFit, Max: maxFit}, nil
 }
 
 // ExecuteJob handles remote evolution requests (Mesh Role)
@@ -663,11 +685,6 @@ func (s *BoidsSupervisor) ReadPopulation() ([]BirdGenes, error) {
 		offset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
 	}
 
-	utils.Info("DEBUG: ReadPopulation",
-		utils.Int("active", int(active)),
-		utils.String("offset", fmt.Sprintf("0x%X", offset)),
-		utils.Int("count", s.birdCount))
-
 	// --- BULK READ: 1 interop call instead of 2*N ---
 	// Resize reuse buffer if needed
 	totalSize := uint32(s.birdCount * BytesPerBird)
@@ -726,34 +743,41 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 		baseOffset = uint32(sab_layout.OFFSET_BIRD_BUFFER_A)
 	}
 
-	utils.Info("Writing evolved population to stable buffer",
-		utils.Int("active_idx", int(active)),
-		utils.String("offset", fmt.Sprintf("0x%X", baseOffset)))
+	totalSize := uint32(s.birdCount * BytesPerBird)
+	if uint32(cap(s.populationBuf)) < totalSize {
+		s.populationBuf = make([]byte, totalSize)
+	}
+	s.populationBuf = s.populationBuf[:totalSize]
 
-	s.mu.RLock()
-	chunk := s.birdChunkBuf
-	s.mu.RUnlock()
+	// Bulk read + patch to avoid per-bird JS interop (see docs/graphics.md FFI Bulk I/O)
+	if err := s.bridge.ReadAt(baseOffset, s.populationBuf); err != nil {
+		return fmt.Errorf("population bulk read failed: %w", err)
+	}
 
 	for i, bird := range population {
-		// Prepare data chunk (only Weights/Fitness)
-		binary.LittleEndian.PutUint32(chunk[0:4], math.Float32bits(float32(bird.Fitness)))
+		birdBase := i * BytesPerBird
+		fitnessOffset := 14 * 4
+		binary.LittleEndian.PutUint32(
+			s.populationBuf[birdBase+fitnessOffset:birdBase+fitnessOffset+4],
+			math.Float32bits(float32(bird.Fitness)),
+		)
 
+		weightsOffset := 15 * 4
 		for j := 0; j < 44; j++ {
-			binary.LittleEndian.PutUint32(chunk[4+j*4:8+j*4], math.Float32bits(bird.Weights[j]))
-		}
-
-		// Calculate target address (Index 14 floats)
-		targetAddr := baseOffset + uint32(i*BytesPerBird) + 56
-
-		// Write ONLY the weight chunk
-		if err := s.bridge.WriteRaw(targetAddr, chunk); err != nil {
-			return fmt.Errorf("weight write failed at bird %d: %w", i, err)
+			start := birdBase + weightsOffset + j*4
+			binary.LittleEndian.PutUint32(
+				s.populationBuf[start:start+4],
+				math.Float32bits(bird.Weights[j]),
+			)
 		}
 	}
 
-	// Debug log first bird's new weights
-	if len(population) > 0 {
-		utils.Info("Gen Evolved & Weights Patched",
+	if err := s.bridge.WriteRaw(baseOffset, s.populationBuf); err != nil {
+		return fmt.Errorf("population bulk write failed: %w", err)
+	}
+
+	if len(population) > 0 && s.generation%50 == 0 {
+		utils.Info("Gen evolved & weights patched",
 			utils.String("target_buffer", fmt.Sprintf("0x%X", baseOffset)))
 	}
 
@@ -762,29 +786,7 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 
 // SignalEpoch increments the epoch flag to trigger frontend reactivity
 func (s *BoidsSupervisor) SignalEpoch() {
-	// Evolution Epoch at Idx 16
-	offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_EVOLUTION_EPOCH*4
-
-	// Read current epoch from offset using stack array
-	var buf [4]byte
-	if err := s.bridge.ReadAt(offset, buf[:]); err != nil {
-		utils.Error("Failed to read epoch", utils.Err(err))
-		return
-	}
-	currentEpoch := binary.LittleEndian.Uint32(buf[:])
-
-	// Increment
-	newEpoch := currentEpoch + 1
-	runtime.Gosched() // Yield execution
-	binary.LittleEndian.PutUint32(buf[:], newEpoch)
-
-	// Write back
-	if err := s.bridge.WriteRaw(offset, buf[:]); err != nil {
-		utils.Error("Failed to write epoch", utils.Err(err))
-		return
-	}
-
-	utils.Debug("Epoch signaled", utils.Uint64("old", uint64(currentEpoch)), utils.Uint64("new", uint64(newEpoch)))
+	s.bridge.SignalEpoch(sab_layout.IDX_EVOLUTION_EPOCH)
 }
 
 // SortByFitness sorts bird population by fitness descending

@@ -46,6 +46,27 @@ function setInosReady(): void {
   global.inos.ready = true;
 }
 
+function clearKernelGlobals(): void {
+  const global = window as any;
+  global.__INOS_SAB__ = undefined;
+  global.__INOS_SAB_OFFSET__ = undefined;
+  global.__INOS_SAB_SIZE__ = undefined;
+  global.__INOS_MEM__ = undefined;
+  global.__INOS_TIER__ = undefined;
+  global.__INOS_KERNEL_MODE__ = undefined;
+  if (global.__INOS_EPOCH_LOGGER__) {
+    clearInterval(global.__INOS_EPOCH_LOGGER__);
+    global.__INOS_EPOCH_LOGGER__ = undefined;
+  }
+}
+
+function terminateKernelWorker(): void {
+  if (window.__INOS_KERNEL_WORKER__) {
+    window.__INOS_KERNEL_WORKER__.terminate();
+    window.__INOS_KERNEL_WORKER__ = undefined;
+  }
+}
+
 declare global {
   interface Window {
     Go: any;
@@ -57,6 +78,8 @@ declare global {
     __INOS_CONTEXT_ID__: string;
     __INOS_INIT_PROMISE__?: Promise<KernelInitResult>;
     __INOS_KERNEL_WORKER__?: Worker;
+    __INOS_KERNEL_MODE__?: 'worker' | 'main';
+    __INOS_EPOCH_LOGGER__?: number;
     getSystemSABAddress?: () => number;
     getSystemSABSize?: () => number;
     kernel?: {
@@ -87,28 +110,43 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
   window.__INOS_CONTEXT_ID__ = contextId;
   console.log(`[Kernel] 🌐 New Context Instance: ${contextId} (Tier: ${tier})`);
 
-  // Clear stale SAB views (Fixes memory leak on HMR/Re-init)
-  clearViewCache();
-  clearBridge();
-
   // 1. Atomic Locking - Prevent concurrent initialization spawns
   if (window.__INOS_INIT_PROMISE__) {
     console.log('[Kernel] Waiting for existing initialization to complete...');
     return window.__INOS_INIT_PROMISE__;
   }
 
+  // Reuse existing kernel (avoid dual main-thread + worker execution)
+  if (window.__INOS_SAB__ && window.__INOS_KERNEL_MODE__ === 'main') {
+    console.log('[Kernel] Reusing main-thread kernel singleton');
+    return {
+      sabBase: window.__INOS_SAB__,
+      sabOffset: window.__INOS_SAB_OFFSET__ || 0,
+      sabSize: window.__INOS_SAB_SIZE__ || 0,
+    };
+  }
+
+  if (window.__INOS_SAB__ && window.__INOS_KERNEL_WORKER__) {
+    console.log('[Kernel] Reusing worker kernel singleton');
+    return {
+      sabBase: window.__INOS_SAB__,
+      sabOffset: window.__INOS_SAB_OFFSET__ || 0,
+      sabSize: window.__INOS_SAB_SIZE__ || 0,
+    };
+  }
+
+  // Ensure we never run both main-thread and worker kernels
+  if (window.__INOS_KERNEL_WORKER__) {
+    terminateKernelWorker();
+    clearKernelGlobals();
+  }
+
+  // Clear stale SAB views (Fixes memory leak on HMR/Re-init)
+  clearViewCache();
+  clearBridge();
+
   // Define the init logic as a single promise
   const init = async (): Promise<KernelInitResult> => {
-    // 1. Singleton Check - Reuse existing memory if already initialized
-    if (window.__INOS_SAB__ && window.__INOS_KERNEL_WORKER__) {
-      console.log('[Kernel] Reusing existing SharedArrayBuffer and Worker singleton');
-      return {
-        sabBase: window.__INOS_SAB__,
-        sabOffset: window.__INOS_SAB_OFFSET__ || 0,
-        sabSize: window.__INOS_SAB_SIZE__ || 0,
-      };
-    }
-
     const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const isIOS =
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -149,6 +187,26 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
   return window.__INOS_INIT_PROMISE__;
 }
 
+function startEpochLogger(label: string, sabOffset: number): void {
+  if (!(window as any).__INOS_DEBUG_EPOCH__) return;
+  if ((window as any).__INOS_EPOCH_LOGGER__) return;
+  (window as any).__INOS_EPOCH_LOGGER__ = window.setInterval(() => {
+    const flags = INOSBridge.getFlagsView();
+    if (!flags) return;
+    const birdEpoch = Atomics.load(flags, 12);
+    const evoEpoch = Atomics.load(flags, 16);
+    const systemEpoch = Atomics.load(flags, 7);
+    const birdCount = Atomics.load(flags, 20);
+    console.log(`[Kernel] ${label} epoch snapshot`, {
+      sabOffset,
+      birdEpoch,
+      evolutionEpoch: evoEpoch,
+      systemEpoch,
+      birdCount,
+    });
+  }, 1000);
+}
+
 /**
  * Initialize kernel in a dedicated Web Worker (preferred path)
  */
@@ -158,6 +216,7 @@ async function initializeKernelInWorker(
   contextId: string
 ): Promise<KernelInitResult> {
   console.log('[Kernel] Spawning Kernel Worker...');
+  window.__INOS_KERNEL_MODE__ = 'worker';
   const worker = new Worker(KernelWorkerUrl, { type: 'module' });
   window.__INOS_KERNEL_WORKER__ = worker;
   let workerReadyResolve: (() => void) | null = null;
@@ -170,6 +229,7 @@ async function initializeKernelInWorker(
     const timeoutId = setTimeout(() => {
       worker.terminate();
       window.__INOS_KERNEL_WORKER__ = undefined;
+      window.__INOS_KERNEL_MODE__ = undefined;
       reject(new Error('Kernel worker initialization timeout (10s)'));
     }, 10000);
 
@@ -181,6 +241,7 @@ async function initializeKernelInWorker(
         console.error('[KernelWorker] Critical error:', error);
         worker.terminate();
         window.__INOS_KERNEL_WORKER__ = undefined;
+        window.__INOS_KERNEL_MODE__ = undefined;
         reject(new Error(error));
         return;
       }
@@ -188,6 +249,10 @@ async function initializeKernelInWorker(
       if (type === 'sab_functions_ready') {
         clearTimeout(timeoutId);
         console.log('[Kernel] Kernel Worker SAB received');
+        if (!workerReadyResolved) {
+          workerReadyResolved = true;
+          workerReadyResolve?.();
+        }
 
         const { memory } = event.data;
         window.__INOS_SAB__ = sab;
@@ -199,6 +264,7 @@ async function initializeKernelInWorker(
         // Initialize centralized SAB bridge
         initializeBridge(sab, sabOffset, sabSize, memory);
         (window as any).INOSBridge = INOSBridge;
+        startEpochLogger('worker', sabOffset);
 
         // Write Context ID Hash
         const contextHash = stringHash(contextId);
@@ -385,6 +451,9 @@ async function initializeKernelOnMainThread(
   contextId: string
 ): Promise<KernelInitResult> {
   console.log('[Kernel] 🔄 Initializing kernel on MAIN THREAD (fallback mode)');
+  window.__INOS_KERNEL_MODE__ = 'main';
+  terminateKernelWorker();
+  clearKernelGlobals();
 
   // 1. Load Go runtime
   await loadGoRuntime(window, '/wasm_exec.js', '[Kernel]');
@@ -487,6 +556,10 @@ async function initializeKernelOnMainThread(
     }
   }
 
+  if (isShared && sabOffset !== 0) {
+    (window as any).__INOS_SAB_INT32__ = new Int32Array(buffer, sabOffset, 128);
+  }
+
   // 7. Set globals and initialize bridge
   window.__INOS_MEM__ = memory;
   window.__INOS_SAB_OFFSET__ = sabOffset;
@@ -496,6 +569,7 @@ async function initializeKernelOnMainThread(
   if (isShared) {
     initializeBridge(buffer, sabOffset, sabSize, memory);
     (window as any).INOSBridge = INOSBridge;
+    startEpochLogger('main', sabOffset);
   }
 
   // Write Context ID Hash

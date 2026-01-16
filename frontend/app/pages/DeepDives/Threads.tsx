@@ -1223,7 +1223,7 @@ func (us *UnifiedSupervisor) processJob(job *foundation.Job) {
               <code>analytics_supervisor.go</code>: aggregationLoop (10 epochs)
             </li>
             <li>
-              <code>boids_supervisor.go</code>: evolutionLoop (uses IDX_EVOLUTION_EPOCH)
+              <code>boids_supervisor.go</code>: learningLoop (waits on IDX_BIRD_EPOCH, signals IDX_EVOLUTION_EPOCH)
             </li>
           </ul>
         </Style.ContentCard>

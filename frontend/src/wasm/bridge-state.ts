@@ -187,22 +187,6 @@ export function atomicLoad(index: number): number {
   return Atomics.load(_flagsView, index);
 }
 
-/**
- * Wait for an epoch change (async version using waitAsync)
- */
-export function waitForEpoch(
-  epochIndex: number,
-  currentValue: number
-): Promise<'ok' | 'not-equal' | 'timed-out'> {
-  if (!_flagsView) return Promise.resolve('not-equal');
-
-  const result = Atomics.waitAsync(_flagsView, epochIndex, currentValue);
-  if (result.async) {
-    return result.value;
-  }
-  return Promise.resolve(result.value);
-}
-
 // =============================================================================
 // REGION VIEWS (Cached)
 // =============================================================================
@@ -265,7 +249,6 @@ export const INOSBridge = {
    * Observe an epoch change (polling-friendly version of atomicLoad)
    */
   getEpoch: (index: number) => atomicLoad(index),
-  waitForEpoch,
   /**
    * Peek at the Outbox without advancing the head pointer.
    */

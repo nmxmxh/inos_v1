@@ -113,6 +113,8 @@ mod wasm_send_safe {
     }
 }
 
+use crate::layout;
+
 #[cfg(target_arch = "wasm32")]
 pub use wasm_send_safe::{Int32Array, JsValue, SendWrap, Uint8Array};
 
@@ -605,12 +607,17 @@ pub fn atomic_add<T>(typed_array: &SendWrap<T>, index: u32, value: i32) -> i32
 where
     T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
 {
-    unsafe { atomic_add_raw(typed_array.clone().0.into(), index, value) }
+    let raw: RawJsValue = typed_array.clone().0.into();
+    let old = unsafe { atomic_add_raw(raw.clone(), index, value) };
+    maybe_bump_system_epoch_raw(raw, index);
+    old
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_add(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    native_mock::atomic_add(typed_array, index, value)
+    let old = native_mock::atomic_add(typed_array, index, value);
+    maybe_bump_system_epoch_native(typed_array, index);
+    old
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -631,12 +638,17 @@ pub fn atomic_store<T>(typed_array: &SendWrap<T>, index: u32, value: i32) -> i32
 where
     T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
 {
-    unsafe { atomic_store_raw(typed_array.clone().0.into(), index, value) }
+    let raw: RawJsValue = typed_array.clone().0.into();
+    let stored = unsafe { atomic_store_raw(raw.clone(), index, value) };
+    maybe_bump_system_epoch_raw(raw, index);
+    stored
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_store(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    native_mock::atomic_store(typed_array, index, value)
+    let stored = native_mock::atomic_store(typed_array, index, value);
+    maybe_bump_system_epoch_native(typed_array, index);
+    stored
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -688,6 +700,26 @@ pub fn atomic_compare_exchange(
     replacement: i32,
 ) -> i32 {
     native_mock::atomic_compare_exchange(typed_array, index, expected, replacement)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn maybe_bump_system_epoch_raw(typed_array: RawJsValue, index: u32) {
+    if index == layout::IDX_SYSTEM_EPOCH || !layout::should_signal_system_epoch(index) {
+        return;
+    }
+    unsafe {
+        atomic_add_raw(typed_array.clone(), layout::IDX_SYSTEM_EPOCH, 1);
+        atomic_notify_raw(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn maybe_bump_system_epoch_native(typed_array: &JsValue, index: u32) {
+    if index == layout::IDX_SYSTEM_EPOCH || !layout::should_signal_system_epoch(index) {
+        return;
+    }
+    native_mock::atomic_add(typed_array, layout::IDX_SYSTEM_EPOCH, 1);
+    native_mock::atomic_notify(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
 }
 
 pub fn math_random() -> f64 {

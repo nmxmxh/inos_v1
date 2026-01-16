@@ -165,6 +165,33 @@ pub const ALIGNMENT_CACHE_LINE: usize = sab::ALIGNMENT_CACHE_LINE as usize;
 pub const ALIGNMENT_PAGE: usize = sab::ALIGNMENT_PAGE as usize;
 pub const ALIGNMENT_LARGE: usize = sab::ALIGNMENT_LARGE as usize;
 
+pub const fn should_signal_system_epoch(index: u32) -> bool {
+    matches!(
+        index,
+        IDX_KERNEL_READY
+            | IDX_INBOX_DIRTY
+            | IDX_OUTBOX_DIRTY
+            | IDX_PANIC_STATE
+            | IDX_SENSOR_EPOCH
+            | IDX_ACTOR_EPOCH
+            | IDX_STORAGE_EPOCH
+            | IDX_ARENA_ALLOCATOR
+            | IDX_METRICS_EPOCH
+            | IDX_BIRD_EPOCH
+            | IDX_MATRIX_EPOCH
+            | IDX_REGISTRY_EPOCH
+            | IDX_EVOLUTION_EPOCH
+            | IDX_HEALTH_EPOCH
+            | IDX_LEARNING_EPOCH
+            | IDX_ECONOMY_EPOCH
+            | IDX_BIRD_COUNT
+            | IDX_GLOBAL_METRICS_EPOCH
+            | IDX_DELEGATED_JOB_EPOCH
+            | IDX_USER_JOB_EPOCH
+            | IDX_DELEGATED_CHUNK_EPOCH
+    )
+}
+
 /// Calculate arena size for a given SAB size
 pub const fn calculate_arena_size(sab_size: usize) -> usize {
     sab_size.saturating_sub(OFFSET_ARENA)

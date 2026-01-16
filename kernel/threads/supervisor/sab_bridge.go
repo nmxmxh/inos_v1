@@ -37,6 +37,7 @@ type SABBridge struct {
 	jsUint8View   js.Value // Cached Uint8Array view of SAB
 	isWorker      bool     // Cached worker status
 	jsInitialized bool
+	jsSabOffset   uint32
 
 	// Optimization: Fixed-size LRU cache for subarrays (prevents memory leak)
 	viewCache     map[uint64]js.Value
@@ -50,11 +51,10 @@ type SABBridge struct {
 	profilingEnabled bool
 	waitAsyncHits    uint64
 	waitAsyncMisses  uint64
+	waitAsyncCalls   uint64
+	waitAsyncTimeouts uint64
 	totalReadTime    int64 // Nanoseconds
 	totalWriteTime   int64 // Nanoseconds
-
-	// Optimization: Unified synchronization
-	initOnce sync.Once
 
 	// GC Pressure Management: Track wait calls to yield for finalizer cleanup
 	waitCallCount uint64
@@ -62,6 +62,12 @@ type SABBridge struct {
 	// Epoch-Diffused Cleanup: Track activity instead of time
 	lastCleanupEpoch int32
 	cleanupThreshold int32
+
+	epochLoggerOnce sync.Once
+
+	epochWatcherEnabled uint32
+	epochWaitersMu      sync.Mutex
+	epochWaiters        map[uint32]chan int32
 }
 
 const defaultViewCacheMax = 64
@@ -80,10 +86,12 @@ func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffs
 		viewCacheKeys:    make([]uint64, 0, defaultViewCacheMax),
 		viewCacheMax:     defaultViewCacheMax,
 		cleanupThreshold: 100, // Cleanup every 100 epochs of activity
+		epochWaiters:     make(map[uint32]chan int32),
 	}
 
 	// Cache JS values once to prevent memory leak
 	bridge.initJSCache()
+	bridge.startEpochLogger()
 
 	return bridge
 }
@@ -95,29 +103,94 @@ func (sb *SABBridge) IsReady() bool {
 
 // initJSCache initializes cached JS values (called once)
 func (sb *SABBridge) initJSCache() {
-	sb.initOnce.Do(func() {
-		sb.mu.Lock()
-		defer sb.mu.Unlock()
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
 
-		// Only attempt JS calls if we're in a WASM environment
-		defer func() {
-			if r := recover(); r != nil {
-				sb.jsInitialized = true
+	// Only attempt JS calls if we're in a WASM environment
+	defer func() {
+		if r := recover(); r != nil {
+			sb.jsInitialized = true
+		}
+	}()
+
+	sabOffsetVal := js.Global().Get("__INOS_SAB_OFFSET__")
+	currentOffset := uint32(0)
+	if sabOffsetVal.Type() == js.TypeNumber {
+		currentOffset = uint32(sabOffsetVal.Int())
+	}
+
+	if sb.jsInitialized && sb.jsSabOffset == currentOffset &&
+		!sb.jsInt32View.IsUndefined() && !sb.jsUint8View.IsUndefined() {
+		return
+	}
+
+	sb.jsAtomics = js.Global().Get("Atomics")
+	sb.jsSabOffset = currentOffset
+
+	sab := js.Global().Get("__INOS_SAB__")
+	view := js.Global().Get("__INOS_SAB_INT32__")
+	if !view.IsUndefined() {
+		byteOffset := view.Get("byteOffset")
+		if byteOffset.Type() == js.TypeNumber && uint32(byteOffset.Int()) != currentOffset {
+			view = js.Undefined()
+		}
+	}
+
+	if view.IsUndefined() && !sab.IsUndefined() {
+		length := int(sab_layout.SIZE_ATOMIC_FLAGS / 4)
+		view = js.Global().Get("Int32Array").New(sab, int(currentOffset), length)
+		js.Global().Set("__INOS_SAB_INT32__", view)
+	}
+
+	sb.jsInt32View = view
+
+	if !view.IsUndefined() {
+		buffer := view.Get("buffer")
+		if !buffer.IsUndefined() {
+			if sb.sabSize > 0 {
+				sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer, int(currentOffset), int(sb.sabSize))
+			} else {
+				sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer, int(currentOffset))
+			}
+		}
+	}
+
+	// Cache worker context status
+	sb.isWorker = sb.detectWorkerContext()
+	sb.jsInitialized = true
+}
+
+func (sb *SABBridge) startEpochLogger() {
+	sb.epochLoggerOnce.Do(func() {
+		if !sb.profilingEnabled {
+			return
+		}
+		console := js.Global().Get("console")
+		if console.IsUndefined() {
+			return
+		}
+		go func() {
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				birdEpoch := sb.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
+				evoEpoch := sb.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
+				systemEpoch := sb.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
+				int32Offset := int64(-1)
+				if !sb.jsInt32View.IsUndefined() {
+					byteOffset := sb.jsInt32View.Get("byteOffset")
+					if byteOffset.Type() == js.TypeNumber {
+						int32Offset = int64(byteOffset.Int())
+					}
+				}
+				utils.Info("SABBridge epoch snapshot",
+					utils.Int("bird_epoch", int(birdEpoch)),
+					utils.Int("evolution_epoch", int(evoEpoch)),
+					utils.Int("system_epoch", int(systemEpoch)),
+					utils.Uint64("sab_offset", uint64(sb.jsSabOffset)),
+					utils.Int("int32_view_byte_offset", int(int32Offset)))
 			}
 		}()
-
-		sb.jsAtomics = js.Global().Get("Atomics")
-		sb.jsInt32View = js.Global().Get("__INOS_SAB_INT32__")
-
-		// Cache Uint8Array view of the SAME buffer
-		if !sb.jsInt32View.IsUndefined() {
-			buffer := sb.jsInt32View.Get("buffer")
-			sb.jsUint8View = js.Global().Get("Uint8Array").New(buffer)
-		}
-
-		// Cache worker context status
-		sb.isWorker = sb.detectWorkerContext()
-		sb.jsInitialized = true
 	})
 }
 
@@ -240,23 +313,19 @@ func (sb *SABBridge) ReadResult() (*foundation.Result, error) {
 }
 
 func (sb *SABBridge) readEpoch() uint32 {
-	ptr := unsafe.Add(sb.sab, sb.epochOffset)
-	return atomic.LoadUint32((*uint32)(ptr))
+	return sb.atomicLoad(sb.epochOffset)
 }
 
 func (sb *SABBridge) ReadOutboxSequence() uint32 {
-	ptr := unsafe.Add(sb.sab, sab_layout.IDX_OUTBOX_DIRTY*4)
-	return atomic.LoadUint32((*uint32)(ptr))
+	return sb.atomicLoad(sab_layout.IDX_OUTBOX_DIRTY)
 }
 
 func (sb *SABBridge) ReadSystemEpoch() uint64 {
-	ptr := unsafe.Add(sb.sab, sab_layout.IDX_SYSTEM_EPOCH*4)
-	return uint64(atomic.LoadUint32((*uint32)(ptr)))
+	return uint64(sb.atomicLoad(sab_layout.IDX_SYSTEM_EPOCH))
 }
 
 func (sb *SABBridge) ReadAtomicI32(epochIndex uint32) int32 {
-	ptr := unsafe.Add(sb.sab, epochIndex*4)
-	val := int32(atomic.LoadUint32((*uint32)(ptr)))
+	val := int32(sb.atomicLoad(epochIndex))
 	// Log only occasionally to avoid flooding
 	if epochIndex == 12 && val%100 == 0 && val > 0 {
 		utils.Debug("ReadAtomicI32", utils.Any("idx", epochIndex), utils.Any("val", val))
@@ -282,16 +351,18 @@ func (sb *SABBridge) WriteOutbox(data []byte) error {
 }
 
 func (sb *SABBridge) SignalInbox() {
-	ptr := unsafe.Add(sb.sab, sab_layout.IDX_INBOX_DIRTY*4)
-	atomic.AddUint32((*uint32)(ptr), 1)
-	sb.NotifyEpochWaiters(sab_layout.IDX_INBOX_DIRTY)
+	sb.SignalEpoch(sab_layout.IDX_INBOX_DIRTY)
 }
 
 // SignalEpoch increments the epoch at the given index and notifies waiters
 func (sb *SABBridge) SignalEpoch(index uint32) {
-	ptr := unsafe.Add(sb.sab, index*4)
-	atomic.AddUint32((*uint32)(ptr), 1)
+	sb.atomicAdd(index, 1)
 	sb.NotifyEpochWaiters(index)
+
+	if index != sab_layout.IDX_SYSTEM_EPOCH && shouldSignalSystemEpoch(index) {
+		sb.atomicAdd(sab_layout.IDX_SYSTEM_EPOCH, 1)
+		sb.NotifyEpochWaiters(sab_layout.IDX_SYSTEM_EPOCH)
+	}
 }
 
 // GetAddress returns the SAB offset of the data if it's backed by the SAB
@@ -315,7 +386,7 @@ func (sb *SABBridge) GetAddress(data []byte) (uint32, bool) {
 func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <-chan struct{} {
 	ch := make(chan struct{})
 
-	if !sb.jsInitialized {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
 		sb.initJSCache()
 	}
 
@@ -326,70 +397,17 @@ func (sb *SABBridge) WaitForEpochAsync(epochIndex uint32, expectedValue int32) <
 		return ch
 	}
 
-	// Async Wait (requires Atomics.waitAsync or fallback to polling)
+	atomic.AddUint64(&sb.waitAsyncCalls, 1)
+
+	// Async wrapper for blocking Atomics.wait (worker-only)
 	go func() {
 		defer close(ch)
-
-		// 1. Try waitAsync if available AND jsInt32View is valid
-		if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
-			waitAsync := sb.jsAtomics.Get("waitAsync")
-			if !waitAsync.IsUndefined() {
-				// Promise-based wait
-				// Atomics.waitAsync(typedArray, index, value) -> { async: boolean, value: "ok" | "not-equal" | "timed-out" | Promise }
-				utils.Debug("WaitForEpochAsync triggering waitAsync", utils.Any("idx", epochIndex), utils.Any("expected", expectedValue))
-				result := waitAsync.Invoke(sb.jsInt32View, epochIndex, expectedValue)
-
-				isAsync := result.Get("async").Bool()
-				if isAsync {
-					atomic.AddUint64(&sb.waitAsyncHits, 1)
-					promise := result.Get("value")
-
-					// Create blocking channel for the promise callback
-					done := make(chan struct{})
-
-					var cb js.Func
-					cb = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-						close(done)
-						cb.Release()
-						return nil
-					})
-
-					// promise.then(() => done)
-					promise.Call("then", cb)
-
-					// Hard deadline to prevent unbounded goroutine lifetime
-					deadline := time.After(10 * time.Second)
-
-					// Wait for promise resolution OR timeout
-					select {
-					case <-done:
-						return
-					case <-deadline:
-						cb.Release() // Prevent js.Func leak on timeout
-						return
-					}
-				}
-				// If not async, it means value changed rapidly or error, returns immediately
-				return
-			}
+		result := sb.WaitForEpochChange(epochIndex, expectedValue, 1000)
+		if result == 0 || result == 1 {
+			atomic.AddUint64(&sb.waitAsyncHits, 1)
+			return
 		}
-
-		// 2. Fallback: Efficient Polling (100ms) if waitAsync missing
-		atomic.AddUint64(&sb.waitAsyncMisses, 1)
-		// relaxed for "no heat" architecture with hard deadline
-		deadline := time.After(10 * time.Second)
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-deadline:
-				return // Prevent unbounded polling
-			case <-ticker.C:
-				if sb.ReadAtomicI32(epochIndex) != expectedValue {
-					return
-				}
-			}
-		}
+		atomic.AddUint64(&sb.waitAsyncTimeouts, 1)
 	}()
 
 	return ch
@@ -419,11 +437,19 @@ func initJsResultValues() {
 // 2. Aggressive GC yielding every 20 calls
 // 3. Explicit GC hint every 200 calls
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
-	if !sb.jsInitialized {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
 		sb.initJSCache()
 	}
 
-	if !sb.isWorker {
+	if atomic.LoadUint32(&sb.epochWatcherEnabled) == 1 {
+		return sb.waitForEpochNotification(epochIndex, expectedValue, timeoutMs)
+	}
+
+	// Go WASM runs on a single JS thread. Atomics.wait blocks the entire runtime,
+	// starving other goroutines (matchmaker/watcher/adjuster, etc.). Use polling
+	// when JS-driven epoch notifications are unavailable.
+	useBlockingWait := false
+	if !useBlockingWait || !sb.isWorker {
 		return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
 	}
 
@@ -446,7 +472,7 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 	}
 
 	// Call Atomics.wait - this creates a js.Value that will have a finalizer
-	result := sb.jsAtomics.Call("wait", sb.jsInt32View, epochIndex, expectedValue, timeoutMs)
+	result := sb.jsAtomics.Call("wait", sb.jsInt32View, sb.atomicIndex(epochIndex), expectedValue, timeoutMs)
 
 	// CRITICAL: Avoid result.String() - it allocates memory on every call!
 	// Use Equal() with cached js.Value instead (zero allocation)
@@ -484,9 +510,61 @@ func (sb *SABBridge) pollForEpochChange(epochIndex uint32, expectedValue int32, 
 	return 2
 }
 
+func (sb *SABBridge) waitForEpochNotification(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
+	ch := sb.getEpochWaiter(epochIndex)
+	timer := time.NewTimer(time.Duration(timeoutMs) * time.Millisecond)
+	defer timer.Stop()
+
+	for {
+		select {
+		case value := <-ch:
+			if value != expectedValue {
+				return 1
+			}
+			expectedValue = value
+		case <-timer.C:
+			return 2
+		}
+	}
+}
+
+func (sb *SABBridge) getEpochWaiter(epochIndex uint32) chan int32 {
+	sb.epochWaitersMu.Lock()
+	defer sb.epochWaitersMu.Unlock()
+
+	ch := sb.epochWaiters[epochIndex]
+	if ch == nil {
+		ch = make(chan int32, 1)
+		sb.epochWaiters[epochIndex] = ch
+	}
+	return ch
+}
+
+// PushEpochChange is called by JS when an epoch index changes.
+func (sb *SABBridge) PushEpochChange(epochIndex uint32, value int32) {
+	atomic.StoreUint32(&sb.epochWatcherEnabled, 1)
+	ch := sb.getEpochWaiter(epochIndex)
+
+	select {
+	case ch <- value:
+		return
+	default:
+	}
+
+	select {
+	case <-ch:
+	default:
+	}
+
+	select {
+	case ch <- value:
+	default:
+	}
+}
+
 // NotifyEpochWaiters wakes up threads waiting on the given epoch index.
 func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
-	if !sb.jsInitialized {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
 		sb.initJSCache()
 	}
 
@@ -494,7 +572,7 @@ func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
 		return 0
 	}
 
-	result := sb.jsAtomics.Call("notify", sb.jsInt32View, epochIndex)
+	result := sb.jsAtomics.Call("notify", sb.jsInt32View, sb.atomicIndex(epochIndex))
 	return result.Int()
 }
 
@@ -621,6 +699,10 @@ func (sb *SABBridge) WriteRaw(offset uint32, data []byte) error {
 		return nil
 	}
 
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+
 	// Address 0 safety
 	if offset == 0 {
 		view := sb.getJsUint8View()
@@ -688,6 +770,10 @@ func (sb *SABBridge) ReadAt(offset uint32, dest []byte) error {
 		return nil
 	}
 
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+
 	// Go's linear memory is likely distinct from the SAB in this environment.
 	// We use CopyBytesToGo to copy from the shared SAB into Go memory.
 	// Optimization: Use Cached View
@@ -724,6 +810,10 @@ type ReadRegion struct {
 }
 
 func (sb *SABBridge) ReadBatch(regions []ReadRegion) error {
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+
 	root := sb.getJsUint8View()
 	if root.IsUndefined() {
 		// Fallback: individual reads
@@ -753,6 +843,67 @@ func (sb *SABBridge) ReadBatch(regions []ReadRegion) error {
 func (sb *SABBridge) getJsUint8View() js.Value {
 	// initJSCache is guaranteed to have run in constructor
 	return sb.jsUint8View
+}
+
+func (sb *SABBridge) atomicOffset(index uint32) uint32 {
+	return sab_layout.OFFSET_ATOMIC_FLAGS + index*4
+}
+
+func (sb *SABBridge) atomicIndex(index uint32) uint32 {
+	return sb.atomicOffset(index) / 4
+}
+
+func (sb *SABBridge) atomicLoad(index uint32) uint32 {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		val := sb.jsAtomics.Call("load", sb.jsInt32View, sb.atomicIndex(index))
+		return uint32(val.Int())
+	}
+	ptr := unsafe.Add(sb.sab, sb.atomicOffset(index))
+	return atomic.LoadUint32((*uint32)(ptr))
+}
+
+func (sb *SABBridge) atomicAdd(index uint32, delta uint32) uint32 {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		val := sb.jsAtomics.Call("add", sb.jsInt32View, sb.atomicIndex(index), int32(delta))
+		return uint32(val.Int())
+	}
+	ptr := unsafe.Add(sb.sab, sb.atomicOffset(index))
+	return atomic.AddUint32((*uint32)(ptr), delta)
+}
+
+func shouldSignalSystemEpoch(index uint32) bool {
+	switch index {
+	case sab_layout.IDX_KERNEL_READY,
+		sab_layout.IDX_INBOX_DIRTY,
+		sab_layout.IDX_OUTBOX_DIRTY,
+		sab_layout.IDX_PANIC_STATE,
+		sab_layout.IDX_SENSOR_EPOCH,
+		sab_layout.IDX_ACTOR_EPOCH,
+		sab_layout.IDX_STORAGE_EPOCH,
+		sab_layout.IDX_ARENA_ALLOCATOR,
+		sab_layout.IDX_METRICS_EPOCH,
+		sab_layout.IDX_BIRD_EPOCH,
+		sab_layout.IDX_MATRIX_EPOCH,
+		sab_layout.IDX_REGISTRY_EPOCH,
+		sab_layout.IDX_EVOLUTION_EPOCH,
+		sab_layout.IDX_HEALTH_EPOCH,
+		sab_layout.IDX_LEARNING_EPOCH,
+		sab_layout.IDX_ECONOMY_EPOCH,
+		sab_layout.IDX_BIRD_COUNT,
+		sab_layout.IDX_GLOBAL_METRICS_EPOCH,
+		sab_layout.IDX_DELEGATED_JOB_EPOCH,
+		sab_layout.IDX_USER_JOB_EPOCH,
+		sab_layout.IDX_DELEGATED_CHUNK_EPOCH:
+		return true
+	default:
+		return false
+	}
 }
 
 // getCachedView returns a cached subarray view for the given range.

@@ -21,11 +21,19 @@ import {
   instantiateWasm,
   loadGoRuntime,
 } from './kernel.shared';
+import {
+  IDX_BIRD_EPOCH,
+  IDX_EVOLUTION_EPOCH,
+  IDX_REGISTRY_EPOCH,
+  IDX_SYSTEM_EPOCH,
+} from './layout';
+import EpochWatcherWorkerUrl from './epoch-watcher.worker?worker&url';
 
 // Worker-scoped globals (no window.*)
 let _sab: SharedArrayBuffer | null = null;
 let _memory: WebAssembly.Memory | null = null;
 let _go: any = null;
+let _epochWatchers: Worker[] = [];
 
 interface KernelWorkerMessage {
   type: 'init' | 'shutdown' | 'inject_sab' | 'kernel_call' | 'mesh_call';
@@ -154,8 +162,15 @@ async function initializeKernel(
     }
   }
 
+  (self as any).__INOS_SAB_OFFSET__ = sabOffset;
+  (self as any).__INOS_SAB_SIZE__ = sabSize;
+  if (sabOffset !== 0) {
+    (self as any).__INOS_SAB_INT32__ = new Int32Array(buffer, sabOffset, 128);
+  }
+
   // 8. Initialize centralized bridge for worker-local atomic access
   INOSBridge.initialize(buffer, sabOffset, sabSize, _memory);
+  startEpochWatchers(buffer, sabOffset);
 
   return { sabOffset, sabSize };
 }
@@ -196,11 +211,44 @@ async function injectSAB(sabOffset: number, sabSize: number): Promise<void> {
  * Shutdown the kernel
  */
 function shutdownKernel(): void {
+  stopEpochWatchers();
   if (_sab) {
     const flags = new Int32Array(_sab, 0, 16);
     Atomics.store(flags, 0, 1); // Shutdown signal
     Atomics.notify(flags, 0);
   }
+}
+
+function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
+  stopEpochWatchers();
+
+  if (typeof Worker === 'undefined') {
+    console.warn('[KernelWorker] Worker API unavailable; epoch watcher disabled');
+    return;
+  }
+
+  const indices = [IDX_SYSTEM_EPOCH, IDX_BIRD_EPOCH, IDX_EVOLUTION_EPOCH, IDX_REGISTRY_EPOCH];
+
+  _epochWatchers = indices.map(index => {
+    const worker = new Worker(EpochWatcherWorkerUrl, { type: 'module' });
+    worker.onmessage = event => {
+      if (event.data?.type !== 'epoch_change') return;
+      const notify = (self as any).notifyEpochChange;
+      if (typeof notify === 'function') {
+        notify(event.data.index, event.data.value);
+      }
+    };
+    worker.postMessage({ type: 'init', sab, sabOffset, index });
+    return worker;
+  });
+}
+
+function stopEpochWatchers(): void {
+  for (const worker of _epochWatchers) {
+    worker.postMessage({ type: 'shutdown' });
+    worker.terminate();
+  }
+  _epochWatchers = [];
 }
 
 // =============================================================================

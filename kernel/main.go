@@ -65,6 +65,20 @@ func main() {
 		return js.ValueOf(0)
 	}))
 
+	// Epoch notifications (from JS watcher worker)
+	js.Global().Set("notifyEpochChange", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if len(args) < 2 || kernelInstance == nil || kernelInstance.supervisor == nil {
+			return nil
+		}
+		index := uint32(args[0].Int())
+		value := int32(args[1].Int())
+		bridge := kernelInstance.supervisor.GetBridge()
+		if bridge != nil {
+			bridge.PushEpochChange(index, value)
+		}
+		return nil
+	}))
+
 	// Register Shutdown Hook (Main thread only)
 	window := js.Global().Get("window")
 	if !window.IsUndefined() && !window.IsNull() {

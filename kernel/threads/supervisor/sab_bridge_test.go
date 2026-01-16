@@ -29,7 +29,7 @@ func createTestSABBridge() (*SABBridge, []byte) {
 		uint32(sabSize),
 		sab_layout.OFFSET_INBOX_BASE,
 		sab_layout.OFFSET_OUTBOX_BASE,
-		0, // Use index 0 for simple tests
+		sab_layout.IDX_SYSTEM_EPOCH,
 	)
 
 	// Initialize ring buffer pointers
@@ -104,14 +104,10 @@ func TestSABBridge_Signaling(t *testing.T) {
 func TestSABBridge_PollCompletion(t *testing.T) {
 	bridge, sab := createTestSABBridge()
 
-	// We need to set epochOffset correctly.
-	// NewSABBridge uses `epochOffset` for `pollCompletion`.
-	// In createTestSABBridge we passed OFFSET_ATOMIC_FLAGS.
-	// readEpoch reads from `sb.epochOffset`.
-	// So it reads the first word of atomic flags? Which is IDX_KERNEL_READY (Index 0).
-	// This seems to be generic "readEpoch" logic used for PollCompletion.
+	// NewSABBridge uses IDX_SYSTEM_EPOCH for PollCompletion.
+	// readEpoch reads from OFFSET_ATOMIC_FLAGS + (IDX_SYSTEM_EPOCH * 4).
 
-	// Initial epoch at offset 0 is 0.
+	// Initial epoch at IDX_SYSTEM_EPOCH is 0.
 
 	// Test timeout
 	start := time.Now()
@@ -123,8 +119,9 @@ func TestSABBridge_PollCompletion(t *testing.T) {
 	// Test success
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		// Increment epoch at offset 0
-		ptr := (*uint32)(unsafe.Pointer(&sab[0]))
+		// Increment epoch at IDX_SYSTEM_EPOCH
+		offset := sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_SYSTEM_EPOCH*4
+		ptr := (*uint32)(unsafe.Pointer(&sab[offset]))
 		atomic.AddUint32(ptr, 1)
 	}()
 
