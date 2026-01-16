@@ -22,6 +22,10 @@ const (
 	SAB_SIZE_DEFAULT = system.SabSizeDefault // 32MB
 	SAB_SIZE_MIN     = system.SabSizeMin     // 32MB minimum
 	SAB_SIZE_MAX     = system.SabSizeMax     // 1GB
+	SAB_SIZE_LIGHT   = system.SabSizeLight
+	SAB_SIZE_MODERATE = system.SabSizeModerate
+	SAB_SIZE_HEAVY   = system.SabSizeHeavy
+	SAB_SIZE_DEDICATED = system.SabSizeDedicated
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========
 	// Atomic Flags Region (64 bytes - 16 x i32)

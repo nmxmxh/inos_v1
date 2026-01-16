@@ -21,13 +21,14 @@ type UnitLoader struct {
 	knowledge       *intelligence.KnowledgeGraph
 	registry        *registry.ModuleRegistry
 	credits         *supervisor.CreditSupervisor
+	identity        *units.IdentitySupervisor
 	metricsProvider units.MetricsProvider
 	delegator       foundation.MeshDelegator
 	sabSize         uint32
 }
 
 // NewUnitLoader creates a new unit loader
-func NewUnitLoader(sab unsafe.Pointer, size uint32, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, metricsProvider units.MetricsProvider, delegator foundation.MeshDelegator) *UnitLoader {
+func NewUnitLoader(sab unsafe.Pointer, size uint32, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, identity *units.IdentitySupervisor, metricsProvider units.MetricsProvider, delegator foundation.MeshDelegator) *UnitLoader {
 	return &UnitLoader{
 		sab:             sab,
 		sabSize:         size,
@@ -35,6 +36,7 @@ func NewUnitLoader(sab unsafe.Pointer, size uint32, patterns *pattern.TieredPatt
 		knowledge:       knowledge,
 		registry:        registry,
 		credits:         credits,
+		identity:        identity,
 		metricsProvider: metricsProvider,
 		delegator:       delegator,
 	}
@@ -105,7 +107,10 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 	case "driver":
 		return units.NewDriverSupervisor(bridge, ul.credits, ul.patterns, ul.knowledge, capabilities, ul.delegator)
 	case "identity":
-		return units.NewIdentitySupervisor(bridge, ul.patterns, ul.knowledge, ul.sab, ul.sabSize, sab_layout.OFFSET_IDENTITY_REGISTRY, ul.delegator)
+		if ul.identity != nil {
+			return ul.identity
+		}
+		return units.NewIdentitySupervisor(bridge, ul.patterns, ul.knowledge, ul.sab, ul.sabSize, sab_layout.OFFSET_IDENTITY_REGISTRY, ul.credits, nil, ul.delegator)
 	case "analytics":
 		return units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	default:

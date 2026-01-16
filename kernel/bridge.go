@@ -124,54 +124,6 @@ func jsGetSharedArrayBuffer(this js.Value, args []js.Value) interface{} {
 
 	return sabJS
 }
-func jsGetEconomicBalance(this js.Value, args []js.Value) interface{} {
-	if kernelInstance == nil || kernelInstance.supervisor == nil {
-		return js.ValueOf(0)
-	}
-	credits := kernelInstance.supervisor.GetCredits()
-	if credits == nil {
-		return js.ValueOf(0)
-	}
-	// Delegate to domain-owned method
-	return credits.JSGetBalance(this, args)
-}
-
-func jsGetEconomicStats(this js.Value, args []js.Value) interface{} {
-	if kernelInstance == nil || kernelInstance.supervisor == nil {
-		return js.Null()
-	}
-	credits := kernelInstance.supervisor.GetCredits()
-	if credits == nil {
-		return js.Null()
-	}
-	// Delegate to domain-owned method
-	return credits.JSGetStats(this, args)
-}
-
-func jsGrantEconomicBonus(this js.Value, args []js.Value) interface{} {
-	if kernelInstance == nil || kernelInstance.supervisor == nil {
-		return js.ValueOf(false)
-	}
-	credits := kernelInstance.supervisor.GetCredits()
-	if credits == nil {
-		return js.ValueOf(false)
-	}
-	// Delegate to domain-owned method
-	return credits.JSGrantBonus(this, args)
-}
-
-func jsGetAccountInfo(this js.Value, args []js.Value) interface{} {
-	if kernelInstance == nil || kernelInstance.supervisor == nil {
-		return js.Null()
-	}
-	credits := kernelInstance.supervisor.GetCredits()
-	if credits == nil {
-		return js.Null()
-	}
-	// Delegate to domain-owned method
-	return credits.JSGetAccountInfo(this, args)
-}
-
 func jsSubmitJob(this js.Value, args []js.Value) interface{} {
 	if len(args) < 1 {
 		return js.ValueOf(map[string]interface{}{"error": "missing job argument"})

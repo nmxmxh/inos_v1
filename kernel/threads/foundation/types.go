@@ -277,19 +277,31 @@ type CreditAccount struct {
 	Reserved [45]byte
 }
 
-// SocialEntry for the Social Graph region
+// SocialEntry for the Social Graph region (maps to economy.capnp CloseIdentity fields)
 type SocialEntry struct {
 	OwnerDid    [64]byte // did:inos:<hash> (fixed size)
 	ReferrerDid [64]byte
 	CloseIds    [15][64]byte // Max 15 close IDs directly in SAB
+	// Close ID metadata (epoch seconds, 0 = unset). Mirrors economy.capnp CloseIdentity fields.
+	CloseIdAddedAt    [15]uint32
+	CloseIdVerifiedAt [15]uint32
+	Reserved          [40]byte
 }
 
-// IdentityEntry for the Identity Registry region
+// IdentityEntry for the Identity Registry region (maps to identity.capnp + economy.capnp Wallet metadata)
 type IdentityEntry struct {
 	Did       [64]byte
 	PublicKey [33]byte // Compressed Ed25519/X25519
 	Status    uint8
-	Reserved  [30]byte
+	// Offsets into SAB regions (absolute offsets).
+	AccountOffset uint32
+	SocialOffset  uint32
+	// Recovery + tier metadata (mirrors identity.capnp / economy.capnp).
+	RecoveryThreshold uint8
+	TotalShares       uint8
+	Tier              uint8
+	Flags             uint8
+	Reserved          [18]byte
 }
 
 // ResourceMetrics for economic settlement

@@ -20,6 +20,8 @@ import NumberFormatter from '../ui/NumberFormatter';
 import RollingCounter from '../ui/RollingCounter';
 import { useEconomics } from '../hooks/useEconomics';
 import { useGlobalAnalytics } from '../features/analytics/useGlobalAnalytics';
+import { useMeshMetrics } from '../features/metrics/useMeshMetrics';
+import { getIdentityStatusLabel, getTierLabel, useIdentitySnapshot } from '../hooks/useIdentity';
 
 const Style = {
   PageContainer: styled.div`
@@ -187,6 +189,9 @@ interface SystemMetrics {
   active: boolean;
   sabSize: number;
   arenaHead: number;
+  epochRate: number;
+  evolutionMs: number;
+  opsPerSecond: number;
   bridge: {
     hits: number;
     misses: number;
@@ -199,9 +204,15 @@ interface SystemMetrics {
   earningsPulse: number;
 }
 
+const OPS_PER_ENTITY = 2200;
+const ENTITY_COUNT = 1000;
+const EMA_ALPHA = 0.2;
+
 export default function Diagnostics() {
   const global = useGlobalAnalytics();
+  const meshMetrics = useMeshMetrics();
   const { getBalance } = useEconomics(); // Zero-copy hook
+  const identity = useIdentitySnapshot();
   const [metrics, setMetrics] = useState<SystemMetrics>({
     birdEpoch: 0,
     matrixEpoch: 0,
@@ -209,6 +220,9 @@ export default function Diagnostics() {
     active: false,
     sabSize: 0,
     arenaHead: 0,
+    epochRate: 0,
+    evolutionMs: 0,
+    opsPerSecond: 0,
     bridge: { hits: 0, misses: 0, readNs: 0, writeNs: 0, health: 100 },
     balance: 0,
     pendingEscrow: 0,
@@ -217,6 +231,8 @@ export default function Diagnostics() {
 
   useEffect(() => {
     let lastBirdEpoch = 0;
+    let lastTime = performance.now();
+    let smoothedRate = 0;
 
     const interval = setInterval(() => {
       try {
@@ -231,6 +247,19 @@ export default function Diagnostics() {
         const metricsEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
         const arenaHead = INOSBridge.atomicLoad(IDX_ARENA_ALLOCATOR);
 
+        const now = performance.now();
+        const deltaEpoch = Math.max(0, birdEpoch - lastBirdEpoch);
+        const deltaTime = Math.max(0.001, (now - lastTime) / 1000);
+        lastBirdEpoch = birdEpoch;
+        lastTime = now;
+
+        const instantRate = deltaEpoch / deltaTime;
+        smoothedRate = smoothedRate
+          ? smoothedRate * (1 - EMA_ALPHA) + instantRate * EMA_ALPHA
+          : instantRate;
+        const evolutionMs = smoothedRate > 0 ? 1000 / smoothedRate : 0;
+        const opsPerSecond = smoothedRate * ENTITY_COUNT * OPS_PER_ENTITY;
+
         // Get cached DataView for bridge metrics
         const metricsView = INOSBridge.getRegionDataView(OFFSET_BRIDGE_METRICS, 32);
         if (!metricsView) return;
@@ -242,8 +271,7 @@ export default function Diagnostics() {
 
         const total = hits + misses;
         const health = total > 0 ? (hits / total) * 100 : 100;
-        const active = birdEpoch !== lastBirdEpoch;
-        lastBirdEpoch = birdEpoch;
+        const active = deltaEpoch > 0;
 
         // Zero-copy balance read (no worker messaging)
         const currentBalance = getBalance();
@@ -255,6 +283,9 @@ export default function Diagnostics() {
           active,
           sabSize: sab.byteLength,
           arenaHead,
+          epochRate: smoothedRate,
+          evolutionMs,
+          opsPerSecond,
           bridge: { hits, misses, readNs, writeNs, health },
           balance: currentBalance,
           pendingEscrow: 0, // TODO: Read from SAB when economics layout is defined
@@ -289,7 +320,17 @@ export default function Diagnostics() {
           data-testid="performance-meter"
         >
           <Style.CardTitle>Simulation Pulse</Style.CardTitle>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Derived from SAB atomics (bird + metrics epochs) and smoothed over the last sampling
+            window to reduce jitter.
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '1rem',
+            }}
+          >
             <Style.BigMetric>
               <Style.BigValue>
                 <RollingCounter value={metrics.birdEpoch} />
@@ -298,18 +339,63 @@ export default function Diagnostics() {
             </Style.BigMetric>
             <Style.BigMetric>
               <Style.BigValue>
-                <RollingCounter value={metrics.matrixEpoch} />
+                <RollingCounter value={metrics.metricsEpoch} />
               </Style.BigValue>
-              <Style.BigLabel>Matrix Epoch</Style.BigLabel>
+              <Style.BigLabel>System Epoch</Style.BigLabel>
             </Style.BigMetric>
           </div>
           <Style.MetricRow>
+            <Style.MetricLabel>Epoch Rate</Style.MetricLabel>
+            <Style.MetricValue>{metrics.epochRate.toFixed(2)} Hz</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Evolution Time</Style.MetricLabel>
+            <Style.MetricValue>{metrics.evolutionMs.toFixed(2)} ms</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Estimated Ops/s (Kernel)</Style.MetricLabel>
+            <Style.MetricValue>
+              <NumberFormatter value={metrics.opsPerSecond} />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
             <Style.MetricLabel>Active Entities</Style.MetricLabel>
-            <Style.MetricValue>1,000</Style.MetricValue>
+            <Style.MetricValue>{ENTITY_COUNT.toLocaleString()}</Style.MetricValue>
           </Style.MetricRow>
           <Style.MetricRow>
             <Style.MetricLabel>Physics Integration</Style.MetricLabel>
             <Style.MetricValue>Rapier3D @ 60Hz</Style.MetricValue>
+          </Style.MetricRow>
+        </Style.Card>
+
+        {/* Epoch Counters */}
+        <Style.Card
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <Style.CardTitle>Epoch Signals</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Atomic counters stored in the SAB flags region. These signals drive buffer swaps and
+            telemetry sync across Go, Rust, and JS.
+          </p>
+          <Style.MetricRow>
+            <Style.MetricLabel>Bird Epoch</Style.MetricLabel>
+            <Style.MetricValue>
+              <RollingCounter value={metrics.birdEpoch} />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Matrix Epoch</Style.MetricLabel>
+            <Style.MetricValue>
+              <RollingCounter value={metrics.matrixEpoch} />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Metrics Epoch</Style.MetricLabel>
+            <Style.MetricValue>
+              <RollingCounter value={metrics.metricsEpoch} />
+            </Style.MetricValue>
           </Style.MetricRow>
         </Style.Card>
 
@@ -320,6 +406,9 @@ export default function Diagnostics() {
           transition={{ delay: 0.2 }}
         >
           <Style.CardTitle>SAB Bridge Health</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Measured from the SAB bridge metrics region. Higher hit rate means fewer blocking waits.
+          </p>
           <Style.BigMetric>
             <Style.BigValue>{metrics.bridge.health.toFixed(1)}%</Style.BigValue>
             <Style.HealthBar>
@@ -337,6 +426,10 @@ export default function Diagnostics() {
             <Style.MetricLabel>Average I/O Latency</Style.MetricLabel>
             <Style.MetricValue>{(metrics.bridge.readNs / 1000000).toFixed(3)}ms</Style.MetricValue>
           </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Average Write Latency</Style.MetricLabel>
+            <Style.MetricValue>{(metrics.bridge.writeNs / 1000000).toFixed(3)}ms</Style.MetricValue>
+          </Style.MetricRow>
         </Style.Card>
 
         {/* Distributed Mesh Metrics */}
@@ -345,11 +438,53 @@ export default function Diagnostics() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
-          <Style.CardTitle>Global Mesh Status</Style.CardTitle>
+          <Style.CardTitle>Mesh Health</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            These values are read from the mesh metrics region and global analytics when present.
+          </p>
           <Style.MetricRow>
             <Style.MetricLabel>Active Mesh Nodes</Style.MetricLabel>
-            <Style.MetricValue>{global?.activeNodeCount ?? 1}</Style.MetricValue>
+            <Style.MetricValue>
+              {global?.activeNodeCount ?? meshMetrics?.connectedPeers ?? 1}
+            </Style.MetricValue>
           </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Connected Peers</Style.MetricLabel>
+            <Style.MetricValue>{meshMetrics?.connectedPeers ?? 0}</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Mesh Success Rate</Style.MetricLabel>
+            <Style.MetricValue>
+              {((meshMetrics?.successRate ?? 1) * 100).toFixed(2)}%
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>P50 Latency</Style.MetricLabel>
+            <Style.MetricValue>{(meshMetrics?.p50Latency ?? 0).toFixed(1)} ms</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>P95 Latency</Style.MetricLabel>
+            <Style.MetricValue>{(meshMetrics?.p95Latency ?? 0).toFixed(1)} ms</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Average Reputation</Style.MetricLabel>
+            <Style.MetricValue>
+              {((meshMetrics?.avgReputation ?? 0.984) * 100).toFixed(2)}%
+            </Style.MetricValue>
+          </Style.MetricRow>
+        </Style.Card>
+
+        {/* Mesh Traffic */}
+        <Style.Card
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+        >
+          <Style.CardTitle>Mesh Traffic</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Global analytics provides throughput and capacity when the mesh is active; local runs
+            will show minimal traffic.
+          </p>
           <Style.MetricRow>
             <Style.MetricLabel>Network Throughput</Style.MetricLabel>
             <Style.MetricValue>
@@ -363,8 +498,24 @@ export default function Diagnostics() {
             </Style.MetricValue>
           </Style.MetricRow>
           <Style.MetricRow>
-            <Style.MetricLabel>Average Reputation</Style.MetricLabel>
-            <Style.MetricValue>98.4%</Style.MetricValue>
+            <Style.MetricLabel>Bytes Sent</Style.MetricLabel>
+            <Style.MetricValue>
+              <NumberFormatter value={Number(meshMetrics?.bytesSent ?? 0)} suffix="B" />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Bytes Received</Style.MetricLabel>
+            <Style.MetricValue>
+              <NumberFormatter value={Number(meshMetrics?.bytesReceived ?? 0)} suffix="B" />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Sector ID</Style.MetricLabel>
+            <Style.MetricValue>
+              {meshMetrics?.sectorId
+                ? `0x${meshMetrics.sectorId.toString(16).toUpperCase().padStart(4, '0')}`
+                : '0x0000'}
+            </Style.MetricValue>
           </Style.MetricRow>
         </Style.Card>
 
@@ -375,6 +526,9 @@ export default function Diagnostics() {
           transition={{ delay: 0.4 }}
         >
           <Style.CardTitle>Linear Memory Map</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Read directly from SAB metadata to show allocator state and memory footprint.
+          </p>
           <Style.MetricRow>
             <Style.MetricLabel>SharedArrayBuffer Size</Style.MetricLabel>
             <Style.MetricValue>{(metrics.sabSize / (1024 * 1024)).toFixed(0)} MB</Style.MetricValue>
@@ -393,66 +547,100 @@ export default function Diagnostics() {
           </Style.MetricRow>
         </Style.Card>
 
-        {/* Economic Ledger */}
+        {/* Identity & Recovery */}
+        <Style.Card
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45 }}
+          data-testid="identity-ledger-card"
+        >
+          <Style.CardTitle>Identity & Recovery</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Read from the identity + social SAB regions. Close IDs mark mutual recovery anchors.
+          </p>
+          <Style.MetricRow>
+            <Style.MetricLabel>Node Identity (DID)</Style.MetricLabel>
+            <Style.MetricValue style={{ fontSize: '10px', color: '#6b7280' }}>
+              {identity?.did
+                ? `${identity.did.slice(0, 28)}...`
+                : `did:inos:${(window as any).inosModules?.compute?.node_id?.slice(0, 16) || 'anonymous'}...`}
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Identity Status</Style.MetricLabel>
+            <Style.MetricValue>{getIdentityStatusLabel(identity?.status ?? 0)}</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Resource Tier</Style.MetricLabel>
+            <Style.MetricValue>{getTierLabel(identity?.tier ?? 0)}</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Recovery Threshold</Style.MetricLabel>
+            <Style.MetricValue>
+              {identity ? `${identity.recoveryThreshold}/${identity.totalShares}` : '1/1'}
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Close IDs</Style.MetricLabel>
+            <Style.MetricValue>
+              {identity ? `${identity.verifiedCloseIds}/${identity.closeIds.length}` : '0/0'}
+            </Style.MetricValue>
+          </Style.MetricRow>
+        </Style.Card>
+
+        {/* Credits & Yield */}
         <Style.Card
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          style={{ gridColumn: 'span 2' }}
           data-testid="economic-ledger-card"
         >
-          <Style.CardTitle>Economic Ledger</Style.CardTitle>
-          <div
+          <Style.CardTitle>Credits & Yield</Style.CardTitle>
+          <p style={{ margin: 0, color: '#4b5563', lineHeight: 1.6, fontSize: '12px' }}>
+            Balance is read from the default account offset in SAB; yield fields are placeholders
+            until economics metrics are written into SAB.
+          </p>
+          <Style.BigMetric
             style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 2fr',
-              gap: '2rem',
-              alignItems: 'center',
+              background: 'rgba(22, 163, 74, 0.05)',
+              borderColor: 'rgba(22, 163, 74, 0.2)',
             }}
           >
-            <Style.BigMetric
-              style={{
-                background: 'rgba(22, 163, 74, 0.05)',
-                borderColor: 'rgba(22, 163, 74, 0.2)',
-              }}
-            >
-              <Style.BigValue style={{ color: '#16a34a' }}>
-                <RollingCounter value={metrics.balance} />
-              </Style.BigValue>
-              <Style.BigLabel>Available Credits (µ)</Style.BigLabel>
-            </Style.BigMetric>
-            <div>
-              <Style.MetricRow>
-                <Style.MetricLabel>Node Identity (DID)</Style.MetricLabel>
-                <Style.MetricValue style={{ fontSize: '10px', color: '#6b7280' }}>
-                  did:inos:
-                  {(window as any).inosModules?.compute?.node_id?.slice(0, 16) || 'anonymous'}...
-                </Style.MetricValue>
-              </Style.MetricRow>
-              <Style.MetricRow>
-                <Style.MetricLabel>Staking Ratio</Style.MetricLabel>
-                <Style.MetricValue>1.0x (Default)</Style.MetricValue>
-              </Style.MetricRow>
-              <Style.MetricRow>
-                <Style.MetricLabel>Pending Escrow</Style.MetricLabel>
-                <Style.MetricValue style={{ color: '#0284c7' }}>
-                  {metrics.pendingEscrow} µ (Secured)
-                </Style.MetricValue>
-              </Style.MetricRow>
-              <Style.MetricRow>
-                <Style.MetricLabel>Earnings Pulse</Style.MetricLabel>
-                <Style.MetricValue style={{ color: '#16a34a' }}>
-                  +{metrics.earningsPulse.toFixed(2)} µ/min
-                </Style.MetricValue>
-              </Style.MetricRow>
-              <Style.MetricRow>
-                <Style.MetricLabel>Projected Earnings/24h</Style.MetricLabel>
-                <Style.MetricValue style={{ color: '#16a34a' }}>
-                  +{(metrics.earningsPulse * 60 * 24).toFixed(0)} µ
-                </Style.MetricValue>
-              </Style.MetricRow>
-            </div>
-          </div>
+            <Style.BigValue style={{ color: '#16a34a' }}>
+              <NumberFormatter value={metrics.balance} decimals={0} />
+            </Style.BigValue>
+            <Style.BigLabel>Available Credits (µ)</Style.BigLabel>
+          </Style.BigMetric>
+          <Style.MetricRow>
+            <Style.MetricLabel>Pending Escrow</Style.MetricLabel>
+            <Style.MetricValue style={{ color: '#0284c7' }}>
+              <NumberFormatter value={metrics.pendingEscrow} decimals={0} suffix="µ" /> (Locked for
+              active jobs)
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Earnings Pulse</Style.MetricLabel>
+            <Style.MetricValue style={{ color: '#16a34a' }}>
+              +{metrics.earningsPulse.toFixed(2)} µ/min (Useful work)
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Projected Earnings/24h</Style.MetricLabel>
+            <Style.MetricValue style={{ color: '#16a34a' }}>
+              +
+              <NumberFormatter value={metrics.earningsPulse * 60 * 24} decimals={0} suffix="µ" />
+            </Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Staking Ratio</Style.MetricLabel>
+            <Style.MetricValue>1.0x (Baseline trust)</Style.MetricValue>
+          </Style.MetricRow>
+          <Style.MetricRow>
+            <Style.MetricLabel>Credit Utility</Style.MetricLabel>
+            <Style.MetricValue style={{ color: '#6b7280' }}>
+              Spendable for compute, storage, and mesh bandwidth
+            </Style.MetricValue>
+          </Style.MetricRow>
         </Style.Card>
       </Style.Grid>
     </Style.PageContainer>

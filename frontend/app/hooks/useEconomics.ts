@@ -1,10 +1,12 @@
 import { useCallback } from 'react';
 import { INOSBridge } from '../../src/wasm/bridge-state';
-import { OFFSET_ECONOMICS } from '../../src/wasm/layout';
+import { OFFSET_ECONOMICS, OFFSET_IDENTITY_REGISTRY } from '../../src/wasm/layout';
 
 // Economics region layout (from credits.go)
 const ECONOMICS_METADATA_SIZE = 64;
 const OFFSET_DEFAULT_ACCOUNT = OFFSET_ECONOMICS + ECONOMICS_METADATA_SIZE;
+const IDENTITY_METADATA_SIZE = 64;
+const IDENTITY_META_DEFAULT_ACCOUNT_OFFSET = 12;
 
 interface UseEconomicsResult {
   loading: boolean;
@@ -29,8 +31,13 @@ export function useEconomics(): UseEconomicsResult {
     if (!INOSBridge.isReady()) return 0;
 
     try {
-      // Balance is first 8 bytes (int64, little-endian) of default account
-      return INOSBridge.readU64AsNumber(OFFSET_DEFAULT_ACCOUNT);
+      const metadata = INOSBridge.getRegionDataView(OFFSET_IDENTITY_REGISTRY, IDENTITY_METADATA_SIZE);
+      const accountOffset = metadata
+        ? metadata.getUint32(IDENTITY_META_DEFAULT_ACCOUNT_OFFSET, true) || OFFSET_DEFAULT_ACCOUNT
+        : OFFSET_DEFAULT_ACCOUNT;
+
+      // Balance is first 8 bytes (int64, little-endian) of the default account slot
+      return INOSBridge.readI64AsNumber(accountOffset);
     } catch {
       return 0;
     }

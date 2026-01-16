@@ -6,15 +6,20 @@
  */
 
 import styled, { css } from 'styled-components';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
+import { IDX_BIRD_EPOCH } from '../../../src/wasm/layout';
+import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 const Style = {
   MetricsBar: styled(motion.div)`
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-wrap: wrap;
     gap: ${p => p.theme.spacing[10]};
+    row-gap: ${p => p.theme.spacing[3]};
     padding: 0 ${p => p.theme.spacing[4]};
     font-family: ${p => p.theme.fonts.typewriter};
     font-size: 9px;
@@ -114,14 +119,60 @@ import { useMeshMetrics } from './useMeshMetrics';
 import { useGlobalAnalytics } from '../analytics/useGlobalAnalytics';
 import NumberFormatter from '../../ui/NumberFormatter';
 
+const OPS_PER_ENTITY = 2200;
+const ENTITY_COUNT = 1000;
+const EMA_ALPHA = 0.2;
+
+function useLocalKernelStats() {
+  const [stats, setStats] = useState({
+    opsPerSecond: 0,
+    epochRate: 0,
+  });
+
+  useEffect(() => {
+    let lastEpoch = 0;
+    let lastTime = performance.now();
+    let smoothedRate = 0;
+
+    const interval = setInterval(() => {
+      try {
+        if (!INOSBridge.isReady()) return;
+
+        const epoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        const now = performance.now();
+        const deltaEpoch = Math.max(0, epoch - lastEpoch);
+        const deltaTime = Math.max(0.001, (now - lastTime) / 1000);
+        lastEpoch = epoch;
+        lastTime = now;
+
+        const instantRate = deltaEpoch / deltaTime;
+        smoothedRate = smoothedRate
+          ? smoothedRate * (1 - EMA_ALPHA) + instantRate * EMA_ALPHA
+          : instantRate;
+
+        setStats({
+          epochRate: smoothedRate,
+          opsPerSecond: smoothedRate * ENTITY_COUNT * OPS_PER_ENTITY,
+        });
+      } catch {
+        // SAB not ready
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return stats;
+}
+
 export function MeshMetricsBar() {
   const metrics = useMeshMetrics();
   const global = useGlobalAnalytics();
+  const local = useLocalKernelStats();
 
   const displayMetrics = metrics || {
     opsPerSecond: 0,
     nodeCount: 1,
-    computeCapacity: 0,
     meshActive: false,
     p50Latency: 0,
     connectedPeers: 0,
@@ -138,20 +189,7 @@ export function MeshMetricsBar() {
       ? Math.floor(metrics.gossipRate * 100)
       : 0;
 
-  const computeCapacity = global?.totalComputeGFLOPS
-    ? Number(global.totalComputeGFLOPS)
-    : metrics
-      ? Math.floor(opsPerSecond + (metrics.connectedPeers || 0) * 1.5)
-      : 0;
-
   const activeNodes = global?.activeNodeCount || displayMetrics.connectedPeers || 1;
-
-  // Average Capability per Node
-  const avgCapability = global?.avgCapability
-    ? Number(global.avgCapability)
-    : activeNodes > 0
-      ? computeCapacity / activeNodes
-      : 0;
 
   // Mesh Health logic
   const successRate = displayMetrics.successRate || 1.0;
@@ -192,30 +230,20 @@ export function MeshMetricsBar() {
       <Style.Divider />
 
       <Style.Metric
+        data-testid="metric-node-ops"
+        title="Local Throughput — Estimated kernel operations per second on this node (epoch rate × agents × micro-ops)"
+      >
+        <Style.Label>Node Ops/s</Style.Label>
+        <NumberFormatter value={local.opsPerSecond} />
+      </Style.Metric>
+
+      <Style.Metric
         data-testid="metric-ops"
         title="Total Network Throughput — Aggregated operations per second across the entire mesh"
       >
-        <Style.Label>Ops/s</Style.Label>
+        <Style.Label>Net Ops/s</Style.Label>
         <NumberFormatter value={opsPerSecond} />
       </Style.Metric>
-
-      <Style.Metric
-        data-testid="metric-cap"
-        title="Total Compute Power — Sum of GFLOPS (Giga-Floating Point Operations Per Second) available in the mesh"
-      >
-        <Style.Label>Cap</Style.Label>
-        <NumberFormatter value={computeCapacity} suffix="G" />
-      </Style.Metric>
-
-      <Style.Metric
-        data-testid="metric-avg"
-        title="Average Capability — Computing power per individual node. High values indicate high-performance hardware (GPUs/Workstations)"
-      >
-        <Style.Label>Avg</Style.Label>
-        <NumberFormatter value={avgCapability} suffix="G" />
-      </Style.Metric>
-
-      <Style.Divider />
 
       <Style.Metric
         data-testid="metric-nodes"
@@ -233,26 +261,6 @@ export function MeshMetricsBar() {
         <Style.Value>
           <RollingCounter value={Math.floor(displayMetrics.p50Latency || 0)} suffix="ms" />
         </Style.Value>
-      </Style.Metric>
-
-      <Style.Metric
-        data-testid="metric-sector"
-        title="Sector ID — Cryptographic identifier for your local mesh partition (Layer 2)"
-      >
-        <Style.Label>Sector</Style.Label>
-        <Style.Value>
-          {displayMetrics.sectorId
-            ? `0x${displayMetrics.sectorId.toString(16).toUpperCase().padStart(4, '0')}`
-            : '0x0000'}
-        </Style.Value>
-      </Style.Metric>
-
-      <Style.Metric
-        data-testid="metric-rep"
-        title="Global Trust — Unified reputation score of all nodes. Higher means more reliable and verified compute results"
-      >
-        <Style.Label>Rep</Style.Label>
-        <Style.Value>{((metrics?.avgReputation || 0.95) * 100).toFixed(1)}%</Style.Value>
       </Style.Metric>
     </Style.MetricsBar>
   );

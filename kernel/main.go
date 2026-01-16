@@ -33,14 +33,6 @@ func main() {
 		return nil
 	}))
 
-	// Economics API
-	economics := js.Global().Get("Object").New()
-	economics.Set("getBalance", js.FuncOf(jsGetEconomicBalance))
-	economics.Set("getStats", js.FuncOf(jsGetEconomicStats))
-	economics.Set("grantBonus", js.FuncOf(jsGrantEconomicBonus))
-	economics.Set("getAccountInfo", js.FuncOf(jsGetAccountInfo))
-	js.Global().Set("economics", economics)
-
 	// Kernel API
 	kernel := js.Global().Get("Object").New()
 	kernel.Set("submitJob", js.FuncOf(jsSubmitJob))

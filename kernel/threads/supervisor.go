@@ -237,8 +237,18 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		m.SetEconomicVault(s.credits)
 	}
 
-	s.identity = units.NewIdentitySupervisor(s.bridge, s.patterns, s.knowledge, s.sab, s.sabSize, uint32(sab_layout.OFFSET_IDENTITY_REGISTRY), nil)
 	s.social = supervisor.NewSocialGraphSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_SOCIAL_GRAPH))
+	s.identity = units.NewIdentitySupervisor(
+		s.bridge,
+		s.patterns,
+		s.knowledge,
+		s.sab,
+		s.sabSize,
+		uint32(sab_layout.OFFSET_IDENTITY_REGISTRY),
+		s.credits,
+		s.social,
+		nil,
+	)
 
 	s.logger.Info("Core regions established",
 		utils.Uint64("identity_offset", uint64(sab_layout.OFFSET_IDENTITY_REGISTRY)),
@@ -246,6 +256,9 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		utils.Uint64("economics_offset", uint64(sab_layout.OFFSET_ECONOMICS)))
 
 	// Register Core System DIDs
+	if _, err := s.identity.RegisterDID("did:inos:system", nil); err != nil {
+		s.logger.Error("Failed to register system DID", utils.Err(err))
+	}
 	if _, err := s.identity.RegisterDID("did:inos:nmxmxh", nil); err != nil {
 		s.logger.Error("Failed to register nmxmxh DID", utils.Err(err))
 	}
@@ -262,7 +275,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		md = d
 	}
 
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, mp, md)
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
 	loadedUnits, bridge := loader.LoadUnits()
 	s.bridge = bridge
 	s.units = loadedUnits
@@ -334,7 +347,7 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 	if d, ok := s.config.MeshCoordinator.(foundation.MeshDelegator); ok {
 		md = d
 	}
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, mp, md)
+	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
 	var lastRegistryEpoch int32 = 0
 
 	for {

@@ -15,6 +15,12 @@ pub struct IdentityEntry {
     pub did: String,
     pub public_key: Vec<u8>,
     pub status: u8,
+    pub account_offset: u32,
+    pub social_offset: u32,
+    pub recovery_threshold: u8,
+    pub total_shares: u8,
+    pub tier: u8,
+    pub flags: u8,
 }
 
 impl IdentityContext {
@@ -47,11 +53,23 @@ impl IdentityRegistry {
         let did = Self::parse_did(&data[0..64]);
         let public_key = data[64..97].to_vec();
         let status = data[97];
+        let account_offset = u32::from_le_bytes([data[98], data[99], data[100], data[101]]);
+        let social_offset = u32::from_le_bytes([data[102], data[103], data[104], data[105]]);
+        let recovery_threshold = data[106];
+        let total_shares = data[107];
+        let tier = data[108];
+        let flags = data[109];
 
         Ok(IdentityEntry {
             did,
             public_key,
             status,
+            account_offset,
+            social_offset,
+            recovery_threshold,
+            total_shares,
+            tier,
+            flags,
         })
     }
 

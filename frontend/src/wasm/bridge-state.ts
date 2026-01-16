@@ -175,6 +175,14 @@ export function readU64AsNumber(byteOffset: number): number {
   return Number(_dataView.getBigUint64(_offset + byteOffset, true));
 }
 
+/**
+ * Read a 64-bit signed integer as a Number (loses precision for large values)
+ */
+export function readI64AsNumber(byteOffset: number): number {
+  if (!_dataView) return 0;
+  return Number(_dataView.getBigInt64(_offset + byteOffset, true));
+}
+
 // =============================================================================
 // ATOMIC OPERATIONS (Zero-Allocation)
 // =============================================================================
@@ -244,6 +252,7 @@ export const INOSBridge = {
   readF32,
   readU64,
   readU64AsNumber,
+  readI64AsNumber,
   atomicLoad,
   /**
    * Observe an epoch change (polling-friendly version of atomicLoad)

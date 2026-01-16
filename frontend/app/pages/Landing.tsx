@@ -12,10 +12,11 @@ import { useState, useEffect } from 'react';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
-import { IDX_BIRD_EPOCH } from '../../src/wasm/layout';
+import { IDX_BIRD_EPOCH, IDX_METRICS_EPOCH } from '../../src/wasm/layout';
 import { INOSBridge } from '../../src/wasm/bridge-state';
 
 import RollingCounter from '../ui/RollingCounter';
+import NumberFormatter from '../ui/NumberFormatter';
 import DimostrazioneStory from '../features/dimostrazione/DimostrazioneStory';
 
 const Style = {
@@ -38,7 +39,7 @@ const Style = {
 
   LiveStatsGrid: styled.div`
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: ${p => p.theme.spacing[4]};
     margin: ${p => p.theme.spacing[8]} 0;
     padding: ${p => p.theme.spacing[6]};
@@ -238,6 +239,10 @@ const STAGGER_CHILD_VARIANTS = {
   animate: { opacity: 1, x: 0 },
 };
 
+const OPS_PER_ENTITY = 2200;
+const ENTITY_COUNT = 1000;
+const EMA_ALPHA = 0.15;
+
 const CHAPTERS = [
   {
     number: '01',
@@ -279,12 +284,14 @@ const CHAPTERS = [
 function useLiveStats() {
   const [stats, setStats] = useState({
     opsPerSecond: 0,
-    birdCount: 1000,
-    epoch: 0,
+    birdCount: ENTITY_COUNT,
+    systemEpoch: 0,
   });
 
   useEffect(() => {
     let lastEpoch = 0;
+    let lastTime = performance.now();
+    let smoothedRate = 0;
 
     const interval = setInterval(() => {
       try {
@@ -292,18 +299,26 @@ function useLiveStats() {
         if (!INOSBridge.isReady()) return;
 
         const epoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
-        const delta = epoch - lastEpoch;
+        const systemEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
+        const now = performance.now();
+        const delta = Math.max(0, epoch - lastEpoch);
+        const deltaTime = Math.max(0.001, (now - lastTime) / 1000);
         lastEpoch = epoch;
+        lastTime = now;
+
+        const instantRate = delta / deltaTime;
+        smoothedRate = smoothedRate ? smoothedRate * (1 - EMA_ALPHA) + instantRate * EMA_ALPHA : instantRate;
+        const opsPerSecond = smoothedRate * ENTITY_COUNT * OPS_PER_ENTITY;
 
         setStats(prev => ({
           ...prev,
-          opsPerSecond: delta * 10 * 10,
-          epoch,
+          opsPerSecond,
+          systemEpoch,
         }));
       } catch {
         // SAB not ready
       }
-    }, 100);
+    }, 500);
 
     return () => clearInterval(interval);
   }, []);
@@ -361,18 +376,19 @@ export function Landing() {
             Right now, in your browser,{' '}
             <strong>{stats.birdCount.toLocaleString()} autonomous agents</strong> are performing a
             collective ballet within a <strong>single shared buffer</strong>. Go orchestrates the
-            policy. Rust executes the physics. JavaScript renders the reality. This is a nervous
-            system for a new kind of machine.
+            policy. Rust executes the physics. JavaScript renders the reality. The stability you
+            feel comes from deterministic epochs and zero-copy reads, even when the system runs on
+            a single node. This is a nervous system for a new kind of machine.
           </p>
         </ScrollReveal>
 
         <Style.LiveStatsGrid>
           <Style.StatBox>
-            <Style.MetricLabel>Throughput</Style.MetricLabel>
+            <Style.MetricLabel>Estimated Throughput</Style.MetricLabel>
             <Style.MetricValue>
-              <RollingCounter value={stats.opsPerSecond} />
+              <NumberFormatter value={stats.opsPerSecond} />
             </Style.MetricValue>
-            <Style.MetricUnit>Ops/s</Style.MetricUnit>
+            <Style.MetricUnit>Ops/s (avg 0.5s)</Style.MetricUnit>
           </Style.StatBox>
           <Style.StatBox>
             <Style.MetricLabel>Active Entities</Style.MetricLabel>
@@ -382,13 +398,39 @@ export function Landing() {
             <Style.MetricUnit>Boids</Style.MetricUnit>
           </Style.StatBox>
           <Style.StatBox>
-            <Style.MetricLabel>Sync Epoch</Style.MetricLabel>
+            <Style.MetricLabel>System Epoch</Style.MetricLabel>
             <Style.MetricValue>
-              <RollingCounter value={stats.epoch} />
+              <NumberFormatter value={stats.systemEpoch} decimals={0} />
             </Style.MetricValue>
-            <Style.MetricUnit>Ticks</Style.MetricUnit>
+            <Style.MetricUnit>Signals</Style.MetricUnit>
           </Style.StatBox>
         </Style.LiveStatsGrid>
+
+        <ScrollReveal variant="manuscript">
+          <Style.ContentCard style={{ marginTop: 0 }}>
+            <h3>Metrics, Decoded</h3>
+            <p style={{ color: '#2d2d2d', lineHeight: 1.7 }}>
+              These numbers are captured from the live kernel running in your browser. The
+              readout is smoothed over ~0.5s to show stable cadence rather than raw jitter.
+            </p>
+            <ul style={{ marginTop: '1rem', lineHeight: 1.8, color: '#2d2d2d' }}>
+              <li>
+                <strong>Estimated Ops/s:</strong> derived as{' '}
+                <em>epochs/sec × agents × 2,200 micro-ops</em>. This is a stable, smoothed estimate
+                of kernel work, not a peak benchmark.
+              </li>
+              <li>
+                <strong>Node vs Network:</strong> these figures reflect a single-node run. When the
+                mesh is live, the Diagnostics page surfaces global throughput, latency, and
+                reputation across peers.
+              </li>
+            </ul>
+            <p style={{ marginTop: '1rem', color: '#2d2d2d', lineHeight: 1.7 }}>
+              Summary: a single browser tab can sustain a deterministic, microsecond-precision
+              evolution loop while leaving headroom for rendering and mesh coordination.
+            </p>
+          </Style.ContentCard>
+        </ScrollReveal>
 
         <ScrollReveal variant="manuscript">
           <h3>See It Working</h3>

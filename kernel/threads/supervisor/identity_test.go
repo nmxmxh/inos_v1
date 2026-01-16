@@ -24,8 +24,10 @@ func TestIdentitySupervisor_Basic(t *testing.T) {
 	bridge := supervisor.NewSABBridge(sabPtr, sabSize, sab.OFFSET_INBOX_BASE, sab.OFFSET_OUTBOX_BASE, sab.IDX_SYSTEM_EPOCH)
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
+	credits := supervisor.NewCreditSupervisor(sabPtr, sabSize, sab.OFFSET_ECONOMICS)
+	social := supervisor.NewSocialGraphSupervisor(sabPtr, sabSize, sab.OFFSET_SOCIAL_GRAPH)
 
-	is := units.NewIdentitySupervisor(bridge, patterns, knowledge, sabPtr, sabSize, baseOffset, nil)
+	is := units.NewIdentitySupervisor(bridge, patterns, knowledge, sabPtr, sabSize, baseOffset, credits, social, nil)
 	require.NotNil(t, is)
 
 	// 1. Register DID
@@ -54,8 +56,10 @@ func TestIdentitySupervisor_SystemWallets(t *testing.T) {
 	bridge := supervisor.NewSABBridge(sabPtr, sabSize, sab.OFFSET_INBOX_BASE, sab.OFFSET_OUTBOX_BASE, sab.IDX_SYSTEM_EPOCH)
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
+	credits := supervisor.NewCreditSupervisor(sabPtr, sabSize, sab.OFFSET_ECONOMICS)
+	social := supervisor.NewSocialGraphSupervisor(sabPtr, sabSize, sab.OFFSET_SOCIAL_GRAPH)
 
-	is := units.NewIdentitySupervisor(bridge, patterns, knowledge, sabPtr, sabSize, baseOffset, nil)
+	is := units.NewIdentitySupervisor(bridge, patterns, knowledge, sabPtr, sabSize, baseOffset, credits, social, nil)
 
 	// Register treasury and nmxmxh
 	is.RegisterDID("did:inos:treasury", nil)

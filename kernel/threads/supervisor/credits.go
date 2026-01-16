@@ -6,10 +6,10 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
-	"syscall/js"
 	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
+	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 )
 
 // Economics constants
@@ -19,6 +19,13 @@ const (
 	ECONOMICS_METRICS_SIZE  = 64
 	ECONOMICS_MAX_ACCOUNTS  = 64
 	ECONOMICS_MAX_METRICS   = 64
+)
+
+const (
+	ResourceTierLight     uint8 = 0
+	ResourceTierModerate  uint8 = 1
+	ResourceTierHeavy     uint8 = 2
+	ResourceTierDedicated uint8 = 3
 )
 
 // Economics Offsets within the Economics region
@@ -95,8 +102,23 @@ func (cs *CreditSupervisor) RegisterAccount(id string) (uint32, error) {
 		ReputationScore:   0.5,
 		DeviceCount:       1,
 		UptimeScore:       1.0,
+		Tier:              resolveResourceTier(cs.sabSize),
+		Threshold:         1,
+		TotalShares:       1,
 	}
 	return offset, cs.writeAccount(offset, acc)
+}
+
+// GetOrCreateAccountOffset returns the SAB offset for a DID-backed account.
+func (cs *CreditSupervisor) GetOrCreateAccountOffset(did string) (uint32, error) {
+	if val, ok := cs.accounts.Load(did); ok {
+		return val.(uint32), nil
+	}
+	return cs.RegisterAccount(did)
+}
+
+func (cs *CreditSupervisor) DefaultTier() uint8 {
+	return resolveResourceTier(cs.sabSize)
 }
 
 // OnEpoch settle metrics and update accounts
@@ -411,65 +433,15 @@ func (cs *CreditSupervisor) GetStats() map[string]interface{} {
 	}
 }
 
-// =============================================================================
-// JS EXPORTS - Domain-Owned Economic API
-// =============================================================================
-
-// JSGetBalance returns the balance for a DID (JS export wrapper)
-func (cs *CreditSupervisor) JSGetBalance(this js.Value, args []js.Value) interface{} {
-	did := "did:inos:nmxmxh" // Default
-	if len(args) > 0 && args[0].Type() == js.TypeString {
-		did = args[0].String()
+func resolveResourceTier(sabSize uint32) uint8 {
+	switch {
+	case sabSize >= sab_layout.SAB_SIZE_DEDICATED:
+		return ResourceTierDedicated
+	case sabSize >= sab_layout.SAB_SIZE_HEAVY:
+		return ResourceTierHeavy
+	case sabSize >= sab_layout.SAB_SIZE_MODERATE:
+		return ResourceTierModerate
+	default:
+		return ResourceTierLight
 	}
-
-	balance, err := cs.GetBalance(did)
-	if err != nil {
-		return js.ValueOf(0)
-	}
-	return js.ValueOf(balance)
-}
-
-// JSGetStats returns aggregate economic stats (JS export wrapper)
-func (cs *CreditSupervisor) JSGetStats(this js.Value, args []js.Value) interface{} {
-	return js.ValueOf(cs.GetStats())
-}
-
-// JSGrantBonus grants a bonus to a DID (JS export wrapper)
-func (cs *CreditSupervisor) JSGrantBonus(this js.Value, args []js.Value) interface{} {
-	if len(args) < 2 {
-		return js.ValueOf(false)
-	}
-
-	did := args[0].String()
-	bonus := int64(args[1].Int())
-
-	err := cs.GrantBonus(did, bonus)
-	return js.ValueOf(err == nil)
-}
-
-// JSGetAccountInfo returns the SAB offset for a DID (JS export wrapper)
-func (cs *CreditSupervisor) JSGetAccountInfo(this js.Value, args []js.Value) interface{} {
-	did := "did:inos:nmxmxh" // Default
-	if len(args) > 0 && args[0].Type() == js.TypeString {
-		did = args[0].String()
-	}
-
-	// Try to finding existing account
-	val, ok := cs.accounts.Load(did)
-	if !ok {
-		// Auto-register if not found
-		offset, err := cs.RegisterAccount(did)
-		if err != nil {
-			return js.ValueOf(nil)
-		}
-		return js.ValueOf(map[string]interface{}{
-			"offset": offset,
-			"exists": true,
-		})
-	}
-
-	return js.ValueOf(map[string]interface{}{
-		"offset": val.(uint32),
-		"exists": true,
-	})
 }
