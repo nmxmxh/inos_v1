@@ -7,7 +7,7 @@
 
 import styled, { ThemeProvider } from 'styled-components';
 import { MotionConfig } from 'framer-motion';
-import { useOutlet } from 'react-router-dom';
+import { useOutlet, NavLink } from 'react-router-dom';
 import { theme } from '../styles/theme';
 import { usePrefersReducedMotion } from '../hooks/useReducedMotion';
 import Navigation from './Navigation';
@@ -56,7 +56,7 @@ const Style = {
   `,
 
   // Mobile Title Only
-  MobileTitle: styled.div`
+  MobileTitle: styled(NavLink)`
     display: none;
     font-family: ${p => p.theme.fonts.typewriter};
     font-weight: 700;
@@ -64,6 +64,7 @@ const Style = {
     letter-spacing: 0.15em;
     color: ${p => p.theme.colors.inkDark};
     text-transform: uppercase;
+    text-decoration: none;
 
     @media (max-width: ${p => p.theme.breakpoints.md}) {
       display: block;
@@ -122,7 +123,7 @@ export function Layout() {
             <Style.DesktopNav>
               <Navigation />
             </Style.DesktopNav>
-            <Style.MobileTitle>INOS CODEX</Style.MobileTitle>
+            <Style.MobileTitle to="/">INOS CODEX</Style.MobileTitle>
           </Style.Header>
 
           <Style.Main>

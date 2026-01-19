@@ -169,7 +169,7 @@ function useLocalKernelStats() {
   return stats;
 }
 
-export function MeshMetricsBar() {
+export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
   const metrics = useMeshMetrics();
   const global = useGlobalAnalytics();
   const local = useLocalKernelStats();
@@ -218,6 +218,7 @@ export function MeshMetricsBar() {
       >
         <Link
           to="/diagnostics"
+          onClick={onClick}
           style={{
             display: 'flex',
             alignItems: 'center',

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import styled from 'styled-components';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import { NAV_ITEMS } from './Navigation';
 import MeshMetricsBar from '../features/metrics/MeshMetrics';
 import { useSystemStore } from '../../src/store/system';
@@ -138,7 +138,7 @@ const Wrapper = styled.div`
   pointer-events: none;
   display: flex;
   justify-content: center;
-  z-index: 9999;
+  z-index: 10000; /* Elevated above standard fixed headers */
 `;
 
 const Dock = styled(motion.div)`
@@ -158,7 +158,6 @@ const HeaderRow = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  cursor: pointer;
   flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
@@ -172,6 +171,8 @@ const HeaderLeft = styled.div`
   gap: 14px;
   color: #fff;
   opacity: 0.8;
+  cursor: pointer;
+  height: 100%;
 
   &:hover {
     opacity: 1;
@@ -187,7 +188,7 @@ const MenuLabel = styled.span`
   color: rgba(255, 255, 255, 0.6);
 `;
 
-const MeshButton = styled.div<{ $active: boolean }>`
+const MeshButton = styled(Link)<{ $active: boolean }>`
   display: flex;
   align-items: center;
   gap: 12px;
@@ -196,6 +197,7 @@ const MeshButton = styled.div<{ $active: boolean }>`
   border: 1px solid ${p => (p.$active ? 'rgba(0, 255, 127, 0.3)' : 'rgba(255, 255, 255, 0.1)')};
   box-shadow: ${p => (p.$active ? 'inset 0 0 10px rgba(0, 255, 127, 0.05)' : 'none')};
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
 
   &:active {
     transform: scale(0.97);
@@ -329,15 +331,15 @@ export function MobileDock() {
   return (
     <Wrapper>
       <Dock initial="closed" animate={isOpen ? 'open' : 'closed'} variants={dockVariants}>
-        <HeaderRow onClick={toggle}>
-          <HeaderLeft>
+        <HeaderRow>
+          <HeaderLeft onClick={toggle}>
             <ToggleIcon />
             <MenuLabel>SYSTEM</MenuLabel>
           </HeaderLeft>
 
-          <MeshButton $active={isReady}>
+          <MeshButton to="/diagnostics" onClick={close} $active={isReady}>
             <div className="dot" />
-            <div className="text">{isReady ? 'MESH: ONLINE' : 'MESH: SYNC'}</div>
+            <div className="text">{isReady ? 'ONLINE' : 'SYNC'}</div>
           </MeshButton>
         </HeaderRow>
 
@@ -369,7 +371,7 @@ export function MobileDock() {
               </NavList>
 
               <MetricsContainer>
-                <MeshMetricsBar />
+                <MeshMetricsBar onClick={close} />
               </MetricsContainer>
             </ContentArea>
           )}
