@@ -437,16 +437,13 @@ export function resolveMeshBootstrapConfig(storageKey = 'inos.mesh.identity'): M
       ? { signalingServers, webSocketUrl: signalingServers[0] }
       : undefined;
 
-  // Local fallback for dev/test environments if no signaling provided
-  const isDev = import.meta.env.DEV;
-  const isTest =
-    typeof (window as any).Playwright !== 'undefined' || window.location.hostname === 'localhost';
+  // Applying universal signaling strategy (Local + Global)
 
-  if (!transport && (isDev || isTest)) {
-    console.log('[Mesh] Applying local signaling fallback for dev/test');
+  if (!transport) {
+    console.log('[Mesh] Applying universal signaling strategy (Local + Global)');
     transport = {
-      signalingServers: ['ws://localhost:8787/ws'],
-      webSocketUrl: 'ws://localhost:8787/ws',
+      signalingServers: ['ws://localhost:8787/ws', 'wss://signaling.inos.ai/ws'],
+      webSocketUrl: 'ws://localhost:8787/ws', // Legacy primary
     };
   }
 

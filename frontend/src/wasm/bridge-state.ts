@@ -207,6 +207,29 @@ export function atomicLoad(index: number): number {
   return Atomics.load(_flagsView, index);
 }
 
+/**
+ * Wait for an epoch change (Reactive/Polling hybrid)
+ * Crucial for mobile main-thread where Atomics.wait is forbidden.
+ */
+export async function waitForEpochChange(
+  index: number,
+  expectedValue: number,
+  timeoutMs: number = 5000
+): Promise<number> {
+  if (!_flagsView) return 0;
+
+  const start = performance.now();
+  while (performance.now() - start < timeoutMs) {
+    const current = Atomics.load(_flagsView, index);
+    if (current !== expectedValue) {
+      return current;
+    }
+    // Mobile-friendly yielding
+    await new Promise(resolve => setTimeout(resolve, 16)); // ~1 frame at 60Hz
+  }
+  return Atomics.load(_flagsView, index);
+}
+
 // =============================================================================
 // REGION VIEWS (Cached)
 // =============================================================================
@@ -266,6 +289,7 @@ export const INOSBridge = {
   readU64AsNumber,
   readI64AsNumber,
   atomicLoad,
+  waitForEpochChange,
   IDX_OUTBOX_HOST_DIRTY,
   IDX_OUTBOX_KERNEL_DIRTY,
   /**

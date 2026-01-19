@@ -40,7 +40,7 @@ type WebRTCTransport struct {
 
 	// WebSocket signaling
 	signalingURL    string
-	signaling       SignalingChannel
+	signaling       map[string]SignalingChannel
 	signalingMu     sync.RWMutex
 	signalingStatus atomic.Value // "connected", "connecting", "disconnected"
 
@@ -250,6 +250,7 @@ func NewWebRTCTransport(nodeID string, config TransportConfig, logger *slog.Logg
 		rpcHandlers:     make(map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)),
 		messageQueue:    make(chan QueuedMessage, 1000),
 		shutdown:        make(chan struct{}),
+		signaling:       make(map[string]SignalingChannel),
 		config:          config,
 		logger:          logger.With("component", "transport", "node_id", getShortID(nodeID)),
 		startTime:       time.Now(),
@@ -310,10 +311,16 @@ func (t *WebRTCTransport) Start(ctx context.Context) error {
 
 func (t *WebRTCTransport) ensureSignaling() error {
 	t.signalingMu.RLock()
-	s := t.signaling
+	hasConnected := false
+	for _, s := range t.signaling {
+		if s != nil && s.IsConnected() {
+			hasConnected = true
+			break
+		}
+	}
 	t.signalingMu.RUnlock()
 
-	if s != nil && s.IsConnected() {
+	if hasConnected {
 		return nil
 	}
 	t.logger.Debug("signaling not connected; dialing", "servers", t.signalingServerList())
@@ -355,12 +362,16 @@ func (t *WebRTCTransport) Stop() error {
 	t.logger.Info("stopping transport")
 	close(t.shutdown)
 
-	// Close signaling connection
+	// Close signaling connections
 	t.signalingMu.Lock()
-	if t.signaling != nil {
-		t.signaling.Close()
-		t.signaling = nil
+	for url, s := range t.signaling {
+		if s != nil {
+			t.logger.Debug("closing signaling connection", "server", url)
+			_ = s.Close()
+		}
 	}
+	t.signaling = make(map[string]SignalingChannel)
+	t.signalingStatus.Store("disconnected")
 	t.signalingMu.Unlock()
 
 	// Close all peer connections
@@ -1019,47 +1030,106 @@ func (t *WebRTCTransport) GetStats() map[string]interface{} {
 
 // Started on line 980 in the original file
 func (t *WebRTCTransport) connectSignaling() error {
-	t.signalingMu.Lock()
-	defer t.signalingMu.Unlock()
-
-	if t.signaling != nil && t.signaling.IsConnected() {
-		return nil // Already connected
-	}
-
-	// Try servers in order
-	var lastErr error
 	servers := t.signalingServerList()
 	if len(servers) == 0 {
 		return errors.New("no signaling servers configured")
 	}
+
 	t.logger.Info("dialing signaling servers", "servers", servers)
+
+	// We want to return as soon as ONE server connects to avoid blocking the kernel,
+	// but we also want to eventually connect to ALL configured servers.
+	success := make(chan struct{}, 1)
+	failed := make(chan struct{}, 1)
+	var successCount int32
+	var failCount int32
+	var lastErr error
+	var errMu sync.Mutex
+
 	for _, server := range servers {
-		conn, err := dialSignaling(server)
-		if err != nil {
-			lastErr = err
-			t.logger.Debug("failed to connect to signaling server", "server", server, "error", err)
+		// Check if already connected to this URL to avoid duplicates
+		t.signalingMu.RLock()
+		if _, exists := t.signaling[server]; exists {
+			t.signalingMu.RUnlock()
+			t.logger.Debug("signaling already connected to server", "server", server)
+			atomic.AddInt32(&successCount, 1)
 			continue
 		}
+		t.signalingMu.RUnlock()
 
-		t.signaling = conn
-		t.signalingURL = server
-		t.signalingStatus.Store("connected")
+		go func(url string) {
+			conn, err := dialSignaling(url)
+			if err != nil {
+				errMu.Lock()
+				lastErr = err
+				errMu.Unlock()
+				t.logger.Debug("failed to connect to signaling server", "server", url, "error", err)
 
-		// Start receiving signaling messages
-		go t.receiveSignalingMessages()
+				if atomic.AddInt32(&failCount, 1) == int32(len(servers)) {
+					select {
+					case failed <- struct{}{}:
+					default:
+					}
+				}
+				return
+			}
 
-		t.logger.Info("connected to signaling server", "server", server)
-		go func(s SignalingChannel) {
-			_ = s.Send(map[string]interface{}{
+			t.signalingMu.Lock()
+			// Final check under lock to prevent race duplicate
+			if _, exists := t.signaling[url]; exists {
+				t.signalingMu.Unlock()
+				_ = conn.Close()
+				return
+			}
+			t.signaling[url] = conn
+			t.signalingMu.Unlock()
+			t.signalingStatus.Store("connected")
+
+			t.logger.Info("connected to signaling server", "server", url)
+
+			// Start receiving signaling messages for THIS connection
+			go t.receiveSignalingMessages(conn, url)
+
+			// Announce ourselves to THIS connection
+			_ = conn.Send(map[string]interface{}{
 				"type":      "peer_discovery",
 				"peer_id":   t.nodeID,
 				"timestamp": time.Now().UnixNano(),
 			})
-		}(conn)
+
+			// Signal success on the FIRST connection only
+			if atomic.AddInt32(&successCount, 1) == 1 {
+				select {
+				case success <- struct{}{}:
+				default:
+				}
+			}
+		}(server)
+	}
+
+	// Wait for first success or total failure
+	// We give it a generous timeout, but success returns immediately.
+	if atomic.LoadInt32(&successCount) > 0 {
 		return nil
 	}
 
-	return fmt.Errorf("failed to connect to any signaling server: %w", lastErr)
+	select {
+	case <-success:
+		return nil
+	case <-failed:
+		return fmt.Errorf("failed to connect to any signaling server: %w", lastErr)
+	case <-time.After(t.config.ConnectionTimeout):
+		// If we timed out, check if at least one succeeded in the meantime
+		if atomic.LoadInt32(&successCount) > 0 {
+			return nil
+		}
+		errMu.Lock()
+		defer errMu.Unlock()
+		if lastErr != nil {
+			return fmt.Errorf("signaling connection timed out: %w", lastErr)
+		}
+		return errors.New("signaling connection timed out")
+	}
 }
 
 // reconnectSignaling attempts to reconnect to signaling server
@@ -1080,24 +1150,54 @@ func (t *WebRTCTransport) reconnectSignaling() {
 // sendSignalingMessage sends a message to signaling server
 func (t *WebRTCTransport) sendSignalingMessage(message interface{}) error {
 	t.signalingMu.RLock()
-	s := t.signaling
+	// Copy channels to avoid holding lock during network I/O
+	channels := make([]SignalingChannel, 0, len(t.signaling))
+	for _, s := range t.signaling {
+		channels = append(channels, s)
+	}
 	t.signalingMu.RUnlock()
 
-	if s == nil {
-		t.logger.Warn("signaling channel missing", "servers", t.signalingServerList())
-		return errors.New("not connected to signaling server")
+	if len(channels) == 0 {
+		t.logger.Warn("no active signaling channels", "servers", t.signalingServerList())
+		return errors.New("not connected to any signaling server")
 	}
 
-	return s.Send(message)
+	var firstErr error
+	var sentCount int
+	for _, s := range channels {
+		if s == nil || !s.IsConnected() {
+			continue
+		}
+		if err := s.Send(message); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else {
+			sentCount++
+		}
+	}
+
+	if sentCount == 0 && firstErr != nil {
+		return firstErr
+	}
+	return nil
 }
 
 // receiveSignalingMessages handles incoming signaling messages
-func (t *WebRTCTransport) receiveSignalingMessages() {
+func (t *WebRTCTransport) receiveSignalingMessages(s SignalingChannel, url string) {
 	defer func() {
-		t.signalingStatus.Store("disconnected")
 		t.signalingMu.Lock()
-		t.signaling = nil
+		// Remove this specific channel from the map
+		if current, exists := t.signaling[url]; exists && current == s {
+			delete(t.signaling, url)
+		}
+
+		if len(t.signaling) == 0 {
+			t.signalingStatus.Store("disconnected")
+		}
 		t.signalingMu.Unlock()
+
+		t.logger.Info("signaling channel closed", "server", url)
 
 		// Attempt reconnect
 		go t.reconnectSignaling()
@@ -1108,21 +1208,17 @@ func (t *WebRTCTransport) receiveSignalingMessages() {
 		case <-t.shutdown:
 			return
 		default:
-			t.signalingMu.RLock()
-			s := t.signaling
-			t.signalingMu.RUnlock()
-
-			if s == nil {
+			if !s.IsConnected() {
 				return
 			}
 
 			message, err := s.Receive()
 			if err != nil {
-				t.logger.Error("failed to read signaling message", "error", err)
+				t.logger.Error("failed to read signaling message", "server", url, "error", err)
 				return
 			}
 
-			t.logger.Debug("received signaling data", "len", len(message))
+			t.logger.Debug("received signaling data", "server", url, "len", len(message))
 			t.handleSignalingMessage(message)
 		}
 	}

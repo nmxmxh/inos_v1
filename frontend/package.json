@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node ../integration/signaling/server.js & vite",
     "build": "node ../scripts/fix-capnp-imports.js && vite build",
     "preview": "vite preview",
     "proto": "capnp compile -I../protocols/schemas -o ts:./bridge/generated ../protocols/schemas/**/*.capnp && node ../scripts/fix-capnp-imports.js",

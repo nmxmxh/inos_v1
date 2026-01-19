@@ -272,7 +272,7 @@ frontend-install:
 frontend-dev: kernel-dev
 	@echo "🎨 Starting frontend dev server..."
 	@echo "⚠️  Note: Vite must be configured with COOP/COEP headers for SharedArrayBuffer"
-	@cd frontend && npm run dev
+	@node integration/signaling/server.js & cd frontend && npm run dev
 
 frontend-build:
 	@echo "🎨 Building frontend for production..."

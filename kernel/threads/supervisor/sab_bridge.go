@@ -473,37 +473,10 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 		return 1
 	}
 
-	// ALWAYS use reactive notification if enabled or if in worker.
-	// This eliminates polling for Safari main-thread path.
-	if sb.isWorker || atomic.LoadUint32(&sb.epochWatcherEnabled) == 1 {
+	// In Go/WASM, Atomics.wait is a HARD BLOCK on the entire Go runtime.
+	// We MUST use reactive notification or polling to allow goroutines to yield.
+	if atomic.LoadUint32(&sb.epochWatcherEnabled) == 1 {
 		return sb.waitForEpochNotification(epochIndex, expectedValue, timeoutMs)
-	}
-
-	// Browser Main Thread Fallback (should be rarely hit with notifyEpochChange)
-	// We check if jsAtomics is available as a last resort
-	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
-		// Ensure cached result values are initialized
-		initJsResultValues()
-
-		// GC Pressure Relief: Aggressive yielding
-		count := atomic.AddUint64(&sb.waitCallCount, 1)
-		if count%20 == 0 {
-			runtime.Gosched()
-		}
-		if count%200 == 0 {
-			runtime.GC()
-		}
-
-		// Call Atomics.wait
-		result := sb.jsAtomics.Call("wait", sb.jsInt32View, sb.atomicIndex(epochIndex), expectedValue, timeoutMs)
-
-		if result.Equal(jsOkValue) {
-			return 1
-		}
-		if result.Equal(jsNotEqualValue) {
-			return 1
-		}
-		return 2 // Timed out
 	}
 
 	return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)

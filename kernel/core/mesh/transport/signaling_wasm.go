@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"syscall/js"
+	"time"
 )
 
 type wasmSignalingChannel struct {
@@ -53,6 +54,9 @@ func dialSignaling(url string) (SignalingChannel, error) {
 		return ch, nil
 	case <-ch.closed:
 		return nil, errors.New("websocket closed before opening")
+	case <-time.After(10 * time.Second):
+		ws.Call("close")
+		return nil, errors.New("timeout dialing signaling server: " + url)
 	}
 }
 
