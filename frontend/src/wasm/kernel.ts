@@ -559,6 +559,16 @@ async function initializeKernelOnMainThread(
     initializeBridge(buffer, sabOffset, sabSize, memory);
     (window as any).INOSBridge = INOSBridge;
     startEpochLogger('main', sabOffset);
+
+    // FIX: Inject SAB to start supervisors (Grounding)
+    // This is required to signal 'sabReady' in the Go kernel
+    console.log('[Kernel] ⚡ Grounding SAB to Go kernel...');
+    const injectResult = (window as any).initializeSharedMemory(sabOffset, sabSize);
+    if (injectResult?.error) {
+      console.error('[Kernel] ❌ SAB Grounding failed:', injectResult.error);
+    } else {
+      console.log('[Kernel] ✨ SAB Grounded successfully');
+    }
   }
 
   console.log(`[Kernel] ✅ Main thread kernel initialized (shared: ${isShared})`);

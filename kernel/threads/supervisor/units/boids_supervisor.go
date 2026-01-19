@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+	kruntime "github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
@@ -50,6 +51,7 @@ type SABInterface interface {
 	WriteRaw(offset uint32, data []byte) error
 	SignalInbox()
 	IsReady() bool // Check if SAB is initialized
+	GetFrameLatency() time.Duration
 }
 
 // BoidsSupervisor manages distributed learning for bird simulation
@@ -58,6 +60,7 @@ type BoidsSupervisor struct {
 	*supervisor.UnifiedSupervisor
 	bridge          supervisor.SABInterface
 	metricsProvider MetricsProvider // For reporting latent compute stats
+	role            kruntime.RoleConfig
 
 	// Learning configuration
 	mu             sync.RWMutex
@@ -84,13 +87,14 @@ type BoidsSupervisor struct {
 }
 
 // NewBoidsSupervisor creates a supervisor for learning birds
-func NewBoidsSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string, metricsProvider MetricsProvider, delegator foundation.MeshDelegator) *BoidsSupervisor {
+func NewBoidsSupervisor(bridge supervisor.SABInterface, role kruntime.RoleConfig, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string, metricsProvider MetricsProvider, delegator foundation.MeshDelegator) *BoidsSupervisor {
 	if capabilities == nil {
 		capabilities = []string{"boids.physics", "boids.evolution"}
 	}
 	s := &BoidsSupervisor{
 		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("boids", capabilities, patterns, knowledge, delegator, bridge, nil),
 		bridge:            bridge,
+		role:              role,
 		metricsProvider:   metricsProvider,
 		birdCount:         1000, // Default
 		tournamentSize:    3,
@@ -121,26 +125,6 @@ func (s *BoidsSupervisor) Start(ctx context.Context) error {
 	s.learningLoop(ctx)
 
 	return nil
-}
-
-func (s *BoidsSupervisor) logEpochs(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			birdEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
-			evoEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
-			systemEpoch := s.bridge.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
-			s.Logger.Info("Boids epoch snapshot",
-				utils.Int("bird_epoch", int(birdEpoch)),
-				utils.Int("evolution_epoch", int(evoEpoch)),
-				utils.Int("system_epoch", int(systemEpoch)))
-		}
-	}
 }
 
 // autoDetectBirdCount reads the bird count from SAB atomic flags (Zero-Latency)
@@ -188,6 +172,7 @@ func (s *BoidsSupervisor) learningLoop(ctx context.Context) {
 			}
 
 			if framesSinceEvolution >= evolutionFrameThreshold && s.birdCount > 0 && s.bridge.IsReady() {
+				s.adjustLOD() // Adaptive Scaling
 				s.checkEvolution()
 				lastEvolutionEpoch = currentEpoch
 			}
@@ -782,6 +767,48 @@ func (s *BoidsSupervisor) WritePopulation(population []BirdGenes) error {
 	}
 
 	return nil
+}
+
+// adjustLOD dynamically scales the simulation based on measured frame latency
+func (s *BoidsSupervisor) adjustLOD() {
+	latency := s.bridge.GetFrameLatency()
+	if latency == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Thresholds: 18ms ≈ 55fps, 25ms ≈ 40fps
+	const criticalLatency = 25 * time.Millisecond
+	const targetLatency = 18 * time.Millisecond
+
+	if latency > criticalLatency {
+		// Throttling detected (Efficiency cores / Battery / High Load)
+		// Aggressively drop bird count by 20%
+		newCount := int(float64(s.birdCount) * 0.8)
+		if newCount < 100 {
+			newCount = 100
+		}
+		if newCount != s.birdCount {
+			s.birdCount = newCount
+			s.Logger.Warn("LOD: Critical latency detected, dropping bird count",
+				utils.Duration("latency", latency),
+				utils.Int("new_count", s.birdCount))
+		}
+	} else if latency < targetLatency && s.birdCount < s.role.RecommendedBoids {
+		// Plenty of headroom, slowly scale up towards recommended LOD
+		newCount := int(float64(s.birdCount) * 1.1)
+		if newCount > s.role.RecommendedBoids {
+			newCount = s.role.RecommendedBoids
+		}
+		if newCount != s.birdCount {
+			s.birdCount = newCount
+			s.Logger.Info("LOD: Headroom detected, scaling up bird count",
+				utils.Duration("latency", latency),
+				utils.Int("new_count", s.birdCount))
+		}
+	}
 }
 
 // SignalEpoch increments the epoch flag to trigger frontend reactivity

@@ -827,13 +827,13 @@ function GamificationTiersDiagram() {
 export function Economy() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Credits &amp; Economy</Style.PageTitle>
+      <Style.SectionTitle>Chapter 06 // Economic Mesh Ledger</Style.SectionTitle>
+      <Style.PageTitle>Storage That Pays for Itself</Style.PageTitle>
 
       <Style.LeadParagraph>
-        How do you build an economy without banks, without employers, without borders? INOS answers
-        with a <strong>participation-first economy</strong>—where simply being present earns you
-        income, and productive work multiplies your rewards.
+        The body stores energy efficiently and retrieves it when needed, paying with ATP. INOS
+        Credits are the ATP of the mesh: a <strong>participation-first economy</strong> where simply
+        being present earns you income, and productive work multiplies your rewards.
       </Style.LeadParagraph>
 
       <Style.DefinitionBox>
@@ -1212,7 +1212,7 @@ func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
       </Style.ContentCard>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/mesh', title: 'P2P Mesh' }}
+        prev={{ to: '/deep-dives/mesh', title: 'Distributed P2P Mesh' }}
         next={{ to: '/deep-dives/threads', title: 'Supervisor Threads' }}
       />
     </Style.BlogContainer>

@@ -358,6 +358,9 @@ self.onmessage = async (event: MessageEvent<any>) => {
         if (!_dispatcher) throw new Error('Dispatcher not initialized');
         const { library, method, params } = event.data;
         const result = _dispatcher.execute(library, method, params || {});
+        if (method === 'step_physics' && (self as any).__INOS_DEBUG_COMPUTE__) {
+          console.log(`[ComputeWorker] ✅ ${method} finished (id: ${id})`);
+        }
         self.postMessage({ type: 'result', id, result });
         break;
       }

@@ -5,6 +5,7 @@ package threads
 import (
 	"unsafe"
 
+	kruntime "github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
@@ -24,11 +25,12 @@ type UnitLoader struct {
 	identity        *units.IdentitySupervisor
 	metricsProvider units.MetricsProvider
 	delegator       foundation.MeshDelegator
+	role            kruntime.RoleConfig
 	sabSize         uint32
 }
 
 // NewUnitLoader creates a new unit loader
-func NewUnitLoader(replica []byte, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, identity *units.IdentitySupervisor, metricsProvider units.MetricsProvider, delegator foundation.MeshDelegator) *UnitLoader {
+func NewUnitLoader(replica []byte, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, identity *units.IdentitySupervisor, metricsProvider units.MetricsProvider, role kruntime.RoleConfig, delegator foundation.MeshDelegator) *UnitLoader {
 	return &UnitLoader{
 		replica:         replica,
 		sabSize:         uint32(len(replica)),
@@ -38,6 +40,7 @@ func NewUnitLoader(replica []byte, patterns *pattern.TieredPatternStorage, knowl
 		credits:         credits,
 		identity:        identity,
 		metricsProvider: metricsProvider,
+		role:            role,
 		delegator:       delegator,
 	}
 }
@@ -67,7 +70,7 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 	// 'boids' is registered as a CAPABILITY of 'compute', not as a module ID
 	// So the switch case above never matches - we must create it explicitly
 	if _, exists := loaded["boids_supervisor"]; !exists {
-		loaded["boids_supervisor"] = units.NewBoidsSupervisor(bridge, ul.patterns, ul.knowledge, nil, ul.metricsProvider, ul.delegator)
+		loaded["boids_supervisor"] = units.NewBoidsSupervisor(bridge, ul.role, ul.patterns, ul.knowledge, nil, ul.metricsProvider, ul.delegator)
 	}
 
 	// 4. EXPLICIT: Create AnalyticsSupervisor
@@ -117,7 +120,7 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 	case "data":
 		return units.NewDataSupervisor(bridge, ul.patterns, ul.knowledge, capabilities, ul.delegator)
 	case "boids":
-		return units.NewBoidsSupervisor(bridge, ul.patterns, ul.knowledge, capabilities, ul.metricsProvider, ul.delegator)
+		return units.NewBoidsSupervisor(bridge, ul.role, ul.patterns, ul.knowledge, capabilities, ul.metricsProvider, ul.delegator)
 	case "driver":
 		return units.NewDriverSupervisor(bridge, ul.credits, ul.patterns, ul.knowledge, capabilities, ul.delegator)
 	case "identity":

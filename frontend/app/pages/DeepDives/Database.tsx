@@ -936,12 +936,12 @@ function TieredConvergenceMap() {
 export function Database() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>The Persistence Paradox</Style.PageTitle>
+      <Style.SectionTitle>Chapter 09 // Persistence Paradox</Style.SectionTitle>
+      <Style.PageTitle>Cellular Memory: Tiered Convergence</Style.PageTitle>
       <Style.LeadParagraph>
-        Data is heavy, slow, and expensive to move. Yet, in the modern browser, we ask it to be
-        instant, immutable, and globally available. This is the paradox INOS solves through tiered
-        convergence.
+        Human memory is layered: the immediate flash of awareness, the short-term working space, and
+        the deep, stable storage of the cell. INOS solves the <strong>Persistence Paradox</strong>
+        through a tiered biological model, ensuring data is instant, immutable, and permanent.
       </Style.LeadParagraph>
 
       <Style.SectionDivider />

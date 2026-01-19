@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"time"
 	"unsafe"
 
+	kruntime "github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
@@ -111,6 +113,10 @@ func (m *MockSABBridge) ReadResult() (*foundation.Result, error) {
 	return nil, nil
 }
 
+func (m *MockSABBridge) GetFrameLatency() time.Duration {
+	return 0
+}
+
 func TestNewBoidsSupervisor(t *testing.T) {
 	bridge := NewMockSABBridge()
 	// Create dummy SAB for patterns/knowledge
@@ -120,7 +126,7 @@ func TestNewBoidsSupervisor(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	if supervisor == nil {
 		t.Fatal("Expected supervisor to be created")
@@ -139,7 +145,7 @@ func TestSetBirdCount(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	// Test normal count
 	supervisor.SetBirdCount(12)
@@ -162,7 +168,7 @@ func TestSetMeshNodes(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	supervisor.SetMeshNodes(0)
 	if supervisor.meshNodesActive != 0 {
@@ -183,7 +189,7 @@ func TestTournamentSelect(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	population := []BirdGenes{
 		{Fitness: 10.0, BirdID: 0},
@@ -213,7 +219,7 @@ func TestCrossover(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	parent1 := BirdGenes{}
 	parent2 := BirdGenes{}
@@ -251,7 +257,7 @@ func TestMutate(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	original := BirdGenes{}
 	for i := 0; i < 44; i++ {
@@ -314,7 +320,7 @@ func TestSignalEpoch(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	// Mock initial epoch
 	epochOffset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + sab_layout.IDX_EVOLUTION_EPOCH*4)
@@ -343,7 +349,7 @@ func TestMeshLearningBoost(t *testing.T) {
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 
-	supervisor := NewBoidsSupervisor(bridge, patterns, knowledge, nil, nil, &MockMeshDelegator{})
+	supervisor := NewBoidsSupervisor(bridge, kruntime.RoleConfig{}, patterns, knowledge, nil, nil, &MockMeshDelegator{})
 
 	original := BirdGenes{}
 	for i := 0; i < 44; i++ {

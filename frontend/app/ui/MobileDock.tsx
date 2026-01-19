@@ -108,29 +108,31 @@ const getIconForRoute = (route: string) => {
 
 const dockVariants: Variants = {
   closed: {
-    width: 280, // Wider closed state
-    height: 64, // Taller header
-    borderRadius: 32,
-    transition: { type: 'spring', stiffness: 250, damping: 25 },
+    width: '100%',
+    height: 60,
+    y: 0,
+    borderRadius: 0,
+    transition: { type: 'spring', stiffness: 300, damping: 30 },
   },
   open: {
-    width: 'min(92vw, 380px)',
+    width: '100%',
     height: 'auto',
-    borderRadius: 24,
-    transition: { type: 'spring', stiffness: 250, damping: 25 },
+    y: 0,
+    borderRadius: 0,
+    transition: { type: 'spring', stiffness: 300, damping: 30 },
   },
 };
 
 const contentVariants: Variants = {
-  closed: { opacity: 0, height: 0, transition: { duration: 0.1 } },
-  open: { opacity: 1, height: 'auto', transition: { delay: 0.15, duration: 0.3 } },
+  closed: { opacity: 0, scaleY: 0.9, originY: 1, transition: { duration: 0.15 } },
+  open: { opacity: 1, scaleY: 1, originY: 1, transition: { delay: 0.1, duration: 0.25 } },
 };
 
 // ========== STYLES ==========
 
 const Wrapper = styled.div`
   position: fixed;
-  bottom: 32px; /* Slightly higher up */
+  bottom: 0;
   left: 0;
   width: 100%;
   pointer-events: none;
@@ -141,74 +143,86 @@ const Wrapper = styled.div`
 
 const Dock = styled(motion.div)`
   pointer-events: auto;
-  background: rgba(15, 15, 15, 0.92);
-  backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 100%;
+  background: #0a0a0a;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   display: flex;
   flex-direction: column;
 `;
 
 const HeaderRow = styled.div`
-  height: 64px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 20px;
   cursor: pointer;
   flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
-  min-width: 280px;
+  background: rgba(0, 0, 0, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 `;
 
 const HeaderLeft = styled.div`
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   color: #fff;
+  opacity: 0.8;
+
+  &:hover {
+    opacity: 1;
+  }
 `;
 
 const MenuLabel = styled.span`
   font-family: ${p => p.theme.fonts.typewriter};
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
 `;
 
-const StatusBadge = styled.div<{ $active: boolean }>`
+const MeshButton = styled.div<{ $active: boolean }>`
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 6px 10px;
-  border-radius: 99px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  gap: 12px;
+  background: ${p => (p.$active ? 'rgba(0, 255, 127, 0.08)' : 'rgba(255, 255, 255, 0.03)')};
+  padding: 8px 14px;
+  border: 1px solid ${p => (p.$active ? 'rgba(0, 255, 127, 0.3)' : 'rgba(255, 255, 255, 0.1)')};
+  box-shadow: ${p => (p.$active ? 'inset 0 0 10px rgba(0, 255, 127, 0.05)' : 'none')};
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  &:active {
+    transform: scale(0.97);
+    background: rgba(0, 255, 127, 0.15);
+  }
 
   .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: ${p => (p.$active ? '#10b981' : '#666')};
-    box-shadow: ${p => (p.$active ? '0 0 8px #10b981' : 'none')};
+    width: 4px;
+    height: 4px;
+    background: ${p => (p.$active ? '#00ff7f' : '#333')};
+    box-shadow: ${p => (p.$active ? '0 0 8px #00ff7f' : 'none')};
   }
 
   .text {
     font-family: ${p => p.theme.fonts.typewriter};
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.7);
-    letter-spacing: 0.05em;
-    font-weight: 600;
+    color: ${p => (p.$active ? '#00ff7f' : 'rgba(255, 255, 255, 0.4)')};
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    text-transform: uppercase;
   }
 `;
 
 const ContentArea = styled(motion.div)`
-  padding: 8px 16px 24px 16px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
   width: 100%;
   box-sizing: border-box;
 `;
@@ -216,68 +230,82 @@ const ContentArea = styled(motion.div)`
 const NavList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 0;
+  background: #050505;
 `;
 
 const NavItem = styled(NavLink)`
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 20px;
-  color: rgba(255, 255, 255, 0.5);
+  justify-content: space-between;
+  padding: 18px 24px;
+  color: rgba(255, 255, 255, 0.4);
   text-decoration: none;
-  transition: all 0.2s;
-  border-radius: 12px;
-  background: transparent;
+  transition: all 0.15s;
+  border-left: 2px solid transparent;
+
+  .item-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
 
   .icon-box {
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.7;
-    transition: opacity 0.2s;
+    opacity: 0.5;
   }
 
   .label {
     font-family: ${p => p.theme.fonts.typewriter};
-    font-size: 14px;
+    font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-weight: 500;
+    letter-spacing: 0.15em;
+    font-weight: 600;
+  }
+
+  .ref {
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 9px;
+    opacity: 0.2;
+    letter-spacing: 0.05em;
   }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.05);
     color: white;
+    background: rgba(255, 255, 255, 0.02);
     .icon-box {
       opacity: 1;
+    }
+    .ref {
+      opacity: 0.4;
     }
   }
 
   &.active {
-    color: white;
-    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    background: rgba(0, 255, 127, 0.03);
+    border-left: 2px solid #00ff7f;
     .label {
-      font-weight: 700;
+      font-weight: 800;
+      color: #fff;
     }
     .icon-box {
       opacity: 1;
-      color: ${p => p.theme.colors.accent || '#fff'};
+      color: #00ff7f;
     }
   }
 `;
 
 const MetricsContainer = styled.div`
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding-top: 20px;
-  padding-left: 8px;
-  padding-right: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: #000;
+  padding: 24px 20px;
 
-  /* Metrics styling overrides for dark menu */
+  /* Metrics styling overrides */
   * {
-    color: rgba(255, 255, 255, 0.8) !important;
+    color: rgba(255, 255, 255, 0.6) !important;
   }
 `;
 
@@ -288,7 +316,12 @@ export function MobileDock() {
   const status = useSystemStore(s => s.status);
   const isReady = status === 'ready';
 
-  const toggle = () => setIsOpen(p => !p);
+  const toggle = () => {
+    // If clicking the MeshButton specifically, we might want different behavior?
+    // For now, toggle menu.
+    setIsOpen(p => !p);
+  };
+
   const close = () => setIsOpen(false);
 
   const ToggleIcon = isOpen ? Icons.Close : Icons.Menu;
@@ -299,13 +332,13 @@ export function MobileDock() {
         <HeaderRow onClick={toggle}>
           <HeaderLeft>
             <ToggleIcon />
-            <MenuLabel>MENU</MenuLabel>
+            <MenuLabel>SYSTEM</MenuLabel>
           </HeaderLeft>
 
-          <StatusBadge $active={isReady}>
+          <MeshButton $active={isReady}>
             <div className="dot" />
-            <div className="text">{isReady ? 'ONLINE' : 'SYNCING'}</div>
-          </StatusBadge>
+            <div className="text">{isReady ? 'MESH: ONLINE' : 'MESH: SYNC'}</div>
+          </MeshButton>
         </HeaderRow>
 
         <AnimatePresence>
@@ -318,14 +351,18 @@ export function MobileDock() {
               variants={contentVariants}
             >
               <NavList>
-                {NAV_ITEMS.map(item => {
+                {NAV_ITEMS.map((item, idx) => {
                   const Icon = getIconForRoute(item.to);
+                  const refId = `0X${(idx + 1).toString(16).toUpperCase().padStart(2, '0')}`;
                   return (
                     <NavItem key={item.to} to={item.to} onClick={close}>
-                      <span className="icon-box">
-                        <Icon />
-                      </span>
-                      <span className="label">{item.label}</span>
+                      <div className="item-left">
+                        <span className="icon-box">
+                          <Icon />
+                        </span>
+                        <span className="label">{item.label}</span>
+                      </div>
+                      <span className="ref">{refId}</span>
                     </NavItem>
                   );
                 })}

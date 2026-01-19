@@ -199,6 +199,20 @@ body {
   z-index: 10;
 }
 
+@media (max-width: 768px) {
+  .blog-container {
+    padding: 4rem 1.5rem;
+  }
+  .blog-metric-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1.5rem !important;
+    padding: 1.5rem !important;
+  }
+  .blog-metric-value {
+    font-size: 2rem !important;
+  }
+}
+
 .blog-header {
   margin-bottom: 6rem;
   text-align: center;

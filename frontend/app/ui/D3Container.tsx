@@ -71,8 +71,6 @@ const D3Container = memo(
       const observer = new ResizeObserver(entries => {
         for (const entry of entries) {
           const { width, height } = entry.contentRect;
-          // Debounce or simple state update? React state updates are batched anyway.
-          // However, avoiding 0-size updates is good.
           if (width > 0 && height > 0) {
             setDimensions({ width, height });
           }

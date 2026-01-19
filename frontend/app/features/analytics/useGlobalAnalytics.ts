@@ -38,8 +38,8 @@ export function useGlobalAnalytics() {
         if (!view) return;
 
         const totalStorageBytes = view.getBigUint64(0, true);
-        const totalComputeGFLOPS = Number(view.getBigUint64(8, true));
-        const globalOpsPerSec = Number(view.getBigUint64(16, true));
+        const totalComputeGFLOPS = view.getFloat64(8, true);
+        const globalOpsPerSec = view.getFloat64(16, true);
         const activeNodeCount = view.getUint32(24, true);
 
         setData({

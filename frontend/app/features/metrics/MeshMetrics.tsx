@@ -112,6 +112,10 @@ const Style = {
       display: none;
     }
   `,
+
+  HiddenMetric: styled.div`
+    display: none;
+  `,
 };
 
 import RollingCounter from '../../ui/RollingCounter';
@@ -233,13 +237,13 @@ export function MeshMetricsBar() {
 
       <Style.Divider />
 
-      <Style.Metric
+      <Style.HiddenMetric
         data-testid="metric-node-ops"
         title="Local Throughput — Estimated kernel operations per second on this node (epoch rate × agents × micro-ops)"
       >
         <Style.Label>Node Ops/s</Style.Label>
         <NumberFormatter value={local.opsPerSecond} />
-      </Style.Metric>
+      </Style.HiddenMetric>
 
       <Style.Metric
         data-testid="metric-ops"
@@ -249,21 +253,21 @@ export function MeshMetricsBar() {
         <NumberFormatter value={opsPerSecond} />
       </Style.Metric>
 
-      <Style.Metric
+      <Style.HiddenMetric
         data-testid="metric-cap"
         title="Total Compute Power — Combined compute capacity across active nodes"
       >
         <Style.Label>Cap</Style.Label>
         <NumberFormatter value={totalComputeGFLOPS} suffix="G" />
-      </Style.Metric>
+      </Style.HiddenMetric>
 
-      <Style.Metric
+      <Style.HiddenMetric
         data-testid="metric-avg"
         title="Average Capability — Mean compute capacity per active node"
       >
         <Style.Label>Avg</Style.Label>
         <NumberFormatter value={avgCapability} suffix="G" />
-      </Style.Metric>
+      </Style.HiddenMetric>
 
       <Style.Metric
         data-testid="metric-nodes"
@@ -273,19 +277,25 @@ export function MeshMetricsBar() {
         <NumberFormatter value={activeNodes} decimals={0} />
       </Style.Metric>
 
-      <Style.Metric data-testid="metric-sector" title="Sector ID — Your current mesh partition">
+      <Style.HiddenMetric
+        data-testid="metric-sector"
+        title="Sector ID — Your current mesh partition"
+      >
         <Style.Label>Sector</Style.Label>
         <NumberFormatter value={sectorId} decimals={0} />
-      </Style.Metric>
+      </Style.HiddenMetric>
 
-      <Style.Metric data-testid="metric-rep" title="Global Trust — Aggregate reliability score">
+      <Style.HiddenMetric
+        data-testid="metric-rep"
+        title="Global Trust — Aggregate reliability score"
+      >
         <Style.Label>Trust</Style.Label>
         <Style.Value>
           <RollingCounter value={avgReputation} decimals={2} />
         </Style.Value>
-      </Style.Metric>
+      </Style.HiddenMetric>
 
-      <Style.Metric
+      <Style.HiddenMetric
         data-testid="metric-lat"
         title="Network Latency — Circular trip time for data packets. Lower is better (0-100ms is excellent)"
       >
@@ -293,7 +303,7 @@ export function MeshMetricsBar() {
         <Style.Value>
           <RollingCounter value={Math.floor(displayMetrics.p50Latency || 0)} suffix="ms" />
         </Style.Value>
-      </Style.Metric>
+      </Style.HiddenMetric>
     </Style.MetricsBar>
   );
 }

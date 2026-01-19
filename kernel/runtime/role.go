@@ -9,11 +9,13 @@ import (
 
 // RoleConfig defines the mesh behavior for a specific role
 type RoleConfig struct {
-	Role          system.Runtime_RuntimeRole
-	GossipFanout  int           // Number of peers to gossip to
-	BatchInterval time.Duration // Interval for batching mutations
-	CanRelay      bool          // Can act as a relay for others
-	MaxPeers      int           // Maximum peer connections
+	Role             system.Runtime_RuntimeRole
+	GossipFanout     int           // Number of peers to gossip to
+	BatchInterval    time.Duration // Interval for batching mutations
+	CanRelay         bool          // Can act as a relay for others
+	MaxPeers         int           // Maximum peer connections
+	RecommendedBoids int           // LOD: Target number of boids for this role
+	PhysicsPrecision int           // LOD: 0=High, 1=Medium, 2=Low
 }
 
 // AssignRole determines the role based on capabilities
@@ -34,31 +36,37 @@ func AssignRole(caps RuntimeCapabilities) RoleConfig {
 		// Fast atomics + good compute = Synapse (Firefox / Native)
 		role = system.Runtime_RuntimeRole_synapse
 		config = RoleConfig{
-			Role:          role,
-			GossipFanout:  6,
-			BatchInterval: 10 * time.Millisecond,
-			CanRelay:      true,
-			MaxPeers:      50,
+			Role:             role,
+			GossipFanout:     6,
+			BatchInterval:    10 * time.Millisecond,
+			CanRelay:         true,
+			MaxPeers:         50,
+			RecommendedBoids: 5000,
+			PhysicsPrecision: 0,
 		}
 	} else if caps.ComputeScore > ComputeThreshold {
 		// Good compute, but slower atomics = Neuron (Chromium / V8)
 		role = system.Runtime_RuntimeRole_neuron
 		config = RoleConfig{
-			Role:          role,
-			GossipFanout:  3,
-			BatchInterval: 50 * time.Millisecond, // Batch more to hide overhead
-			CanRelay:      false,
-			MaxPeers:      20,
+			Role:             role,
+			GossipFanout:     3,
+			BatchInterval:    50 * time.Millisecond, // Batch more to hide overhead
+			CanRelay:         false,
+			MaxPeers:         20,
+			RecommendedBoids: 2000,
+			PhysicsPrecision: 1,
 		}
 	} else {
 		// Low compute = Sentry (Safari / Mobile)
 		role = system.Runtime_RuntimeRole_sentry
 		config = RoleConfig{
-			Role:          role,
-			GossipFanout:  2,
-			BatchInterval: 100 * time.Millisecond,
-			CanRelay:      false,
-			MaxPeers:      10,
+			Role:             role,
+			GossipFanout:     2,
+			BatchInterval:    100 * time.Millisecond,
+			CanRelay:         false,
+			MaxPeers:         10,
+			RecommendedBoids: 800, // Prioritize stability over quantity
+			PhysicsPrecision: 2,
 		}
 	}
 

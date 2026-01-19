@@ -878,14 +878,15 @@ function JobExecutionFlowDiagram() {
 export function Threads() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Supervisor Threads</Style.PageTitle>
+      <Style.SectionTitle>Chapter 07 // Supervisor Threads</Style.SectionTitle>
+      <Style.PageTitle>Autonomous Intent, Orchestrated</Style.PageTitle>
 
       <Style.LeadParagraph>
-        How do you orchestrate thousands of concurrent operations without race conditions, without
-        deadlocks, without chaos? INOS answers with <strong>intelligent supervisors</strong>—actors
-        that don't just manage threads, they <strong>learn</strong>, <strong>optimize</strong>, and{' '}
-        <strong>heal themselves</strong>.
+        The heart doesn't wait for a command to beat; it acts with autonomous intent. INOS
+        orchestrates thousands of concurrent operations using{' '}
+        <strong>intelligent supervisors</strong>—actors that don't just manage threads, they{' '}
+        <strong>learn</strong>, <strong>optimize</strong>, and
+        <strong>heal themselves</strong> at the speed of an evolutionary heartbeat.
       </Style.LeadParagraph>
 
       <Style.SectionDivider />
@@ -1223,7 +1224,8 @@ func (us *UnifiedSupervisor) processJob(job *foundation.Job) {
               <code>analytics_supervisor.go</code>: aggregationLoop (10 epochs)
             </li>
             <li>
-              <code>boids_supervisor.go</code>: learningLoop (waits on IDX_BIRD_EPOCH, signals IDX_EVOLUTION_EPOCH)
+              <code>boids_supervisor.go</code>: learningLoop (waits on IDX_BIRD_EPOCH, signals
+              IDX_EVOLUTION_EPOCH)
             </li>
           </ul>
         </Style.ContentCard>
@@ -1297,8 +1299,8 @@ func (us *UnifiedSupervisor) exampleLoop() {
       </Style.ContentCard>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/economy', title: 'Credits & Economy' }}
-        next={{ to: '/deep-dives/graphics', title: 'WebGPU Pipeline' }}
+        prev={{ to: '/deep-dives/economy', title: 'Economic Mesh Ledger' }}
+        next={{ to: '/deep-dives/graphics', title: 'Graphics Pipeline' }}
       />
     </Style.BlogContainer>
   );

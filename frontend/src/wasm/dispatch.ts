@@ -1,4 +1,5 @@
 import { getSAB, getMemory, getOffset } from './bridge-state';
+import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from './layout';
 
 // Vite worker import syntax
 import ComputeWorkerUrl from './compute.worker.ts?worker&url';
@@ -280,6 +281,31 @@ export class Dispatcher {
       const outputLen = resultView.getUint32(resultPtr, true);
       const output = new Uint8Array(this.memory!.buffer, resultPtr + 4, outputLen);
       const finalResult = new Uint8Array(output);
+
+      // --- ARCHITECTURE ALIGNMENT: Direct Feedback for Safari Unified Mode ---
+      // If we are on the main thread, notify the Go kernel immediately of the epoch change.
+      // This eliminates the 50ms polling latency.
+      if (typeof (window as any).notifyEpochChange === 'function') {
+        try {
+          // Heuristic: map library/method to epoch index
+          let index = -1;
+          if (library === 'boids') {
+            if (method === 'step_physics') index = IDX_BIRD_EPOCH;
+            else if (method === 'generate_matrices') index = IDX_MATRIX_EPOCH;
+          }
+
+          if (index !== -1) {
+            // Parse result to get the new epoch value if possible (WASM returns JSON { epoch: N })
+            const str = Dispatcher.decoder.decode(finalResult);
+            const json = JSON.parse(str);
+            if (json && typeof json.epoch === 'number') {
+              (window as any).notifyEpochChange(index, json.epoch);
+            }
+          }
+        } catch (e) {
+          // Silent fail for notification - don't break the main loop
+        }
+      }
 
       if (this.exports.compute_free) {
         this.exports.compute_free(resultPtr, 4 + outputLen);

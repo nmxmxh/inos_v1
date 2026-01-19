@@ -219,16 +219,20 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     if (!sab) return;
 
     // 1. ALWAYS dispatch physics and matrix generation (they update SAB and flip epochs)
-    dispatch.execute('boids', 'step_physics', {
-      bird_count: CONFIG.BIRD_COUNT,
-      dt: delta,
-    });
+    dispatch
+      .execute('boids', 'step_physics', {
+        bird_count: CONFIG.BIRD_COUNT,
+        dt: delta,
+      })
+      .catch(err => console.error('[BoidsRenderer] Physics step failed:', err));
 
-    dispatch.execute('math', 'compute_instance_matrices', {
-      count: CONFIG.BIRD_COUNT,
-      source_offset: CONFIG.SAB_OFFSET,
-      pivots: [],
-    });
+    dispatch
+      .execute('math', 'compute_instance_matrices', {
+        count: CONFIG.BIRD_COUNT,
+        source_offset: CONFIG.SAB_OFFSET,
+        pivots: [],
+      })
+      .catch(err => console.error('[BoidsRenderer] Matrix compute failed:', err));
 
     // 2. Check if matrix epoch changed (indicates new data available)
     if (!flagsRef.current || flagsRef.current.buffer !== sab) {

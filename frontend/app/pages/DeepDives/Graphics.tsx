@@ -854,14 +854,14 @@ export default function Graphics() {
 
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Graphics Pipeline</Style.PageTitle>
+      <Style.SectionTitle>Chapter 08 // Graphics Pipeline</Style.SectionTitle>
+      <Style.PageTitle>The Light Path: From Compute to Retina</Style.PageTitle>
 
       <Style.LeadParagraph>
-        What happens when zero-copy memory meets GPU rendering? You get industrial-grade animation
-        performance: 10,000+ entities and complex procedural worlds at 60fps. No frame drops. No GC
-        pressure. This is graphics without compromise, powered by multi-stage GPU dispatches and
-        Rust-orchestrated compute.
+        Human vision is instantaneous perception, not a series of buffered images. When zero-copy
+        memory meets GPU rendering, you get the <strong>Light Path</strong>: industrial-grade
+        performance with 10,000+ entities @ 60fps. No frame drops. No GC pressure. Just pure,
+        unencumbered reality.
       </Style.LeadParagraph>
 
       <Style.SectionDivider />

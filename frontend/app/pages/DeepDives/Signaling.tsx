@@ -1221,14 +1221,13 @@ function AnimatedLoopDiagram() {
 export function Signaling() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Epoch Signaling</Style.PageTitle>
+      <Style.SectionTitle>Chapter 03 // Epoch Signaling</Style.SectionTitle>
+      <Style.PageTitle>React to Reality, Not to Messages</Style.PageTitle>
 
       <Style.LeadParagraph>
-        How does a thread know when data has changed? This question drives three decades of
-        operating system design. Traditional approaches waste CPU cycles or add latency. INOS uses{' '}
-        <strong>epoch signaling</strong>: atomic counters that achieve &lt;10µs notification
-        latency.
+        Neurons fire, and the body reacts instantly. There is no waiting for messages to be passed
+        and processed. INOS uses <strong>epoch signaling</strong>: atomic counters that achieve
+        &lt;10µs notification latency. A <strong>121,354x improvement</strong> over legacy polling.
       </Style.LeadParagraph>
 
       <Style.SectionDivider />
@@ -1731,8 +1730,8 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ title: 'Zero-Copy I/O', to: '/deep-dives/zero-copy' }}
-        next={{ title: 'Atomics', to: '/deep-dives/atomics' }}
+        prev={{ title: 'Zero-Copy Memory I/O', to: '/deep-dives/zero-copy' }}
+        next={{ title: 'Atomics & Shared Memory', to: '/deep-dives/atomics' }}
       />
     </Style.BlogContainer>
   );

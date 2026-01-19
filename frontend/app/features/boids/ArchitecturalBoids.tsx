@@ -57,16 +57,16 @@ export default function ArchitecturalBoids() {
               left: 0,
               width: '100%',
               height: '100%',
-              opacity: 0.15,
+              opacity: 0.06,
               pointerEvents: 'none',
-              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.02'/%3E%3C/svg%3E")`,
+              backgroundImage: `url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwBAMAAAClLOS0AAAAElBMVEUAAAD8/vz08teleO7m6NzJybt+JT4mAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH4QkUBwov0mxiMwAAAB1JREFUOMUD2AEJxDAMBMAfXR5YCZAwIEAAC7sP8H+NZmZ2xq8AAAAASUVORK5CYII=")`,
               zIndex: 1,
             }}
           />
 
           <Suspense fallback={null}>
             <Canvas
-              camera={{ position: [0, 8, 30], fov: 45 }}
+              camera={{ position: [15, 12, 45], fov: 42 }}
               style={{ background: 'transparent' }}
               dpr={[1, 2]}
               gl={{

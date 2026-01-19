@@ -33,6 +33,7 @@ import {
   Graphics,
   Database,
   Atomics,
+  Performance,
 } from './pages/DeepDives';
 import Diagnostics from './pages/Diagnostics';
 import ArchitecturalBoids from './features/boids/ArchitecturalBoids';
@@ -165,6 +166,7 @@ export default function App() {
                 <Route path="graphics" element={<Graphics />} />
                 <Route path="database" element={<Database />} />
                 <Route path="atomics" element={<Atomics />} />
+                <Route path="performance" element={<Performance />} />
               </Route>
             </Route>
           </Routes>

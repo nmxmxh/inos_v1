@@ -70,6 +70,10 @@ type SABBridge struct {
 	epochWatcherEnabled uint32
 	epochWaitersMu      sync.Mutex
 	epochWaiters        map[uint32]chan int32
+
+	// Stability Monitor: Tracks frame-to-frame latency to detect throttling
+	lastFrameTime time.Time
+	frameLatency  time.Duration
 }
 
 const defaultViewCacheMax = 64
@@ -463,60 +467,46 @@ func initJsResultValues() {
 	jsResultsInit = true
 }
 
-// WaitForEpochChange blocks until the epoch at the given index changes from expectedValue.
-// IMPORTANT: Each Atomics.wait() call creates a js.Value with a registered finalizer.
-// In tight loops, this can exhaust the Go WASM runtime's finalizer table.
-// We mitigate this by:
-// 1. Avoiding String() allocation (use js.Value.Equal() instead)
-// 2. Aggressive GC yielding every 20 calls
-// 3. Explicit GC hint every 200 calls
 func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, timeoutMs float64) int {
-	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
-		sb.initJSCache()
+	// Fast Path: Check if already changed (prevents blocking)
+	if sb.ReadAtomicI32(epochIndex) != expectedValue {
+		return 1
 	}
 
-	if atomic.LoadUint32(&sb.epochWatcherEnabled) == 1 {
+	// ALWAYS use reactive notification if enabled or if in worker.
+	// This eliminates polling for Safari main-thread path.
+	if sb.isWorker || atomic.LoadUint32(&sb.epochWatcherEnabled) == 1 {
 		return sb.waitForEpochNotification(epochIndex, expectedValue, timeoutMs)
 	}
 
-	// Go WASM runs on a single JS thread. Atomics.wait blocks the entire runtime,
-	// starving other goroutines (matchmaker/watcher/adjuster, etc.).
-	// We only use blocking Atomics.wait if we are in a Worker AND notifications
-	// are not being handled by the epoch-watcher system.
-	if !sb.isWorker {
-		return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
+	// Browser Main Thread Fallback (should be rarely hit with notifyEpochChange)
+	// We check if jsAtomics is available as a last resort
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		// Ensure cached result values are initialized
+		initJsResultValues()
+
+		// GC Pressure Relief: Aggressive yielding
+		count := atomic.AddUint64(&sb.waitCallCount, 1)
+		if count%20 == 0 {
+			runtime.Gosched()
+		}
+		if count%200 == 0 {
+			runtime.GC()
+		}
+
+		// Call Atomics.wait
+		result := sb.jsAtomics.Call("wait", sb.jsInt32View, sb.atomicIndex(epochIndex), expectedValue, timeoutMs)
+
+		if result.Equal(jsOkValue) {
+			return 1
+		}
+		if result.Equal(jsNotEqualValue) {
+			return 1
+		}
+		return 2 // Timed out
 	}
 
-	if sb.jsAtomics.IsUndefined() || sb.jsInt32View.IsUndefined() {
-		return 2
-	}
-
-	// Ensure cached result values are initialized
-	initJsResultValues()
-
-	// GC Pressure Relief: Aggressive yielding to prevent finalizer table exhaustion
-	// Go WASM has limited finalizer capacity - we must yield frequently
-	count := atomic.AddUint64(&sb.waitCallCount, 1)
-	if count%20 == 0 {
-		runtime.Gosched()
-	}
-	// Force GC hint every 200 calls to prevent memory buildup
-	if count%200 == 0 {
-		runtime.GC()
-	}
-
-	// Call Atomics.wait - this creates a js.Value that will have a finalizer
-	result := sb.jsAtomics.Call("wait", sb.jsInt32View, sb.atomicIndex(epochIndex), expectedValue, timeoutMs)
-
-	// CRITICAL: Avoid result.String() - it allocates memory on every call!
-	// Use Equal() with cached js.Value instead (zero allocation)
-	if result.Equal(jsOkValue) {
-		return 0
-	}
-	if result.Equal(jsNotEqualValue) {
-		return 1
-	}
-	return 2 // "timed-out" or unknown
+	return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
 }
 
 // detectWorkerContext detects if we're running in a Web Worker (Atomics.wait allowed)
@@ -577,6 +567,16 @@ func (sb *SABBridge) getEpochWaiter(epochIndex uint32) chan int32 {
 // PushEpochChange is called by JS when an epoch index changes.
 func (sb *SABBridge) PushEpochChange(epochIndex uint32, value int32) {
 	atomic.StoreUint32(&sb.epochWatcherEnabled, 1)
+
+	// Update Stability Monitor if this is a physics pulse (Index 12)
+	if epochIndex == sab_layout.IDX_BIRD_EPOCH {
+		now := time.Now()
+		if !sb.lastFrameTime.IsZero() {
+			sb.frameLatency = now.Sub(sb.lastFrameTime)
+		}
+		sb.lastFrameTime = now
+	}
+
 	ch := sb.getEpochWaiter(epochIndex)
 
 	select {
@@ -1294,4 +1294,9 @@ func (sb *SABBridge) DeserializeResult(data []byte) *foundation.Result {
 		Data:    output,
 		Error:   errStr,
 	}
+}
+
+// GetFrameLatency returns the recently measured physics frame latency
+func (sb *SABBridge) GetFrameLatency() time.Duration {
+	return sb.frameLatency
 }

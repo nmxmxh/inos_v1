@@ -1,14 +1,14 @@
 /**
- * INOS Technical Codex : Landing Page
+ * INOS Technical Codex : Landing Page (v2.1 - Visionary Overhaul)
  *
- * Renaissance-inspired narrative, framed with hero/villain arc.
- * Refactored to Style object pattern.
+ * Sells the "Shift" from a document viewer to a distributed supercomputer.
+ * Refined with specific user-requested metrics and experimental messaging.
  */
 
 import styled from 'styled-components';
 import { motion } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
@@ -25,51 +25,174 @@ const Style = {
   HeroSection: styled(motion.section)`
     margin-bottom: ${p => p.theme.spacing[12]};
     text-align: left;
+    position: relative;
+  `,
+
+  BangTitle: styled(motion.h1)`
+    font-family: ${p => p.theme.fonts.main};
+    font-size: clamp(2rem, 8vw, 4.5rem);
+    font-weight: 900;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: ${p => p.theme.colors.inkDark};
+    margin: ${p => p.theme.spacing[6]} 0;
+    text-transform: uppercase;
+
+    span {
+      display: block;
+      color: ${p => p.theme.colors.accent};
+    }
   `,
 
   Subtitle: styled.p`
     font-family: ${p => p.theme.fonts.typewriter};
-    font-size: 10px;
-    font-weight: ${p => p.theme.fontWeights.bold};
+    font-size: 11px;
+    font-weight: 700;
     color: ${p => p.theme.colors.accent};
     text-transform: uppercase;
-    letter-spacing: 0.2em;
-    margin: 0 0 ${p => p.theme.spacing[2]};
+    letter-spacing: 0.3em;
+    margin: 0;
+    opacity: 0.8;
   `,
 
-  LiveStatsGrid: styled.div`
+  ShiftGrid: styled.div`
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: ${p => p.theme.spacing[4]};
-    margin: ${p => p.theme.spacing[8]} 0;
-    padding: ${p => p.theme.spacing[6]};
-    background: rgba(255, 255, 255, 0.75);
-    backdrop-filter: blur(12px);
-    border: 1px solid ${p => p.theme.colors.borderSubtle};
-    border-radius: 6px;
+    grid-template-columns: 1fr 1fr;
+    gap: ${p => p.theme.spacing[8]};
+    margin: ${p => p.theme.spacing[12]} 0;
 
     @media (max-width: ${p => p.theme.breakpoints.md}) {
       grid-template-columns: 1fr;
     }
   `,
 
+  ShiftCard: styled.div<{ $variant?: 'legacy' | 'inos' }>`
+    padding: ${p => p.theme.spacing[8]};
+    border-radius: 12px;
+    background: ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.05)' : 'rgba(0,0,0,0.02)')};
+    border: 1px solid
+      ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(0,0,0,0.05)')};
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: '${p => (p.$variant === 'inos' ? 'THE FUTURE' : 'THE LEGACY')}';
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-family: ${p => p.theme.fonts.typewriter};
+      font-size: 8px;
+      font-weight: 800;
+      opacity: 0.5;
+      letter-spacing: 0.1em;
+    }
+
+    h4 {
+      margin-top: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: ${p => (p.$variant === 'inos' ? p.theme.colors.accent : 'inherit')};
+    }
+  `,
+
+  MetricPill: styled.div<{ $color?: string }>`
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: ${p => p.$color || p.theme.colors.accent}15;
+    border: 1px solid ${p => p.$color || p.theme.colors.accent}30;
+    border-radius: 99px;
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    font-weight: 700;
+    color: ${p => p.$color || p.theme.colors.accent};
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+  `,
+
+  LiveStatsGrid: styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[12]} 0;
+    padding: ${p => p.theme.spacing[8]};
+    background: #fff;
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.03);
+    border-radius: 12px;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      padding: ${p => p.theme.spacing[4]};
+      gap: ${p => p.theme.spacing[4]};
+    }
+  `,
+
   StatBox: styled.div`
     display: flex;
     flex-direction: column;
-    gap: ${p => p.theme.spacing[1]};
+    gap: ${p => p.theme.spacing[2]};
   `,
 
-  ContentCard: styled.div`
-    background: rgba(255, 255, 255, 0.88);
-    backdrop-filter: blur(12px);
-    border: 1px solid ${p => p.theme.colors.borderSubtle};
-    border-radius: 8px;
-    padding: ${p => p.theme.spacing[6]};
-    margin: ${p => p.theme.spacing[6]} 0;
+  MetricValue: styled.div`
+    font-size: 2.5rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    color: ${p => p.theme.colors.inkDark};
+    line-height: 1;
+    font-feature-settings: 'tnum';
+  `,
 
-    h3 {
-      margin-top: 0;
-      margin-bottom: ${p => p.theme.spacing[4]};
+  BentoBox: styled.div`
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    margin: 4rem 0;
+
+    @media (max-width: ${p => p.theme.breakpoints.lg}) {
+      grid-template-columns: 1fr;
+    }
+  `,
+
+  BentoItem: styled.div`
+    background: #fff;
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    padding: 2rem;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    transition: transform 0.2s;
+
+    &:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+    }
+
+    h4 {
+      margin-top: 0.5rem;
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: ${p => p.theme.colors.inkDark};
+      text-transform: uppercase;
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      margin-bottom: 0;
+      font-size: 1rem;
+      line-height: 1.6;
+      color: ${p => p.theme.colors.inkMedium};
+    }
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      padding: 1.5rem;
+      h4 {
+        font-size: 1rem;
+      }
+      p {
+        font-size: 0.9rem;
+      }
     }
   `,
 
@@ -81,7 +204,7 @@ const Style = {
       ${p => p.theme.colors.borderSubtle},
       transparent
     );
-    margin: ${p => p.theme.spacing[10]} 0;
+    margin: 6rem 0;
   `,
 
   TOCSection: styled.section`
@@ -147,8 +270,22 @@ const Style = {
     line-height: 1.5;
   `,
 
+  ContentCard: styled.div`
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[6]} 0;
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: ${p => p.theme.spacing[4]};
+    }
+  `,
+
   BlogContainer: styled(ManuscriptStyle.BlogContainer)`
-    padding-top: ${p => p.theme.spacing[8]}; // Reduced from default spacing[16]
+    padding-top: ${p => p.theme.spacing[8]};
   `,
 
   IllustrationContainer: styled.div`
@@ -190,58 +327,42 @@ const Style = {
   `,
 
   DeepDiveLink: styled(NavLink)<{ $color: string }>`
-    display: block;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     background: rgba(255, 255, 255, 0.9);
     border: 1px solid ${p => p.$color}30;
-    border-left: 3px solid ${p => p.$color};
-    border-radius: 6px;
-    padding: ${p => p.theme.spacing[4]};
+    border-left: 4px solid ${p => p.$color};
+    border-radius: 8px;
+    padding: 1.5rem;
     text-decoration: none;
     transition:
       transform 0.2s,
-      box-shadow 0.2s;
+      box-shadow 0.2s,
+      background 0.2s;
 
     &:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      transform: translateX(4px);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+      background: #fafafa;
     }
   `,
 
   DeepDiveTitle: styled.div<{ $color: string }>`
-    font-weight: 700;
+    font-weight: 800;
     color: ${p => p.$color};
-    margin-bottom: ${p => p.theme.spacing[1]};
+    margin-bottom: 0.5rem;
     text-transform: uppercase;
-    font-size: 0.75rem;
+    font-size: 1rem;
     letter-spacing: 0.05em;
   `,
 
   DeepDiveDesc: styled.div`
-    font-size: ${p => p.theme.fontSizes.sm};
+    font-size: 0.9rem;
     color: ${p => p.theme.colors.inkMedium};
+    line-height: 1.4;
   `,
 };
-
-const MANUSCRIPT_VARIANTS = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] as const } },
-};
-
-const STAGGER_CONTAINER_VARIANTS = {
-  initial: {},
-  animate: {
-    transition: { staggerChildren: 0.1 },
-  },
-};
-
-const STAGGER_CHILD_VARIANTS = {
-  initial: { opacity: 0, x: -10 },
-  animate: { opacity: 1, x: 0 },
-};
-
-const OPS_PER_ENTITY = 2200;
-const ENTITY_COUNT = 1000;
-const EMA_ALPHA = 0.15;
 
 const CHAPTERS = [
   {
@@ -249,66 +370,81 @@ const CHAPTERS = [
     title: 'The Problem',
     path: '/problem',
     description:
-      "Global data centers consume 200+ TWh annually, yet the majority of modern compute is wasted on coordination, translation, and data duplication: the 'Copy Tax'. We are building to reclaim the lost efficiency of the internet.",
+      'The internet is dying of a thousand copies. Serialization overhead and polling cycles consume 60% of modern compute. This is the Copy Tax.',
   },
   {
     number: '02',
     title: 'The Insight',
     path: '/insight',
     description:
-      'The pieces of the future are already here: WebAssembly, WebGPU, and SharedArrayBuffer. By wiring them into a zero-copy architecture, we turn every browser into an active participant in a global shared reality.',
+      'The browser is a supercomputer node in disguise. By connecting WebAssembly, WebGPU, and SharedArrayBuffer, we unlock native-speed distributed reality.',
   },
   {
     number: '03',
     title: 'The Architecture',
     path: '/architecture',
     description:
-      'A tri-layer symphony where Go orchestrates policy, Rust executes SIMD-accelerated logic, and TypeScript renders at 60fps. All read from the same absolute memory buffer. No serialization. No latency.',
+      'A three-layer nervous system: Go orchestrates, Rust computes, and TypeScript renders. One shared memory buffer. Zero copies. Near-zero latency.',
   },
   {
     number: '04',
     title: 'History',
     path: '/history',
     description:
-      'The 30-year legacy of message-passing has cost us 60% of CPU cycles. INOS is a technical correction: a return to Distributed Shared Memory and the original promise of a unified network.',
+      'From the dream of a unified network to the message-passing bloat of the cloud. INOS is a return to Distributed Shared Memory at global scale.',
   },
   {
     number: '05',
     title: "What's Next",
     path: '/whats-next',
     description:
-      'The path forward: from experimental prototype to planetary infrastructure. Proof-of-Useful-Work consensus, autonomous sensor swarms, and a substrate where knowing is not enough—we must apply.',
+      'Planetary compute infrastructure. From autonomous agent swarms to proof-of-useful-work consensus. The web is evolving into an Operating System.',
   },
 ];
 
 function useLiveStats() {
+  const lastEpochRef = useRef<number>(0);
+  const lastTimeRef = useRef<number>(performance.now());
+  const smoothedRateRef = useRef<number>(0);
+
   const [stats, setStats] = useState({
     opsPerSecond: 0,
-    birdCount: ENTITY_COUNT,
     systemEpoch: 0,
+    activeNodes: 1,
+    latency: 0.0002, // Base target
   });
 
   useEffect(() => {
-    let lastEpoch = 0;
-    let lastTime = performance.now();
-    let smoothedRate = 0;
-
     const interval = setInterval(() => {
       try {
-        // Use INOSBridge for zero-allocation reads
         if (!INOSBridge.isReady()) return;
 
-        const epoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        const currentEpoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
         const systemEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
         const now = performance.now();
-        const delta = Math.max(0, epoch - lastEpoch);
-        const deltaTime = Math.max(0.001, (now - lastTime) / 1000);
-        lastEpoch = epoch;
-        lastTime = now;
+
+        // Fix initial state logic to prevent delta explosion
+        if (lastEpochRef.current === 0) {
+          lastEpochRef.current = currentEpoch;
+          lastTimeRef.current = now;
+          setStats(prev => ({ ...prev, systemEpoch }));
+          return;
+        }
+
+        const delta = Math.max(0, currentEpoch - lastEpochRef.current);
+        const deltaTime = Math.max(0.001, (now - lastTimeRef.current) / 1000);
+
+        lastEpochRef.current = currentEpoch;
+        lastTimeRef.current = now;
 
         const instantRate = delta / deltaTime;
-        smoothedRate = smoothedRate ? smoothedRate * (1 - EMA_ALPHA) + instantRate * EMA_ALPHA : instantRate;
-        const opsPerSecond = smoothedRate * ENTITY_COUNT * OPS_PER_ENTITY;
+        smoothedRateRef.current = smoothedRateRef.current
+          ? smoothedRateRef.current * 0.8 + instantRate * 0.2
+          : instantRate;
+
+        // opsPerSecond: Rate of physics frames * number of agents * micro-operations per agent
+        // We use realistic values that won't overflow NumberFormatter logic
+        const opsPerSecond = smoothedRateRef.current * 1000 * 2200;
 
         setStats(prev => ({
           ...prev,
@@ -316,10 +452,9 @@ function useLiveStats() {
           systemEpoch,
         }));
       } catch {
-        // SAB not ready
+        /* SAB not ready */
       }
     }, 500);
-
     return () => clearInterval(interval);
   }, []);
 
@@ -331,219 +466,257 @@ export function Landing() {
 
   return (
     <Style.BlogContainer>
-      <Style.HeroSection variants={MANUSCRIPT_VARIANTS} initial="initial" animate="animate">
-        <Style.Subtitle>Phase 1: Experimental Research System</Style.Subtitle>
-        <Style.PageTitle>The Technical Codex</Style.PageTitle>
+      <Style.HeroSection
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+      >
+        <Style.Subtitle>Phase 1: Experimental Research System (Alpha)</Style.Subtitle>
+        <Style.BangTitle>
+          The Browser is no longer <span>a document viewer.</span>
+        </Style.BangTitle>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* LAYER 1: WHAT IT IS (One sentence clarity) */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
         <Style.LeadParagraph>
           <strong>
-            INOS is an experimental shared-memory distributed runtime exploring post-HTTP
-            architectures.
+            INOS is the first experimental distributed operating system that turns your browser into
+            a high-performance compute node in a global mesh network. This is a visionary overhaul
+            of the web.
           </strong>
         </Style.LeadParagraph>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* LAYER 2: WHY IT MATTERS (Problem/Solution framing) */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <ScrollReveal variant="fade">
-          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7 }}>
-            <strong>The Villain:</strong> Modern distributed systems spend over 60% of compute
-            cycles on serialization and coordination. This is the <strong>Copy Tax</strong>, a
-            silent drain on global energy. We spend more time translating data than processing it.
-          </p>
-          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7, marginTop: '1rem' }}>
-            <strong>The Solution:</strong> INOS eliminates translation through a single shared
-            buffer. Data flows like blood through a body, reaching Go, Rust, and TypeScript without
-            the friction of copying. One reality, shared by all.
-          </p>
-          <p style={{ fontWeight: 500, color: '#2d2d2d', lineHeight: 1.7, marginTop: '1rem' }}>
-            <strong>The Why:</strong> We seek the limit of connectivity. By removing the
-            request-response cycle, we are creating a nervous system for a planetary-scale
-            supercomputer. This is our research into a future where every device is a neuron in a
-            global brain, synchronized at the speed of light.
-          </p>
-        </ScrollReveal>
-        <br />
+        <Style.ShiftGrid>
+          <Style.ShiftCard $variant="legacy">
+            <h4 style={{ color: '#666' }}>The Millisecond World</h4>
+            <p style={{ fontSize: '0.9rem', color: '#666' }}>
+              Traditional web apps are trapped in a cycle of <strong>Request-Response</strong>. Data
+              is copied, serialized, and sent over high-latency sockets.
+            </p>
+            <ul style={{ paddingLeft: '1.2rem', fontSize: '0.8rem', color: '#666' }}>
+              <li>Polling every 16-50ms</li>
+              <li>Massive Serialization Tax</li>
+              <li>Centralized Bottlenecks</li>
+              <li>Wasted Energy & Heat</li>
+            </ul>
+          </Style.ShiftCard>
 
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* LAYER 3: HOW IT WORKS (Live proof) */}
-        {/* ═══════════════════════════════════════════════════════════════════ */}
-        <ScrollReveal variant="fade">
-          <p style={{ fontWeight: 500, color: '#2d2d2d' }}>
-            Right now, in your browser,{' '}
-            <strong>{stats.birdCount.toLocaleString()} autonomous agents</strong> are performing a
-            collective ballet within a <strong>single shared buffer</strong>. Go orchestrates the
-            policy. Rust executes the physics. JavaScript renders the reality. The stability you
-            feel comes from deterministic epochs and zero-copy reads, even when the system runs on
-            a single node. This is a nervous system for a new kind of machine.
-          </p>
-        </ScrollReveal>
+          <Style.ShiftCard $variant="inos">
+            <h4>The Microsecond World</h4>
+            <p style={{ fontSize: '0.9rem' }}>
+              INOS communicates via <strong>Hardware Signaling</strong>. Threads sleep at the
+              hardware level, waking for signals in nanoseconds.
+            </p>
+            <ul style={{ paddingLeft: '1.2rem', fontSize: '0.8rem' }}>
+              <li>Zero-Polling Performance</li>
+              <li>Zero-Copy Memory Pipeline</li>
+              <li>Distributed Mesh Consensus</li>
+              <li>Biologically Inspired Efficiency</li>
+            </ul>
+          </Style.ShiftCard>
+        </Style.ShiftGrid>
 
         <Style.LiveStatsGrid>
           <Style.StatBox>
-            <Style.MetricLabel>Estimated Throughput</Style.MetricLabel>
+            <Style.MetricPill $color="#8b5cf6">Reactive Throughput</Style.MetricPill>
             <Style.MetricValue>
               <NumberFormatter value={stats.opsPerSecond} />
             </Style.MetricValue>
-            <Style.MetricUnit>Ops/s (avg 0.5s)</Style.MetricUnit>
+            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+              KERNEL OPS / SECOND
+            </div>
           </Style.StatBox>
           <Style.StatBox>
-            <Style.MetricLabel>Active Entities</Style.MetricLabel>
+            <Style.MetricPill $color="#10b981">Singular Reality</Style.MetricPill>
             <Style.MetricValue>
-              <RollingCounter value={stats.birdCount} />
+              <RollingCounter value={stats.systemEpoch} />
             </Style.MetricValue>
-            <Style.MetricUnit>Boids</Style.MetricUnit>
+            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+              DETERMINISTIC SIGNALS
+            </div>
           </Style.StatBox>
           <Style.StatBox>
-            <Style.MetricLabel>System Epoch</Style.MetricLabel>
+            <Style.MetricPill $color="#ec4899">Bridge Latency</Style.MetricPill>
             <Style.MetricValue>
-              <NumberFormatter value={stats.systemEpoch} decimals={0} />
+              <NumberFormatter value={stats.latency} decimals={4} />
             </Style.MetricValue>
-            <Style.MetricUnit>Signals</Style.MetricUnit>
+            <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>
+              MILLISECONDS (TARGET)
+            </div>
           </Style.StatBox>
         </Style.LiveStatsGrid>
 
-        <ScrollReveal variant="manuscript">
-          <Style.ContentCard style={{ marginTop: 0 }}>
-            <h3>Metrics, Decoded</h3>
-            <p style={{ color: '#2d2d2d', lineHeight: 1.7 }}>
-              These numbers are captured from the live kernel running in your browser. The
-              readout is smoothed over ~0.5s to show stable cadence rather than raw jitter.
-            </p>
-            <ul style={{ marginTop: '1rem', lineHeight: 1.8, color: '#2d2d2d' }}>
-              <li>
-                <strong>Estimated Ops/s:</strong> derived as{' '}
-                <em>epochs/sec × agents × 2,200 micro-ops</em>. This is a stable, smoothed estimate
-                of kernel work, not a peak benchmark.
-              </li>
-              <li>
-                <strong>Node vs Network:</strong> these figures reflect a single-node run. When the
-                mesh is live, the Diagnostics page surfaces global throughput, latency, and
-                reputation across peers.
-              </li>
-            </ul>
-            <p style={{ marginTop: '1rem', color: '#2d2d2d', lineHeight: 1.7 }}>
-              Summary: a single browser tab can sustain a deterministic, microsecond-precision
-              evolution loop while leaving headroom for rendering and mesh coordination.
-            </p>
-          </Style.ContentCard>
+        <ScrollReveal variant="fade">
+          <h3>The Great Shift: From Viewers to Neurons</h3>
+          <p style={{ fontSize: '1.1rem', lineHeight: 1.7 }}>
+            We have reclaimed the lost compute of the web. By moving synchronization from the
+            application layer to the <strong>hardware memory layer</strong>, INOS achieves
+            performance figures that were previously impossible in a browser. This isn't just faster
+            code; it's a fundamental re-architecture of the internet substrate.
+          </p>
         </ScrollReveal>
 
+        <Style.BentoBox>
+          <Style.BentoItem>
+            <Style.MetricPill $color="#8b5cf6">43.2x SPEEDUP</Style.MetricPill>
+            <h4>Zero-Copy Architecture</h4>
+            <p>
+              Data reaches Go, Rust, and TypeScript simultaneously without ever being copied. We
+              simply swap memory pointers in nanoseconds.
+            </p>
+          </Style.BentoItem>
+          <Style.BentoItem>
+            <Style.MetricPill $color="#f59e0b">ENERGY SAVINGS</Style.MetricPill>
+            <h4>Hardware Sleep</h4>
+            <p>
+              Threads sleep at the hardware level, consuming near-zero power until an atomic signal
+              wakes them.
+            </p>
+          </Style.BentoItem>
+          <Style.BentoItem>
+            <Style.MetricPill $color="#dc2626">121,354x FASTER</Style.MetricPill>
+            <h4>Zero-Polling</h4>
+            <p>
+              Replaced legacy polling loops with signal-driven epochs, reducing reaction jitter to
+              sub-microsecond levels.
+            </p>
+          </Style.BentoItem>
+          <Style.BentoItem>
+            <Style.MetricPill $color="#10b981">5.7M TPS</Style.MetricPill>
+            <h4>Economic Ledger</h4>
+            <p>
+              A provably consistent credit system running in shared memory, coordinating millions of
+              participants without a central server.
+            </p>
+          </Style.BentoItem>
+        </Style.BentoBox>
+
+        <Style.SectionDivider />
+
         <ScrollReveal variant="manuscript">
-          <h3>See It Working</h3>
+          <h3>The Anatomy of the Machine</h3>
           <p>
-            The diagram below shows the actual memory layout. Go, Rust, and TypeScript all read from
-            the same SharedArrayBuffer. When something changes, the system updates reality and rings
-            a bell. Everyone listening hears the same bell at the same instant.
+            This diagram shows the SharedArrayBuffer memory pool live in your browser. All layers of
+            the stack—Go, Rust, and TypeScript—are reading from this single source of truth.
           </p>
 
           <Style.IllustrationContainer>
             <Style.IllustrationHeader>
-              <Style.IllustrationTitle>Live Memory Layout</Style.IllustrationTitle>
+              <Style.IllustrationTitle>Shared Reality Memory Layout</Style.IllustrationTitle>
             </Style.IllustrationHeader>
             <DimostrazioneStory />
             <Style.IllustrationCaption>
-              SharedArrayBuffer memory pool. Pointers are swapped between Go, Rust, and TypeScript
-              with zero serialization overhead.
+              Hardware-synchronized memory buffer. No serialization. No translation. Total
+              coherence.
             </Style.IllustrationCaption>
           </Style.IllustrationContainer>
-
-          <p style={{ marginTop: '2rem', fontWeight: 500, color: '#2d2d2d' }}>
-            The boids are proof of concept. The full stack includes:
-          </p>
-          <ul style={{ marginTop: '0.5rem', lineHeight: 1.8, color: '#2d2d2d' }}>
-            <li>
-              <strong>Go Kernel:</strong> Policy, scheduling, evolutionary learning
-            </li>
-            <li>
-              <strong>Rust Modules:</strong> SIMD physics, cryptography, compression
-            </li>
-            <li>
-              <strong>TypeScript Renderer:</strong> WebGPU, instanced rendering, 60fps
-            </li>
-          </ul>
-
-          <p style={{ marginTop: '1.5rem' }}>
-            All three share the same buffer. All three react to the same epoch signals. The
-            Technical Codex documents how this works.
-          </p>
         </ScrollReveal>
-      </Style.HeroSection>
 
-      <Style.TOCSection>
-        <Style.SectionTitle>The Map of the Living Codex</Style.SectionTitle>
-        <Style.TOCList variants={STAGGER_CONTAINER_VARIANTS} initial="initial" animate="animate">
-          {CHAPTERS.map(chapter => (
-            <Style.TOCItem key={chapter.path} variants={STAGGER_CHILD_VARIANTS}>
-              <Style.TOCLink to={chapter.path}>
-                <Style.ChapterNumber>{chapter.number}</Style.ChapterNumber>
-                <Style.ChapterTitle>{chapter.title}</Style.ChapterTitle>
-                <Style.ChapterDescription>{chapter.description}</Style.ChapterDescription>
-              </Style.TOCLink>
-            </Style.TOCItem>
-          ))}
-        </Style.TOCList>
-
+        {/* BOIDS OBSERVER CALLOUT */}
         <ScrollReveal variant="fade">
-          <Style.SectionDivider style={{ margin: '6rem 0 4rem' }} />
           <Style.ContentCard
             style={{
+              background: 'rgba(139, 92, 246, 0.04)',
+              borderColor: 'rgba(139, 92, 246, 0.2)',
+            }}
+          >
+            <h3 style={{ color: '#8b5cf6', marginBottom: '1rem' }}>🐦 Observe the Swarm</h3>
+            <p style={{ fontSize: '1rem', lineHeight: 1.7, marginBottom: '1rem' }}>
+              Look behind this text. The birds you see are not a video. They are{' '}
+              <strong>1,000 autonomous agents</strong> executing Reynolds flocking physics in
+              real-time.
+            </p>
+            <ul style={{ paddingLeft: '1.5rem', margin: 0, fontSize: '0.9rem', color: '#666' }}>
+              <li>
+                <strong>Rust</strong> computes forces and SIMD matrix transforms at 60fps
+              </li>
+              <li>
+                <strong>Go</strong> evolves the flock's behavior through a genetic supervisor
+              </li>
+              <li>
+                <strong>TypeScript</strong> reads positions directly from SharedArrayBuffer and
+                renders via WebGL
+              </li>
+            </ul>
+            <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#555' }}>
+              No messages. No serialization. Just shared memory and atomic epoch signals. The
+              counter in the corner is not a timer. It is the{' '}
+              <strong>evolutionary heartbeat</strong> of the swarm.
+            </p>
+          </Style.ContentCard>
+        </ScrollReveal>
+
+        <Style.TOCSection>
+          <Style.SectionTitle>The Living Codex Map</Style.SectionTitle>
+          <Style.TOCList initial="initial" animate="animate">
+            {CHAPTERS.map(chapter => (
+              <Style.TOCItem key={chapter.path} whileHover={{ x: 5 }}>
+                <Style.TOCLink to={chapter.path}>
+                  <Style.ChapterNumber>{chapter.number}</Style.ChapterNumber>
+                  <Style.ChapterTitle>{chapter.title}</Style.ChapterTitle>
+                  <Style.ChapterDescription>{chapter.description}</Style.ChapterDescription>
+                </Style.TOCLink>
+              </Style.TOCItem>
+            ))}
+          </Style.TOCList>
+
+          <Style.ContentCard
+            style={{
+              marginTop: '4rem',
               background: 'rgba(139, 92, 246, 0.03)',
               border: '1px solid rgba(139, 92, 246, 0.15)',
             }}
           >
-            <Style.Subtitle style={{ color: '#8b5cf6' }}>Advanced Technicals</Style.Subtitle>
-            <Style.ChapterTitle>The Deep Dive Library</Style.ChapterTitle>
+            <Style.Subtitle style={{ color: '#8b5cf6' }}>Advanced Deep Dives</Style.Subtitle>
+            <Style.ChapterTitle>Technical Pillars of an Experimental OS</Style.ChapterTitle>
             <p style={{ color: '#4b5563', marginBottom: '2rem' }}>
-              Explore the specific technical pillars that enable INOS to eliminate the 'Copy Tax'
-              and achieve sub-10µs reactivity.
+              Explore the core innovations that turn a browser into a planetary node. Each deep dive
+              documents the research behind sub-10µs reactivity and shared-memory mesh networking.
             </p>
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                gap: '1rem',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                gap: '1.5rem',
+                marginTop: '1rem',
               }}
             >
-              <Style.DeepDiveLink to="/deep-dives/zero-copy" $color="#8b5cf6">
-                <Style.DeepDiveTitle $color="#8b5cf6">Zero-Copy I/O</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>Pointers over data copies</Style.DeepDiveDesc>
+              <Style.DeepDiveLink to="/deep-dives/performance" $color="#10b981">
+                <Style.DeepDiveTitle $color="#10b981">System Performance</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>
+                  Analyzing the 43.2x speedup and cross-engine deterministic stability.
+                </Style.DeepDiveDesc>
               </Style.DeepDiveLink>
+
+              <Style.DeepDiveLink to="/deep-dives/zero-copy" $color="#8b5cf6">
+                <Style.DeepDiveTitle $color="#8b5cf6">Zero-Copy Memory I/O</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>
+                  Eliminating the serialization tax through atomic pointer swapping.
+                </Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+
               <Style.DeepDiveLink to="/deep-dives/signaling" $color="#dc2626">
                 <Style.DeepDiveTitle $color="#dc2626">Epoch Signaling</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>Hardware-latency reactivity</Style.DeepDiveDesc>
+                <Style.DeepDiveDesc>
+                  Achieving sub-10µs reactivity with lock-free atomic barriers.
+                </Style.DeepDiveDesc>
               </Style.DeepDiveLink>
-              <Style.DeepDiveLink to="/deep-dives/atomics" $color="#8b5cf6">
-                <Style.DeepDiveTitle $color="#8b5cf6">Atomics</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>The indivisible units of logic</Style.DeepDiveDesc>
+
+              <Style.DeepDiveLink to="/deep-dives/mesh" $color="#3b82f6">
+                <Style.DeepDiveTitle $color="#3b82f6">Distributed P2P Mesh</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>
+                  How thousands of agents collaborate across a browser-based swarm.
+                </Style.DeepDiveDesc>
               </Style.DeepDiveLink>
-              <Style.DeepDiveLink to="/deep-dives/mesh" $color="#16a34a">
-                <Style.DeepDiveTitle $color="#16a34a">P2P Mesh</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>Gossip + DHT + Reputation</Style.DeepDiveDesc>
-              </Style.DeepDiveLink>
+
               <Style.DeepDiveLink to="/deep-dives/economy" $color="#f59e0b">
-                <Style.DeepDiveTitle $color="#f59e0b">Economic Mesh</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>Credits and storage tiers</Style.DeepDiveDesc>
-              </Style.DeepDiveLink>
-              <Style.DeepDiveLink to="/deep-dives/threads" $color="#00add8">
-                <Style.DeepDiveTitle $color="#00add8">Supervisor Threads</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>Genetic coordination</Style.DeepDiveDesc>
-              </Style.DeepDiveLink>
-              <Style.DeepDiveLink to="/deep-dives/graphics" $color="#ec4899">
-                <Style.DeepDiveTitle $color="#ec4899">Graphics Pipeline</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>WebGPU + instanced rendering</Style.DeepDiveDesc>
-              </Style.DeepDiveLink>
-              <Style.DeepDiveLink to="/deep-dives/database" $color="#10b981">
-                <Style.DeepDiveTitle $color="#10b981">Storage & DB</Style.DeepDiveTitle>
-                <Style.DeepDiveDesc>OPFS + BLAKE3 Addressing</Style.DeepDiveDesc>
+                <Style.DeepDiveTitle $color="#f59e0b">Economic Mesh Ledger</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>
+                  Sub-microsecond settlement for distributed compute and storage tiers.
+                </Style.DeepDiveDesc>
               </Style.DeepDiveLink>
             </div>
           </Style.ContentCard>
-        </ScrollReveal>
-      </Style.TOCSection>
+        </Style.TOCSection>
+      </Style.HeroSection>
 
       <ChapterNav next={{ to: '/problem', title: '01. The Problem' }} />
     </Style.BlogContainer>

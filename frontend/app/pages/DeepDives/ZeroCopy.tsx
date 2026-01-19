@@ -890,14 +890,13 @@ function RingBufferDiagram() {
 export function ZeroCopy() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Zero-Copy I/O</Style.PageTitle>
+      <Style.SectionTitle>Chapter 02 // Zero-Copy Memory I/O</Style.SectionTitle>
+      <Style.PageTitle>Data in Motion, Without the Copy</Style.PageTitle>
 
       <Style.LeadParagraph>
-        Data copying is the silent killer of performance. Every time bytes move from one place to
-        another, CPU cycles burn, caches invalidate, and garbage collectors wake up. This deep dive
-        explains how INOS eliminates copying across performance-critical paths using
-        SharedArrayBuffer.
+        Blood flows through the body without stopping to be transferred into new containers. INOS
+        uses <strong>SharedArrayBuffer</strong> to eliminate the "Copy Tax" across all
+        performance-critical paths. The result: <strong>43.2x</strong> faster throughput.
       </Style.LeadParagraph>
 
       {/* MENTAL MODEL */}
@@ -1321,7 +1320,7 @@ impl SafeSAB {
       </Style.WarningCard>
 
       <ChapterNav
-        prev={{ to: '/architecture', title: 'Architecture' }}
+        prev={{ to: '/deep-dives/performance', title: 'System Performance' }}
         next={{ to: '/deep-dives/signaling', title: 'Epoch Signaling' }}
       />
     </Style.BlogContainer>

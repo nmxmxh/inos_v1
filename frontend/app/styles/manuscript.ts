@@ -220,4 +220,27 @@ export const Style = {
     color: ${p => p.theme.colors.inkLight};
     margin-left: ${p => p.theme.spacing[1]};
   `,
+
+  MetricGrid: styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[8]} 0;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      grid-template-columns: 1fr;
+    }
+  `,
+
+  MetricCard: styled.div<{ $highlight?: boolean }>`
+    background: ${p => (p.$highlight ? 'rgba(139, 92, 246, 0.05)' : p.theme.colors.paperWhite)};
+    padding: ${p => p.theme.spacing[6]};
+    border: 1px solid
+      ${p => (p.$highlight ? 'rgba(139, 92, 246, 0.3)' : p.theme.colors.borderSubtle)};
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[2]};
+    box-shadow: ${p => (p.$highlight ? '0 10px 30px rgba(139, 92, 246, 0.08)' : 'none')};
+  `,
 };

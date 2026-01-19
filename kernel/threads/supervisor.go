@@ -9,6 +9,7 @@ import (
 	"time"
 	"unsafe"
 
+	kruntime "github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/intelligence"
 	"github.com/nmxmxh/inos_v1/kernel/threads/pattern"
@@ -66,6 +67,7 @@ type SupervisorConfig struct {
 	Logger          *utils.Logger
 	SAB             unsafe.Pointer // SharedArrayBuffer pointer
 	MaxWorkers      int
+	Role            kruntime.RoleConfig
 }
 
 // SupervisorStats holds supervisor statistics
@@ -273,7 +275,7 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		md = d
 	}
 
-	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
+	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, s.config.Role, md)
 	loadedUnits, bridge := loader.LoadUnits()
 	s.bridge = bridge
 	s.units = loadedUnits
@@ -357,7 +359,7 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 	if d, ok := s.config.MeshCoordinator.(foundation.MeshDelegator); ok {
 		md = d
 	}
-	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
+	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, s.config.Role, md)
 	var lastRegistryEpoch int32 = 0
 
 	for {

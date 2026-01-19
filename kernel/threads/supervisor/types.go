@@ -1,6 +1,8 @@
 package supervisor
 
 import (
+	"time"
+
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 )
 
@@ -51,4 +53,5 @@ type SABInterface interface {
 	WriteJob(job *foundation.Job) error          // Write job to inbox
 	WriteResult(result *foundation.Result) error // Write result to outbox
 	ReadResult() (*foundation.Result, error)     // Read result from outbox
+	GetFrameLatency() time.Duration
 }

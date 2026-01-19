@@ -1221,13 +1221,13 @@ export function Mesh() {
 
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>P2P Mesh</Style.PageTitle>
+      <Style.SectionTitle>Chapter 05 // Distributed P2P Mesh</Style.SectionTitle>
+      <Style.PageTitle>Trust, Verified by the Network</Style.PageTitle>
 
       <Style.LeadParagraph>
-        What if your data didn't live on a single server? What if it was everywhere—and nowhere—at
-        once? This is the promise of <strong>peer-to-peer networking</strong>: a world without
-        central authorities, where resilience emerges from redundancy.
+        The immune system learns, remembers, and protects. It identifies threats and isolates them
+        automatically. The INOS mesh does the same: <strong>256 hash sectors</strong> collaborate to
+        store, route, and verify data without any central authority.
       </Style.LeadParagraph>
 
       <Style.ExperimentalBanner>
@@ -1675,7 +1675,9 @@ interface P2PMesh {
                           <strong>{event.summary}</strong>
                           <span>
                             {event.payloadType} • {event.size}B •{' '}
-                            {Number.isFinite(timestamp) ? new Date(timestamp).toLocaleTimeString() : '—'}
+                            {Number.isFinite(timestamp)
+                              ? new Date(timestamp).toLocaleTimeString()
+                              : '—'}
                           </span>
                         </Style.MeshEventMeta>
                       </Style.MeshEventRow>
@@ -1722,8 +1724,8 @@ interface P2PMesh {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/signaling', title: 'Epoch Signaling' }}
-        next={{ to: '/deep-dives/economy', title: 'Credits & Economy' }}
+        prev={{ to: '/deep-dives/atomics', title: 'Atomics & Shared Memory' }}
+        next={{ to: '/deep-dives/economy', title: 'Economic Mesh Ledger' }}
       />
     </Style.BlogContainer>
   );

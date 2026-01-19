@@ -224,6 +224,7 @@ func (k *Kernel) InjectSAB(ptr unsafe.Pointer, size uint32) error {
 		Logger:          k.logger,
 		SAB:             ptr,
 		MaxWorkers:      k.config.MaxWorkers,
+		Role:            k.roleConfig,
 	})
 
 	k.setState(StateRunning)

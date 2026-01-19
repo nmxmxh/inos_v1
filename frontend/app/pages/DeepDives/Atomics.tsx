@@ -1064,14 +1064,14 @@ function AtomicsTelemetry() {
 export default function AtomicsPage() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Deep Dive</Style.SectionTitle>
-      <Style.PageTitle>Atomic Operations</Style.PageTitle>
+      <Style.SectionTitle>Chapter 04 // Atomics & Shared Memory</Style.SectionTitle>
+      <Style.PageTitle>Coordination Without Contention</Style.PageTitle>
 
       <Style.LeadParagraph>
-        Imagine a busy kitchen where multiple chefs need to update the same recipe card at once. How
-        do you prevent chaos? Traditional systems use a "one chef at a time" rule—but this creates
-        lines. <strong>Atomic operations</strong> are like magic: every chef can work
-        simultaneously, and nothing ever gets lost or mixed up.
+        Imagine a busy kitchen where multiple chefs need to update the same recipe card at once.
+        Traditional systems use a "one chef at a time" rule, creating lines.
+        <strong>Atomic operations</strong> are like magic: every chef can work simultaneously, and
+        nothing ever gets lost or mixed up.
       </Style.LeadParagraph>
 
       <Style.SectionDivider />
@@ -1363,7 +1363,7 @@ function atomicIncrement(buffer: Int32Array, index: number): number {
 
       <ChapterNav
         prev={{ title: 'Epoch Signaling', to: '/deep-dives/signaling' }}
-        next={{ title: 'P2P Mesh', to: '/deep-dives/mesh' }}
+        next={{ title: 'Distributed P2P Mesh', to: '/deep-dives/mesh' }}
       />
     </Style.BlogContainer>
   );
