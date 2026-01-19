@@ -22,14 +22,14 @@ func TestGoWriteRustRead(t *testing.T) {
 
 	// 3. Go signals Rust via epoch increment
 	epochSlice := (*[256]int32)(sabPtr)
-	epochSlice[sab.IDX_INBOX_DIRTY]++
+	epochSlice[int(sab.IDX_INBOX_DIRTY)]++
 
 	// 4. Validate: Data is at correct offset (Rust would read this)
 	read := sabSlice[offset : offset+20]
 	assert.Equal(t, testData, read, "Data should be readable at OFFSET_INBOX")
 
 	// 5. Validate: Epoch incremented
-	assert.Equal(t, int32(1), epochSlice[sab.IDX_INBOX_DIRTY], "Epoch should be incremented")
+	assert.Equal(t, int32(1), epochSlice[int(sab.IDX_INBOX_DIRTY)], "Epoch should be incremented")
 }
 
 // TestRustWriteGoRead validates Rust → Go SAB communication
@@ -41,19 +41,19 @@ func TestRustWriteGoRead(t *testing.T) {
 
 	// 2. Simulate Rust writing to Outbox (Module → Kernel)
 	testData := []byte("Hello from Rust Module")
-	offset := sab.OFFSET_OUTBOX_BASE
+	offset := sab.OFFSET_OUTBOX_KERNEL_BASE
 	copy(sabSlice[offset:], testData)
 
 	// 3. Simulate Rust signaling Go via epoch
 	epochSlice := (*[256]int32)(sabPtr)
-	epochSlice[sab.IDX_OUTBOX_DIRTY]++
+	epochSlice[int(sab.IDX_OUTBOX_KERNEL_DIRTY)]++
 
 	// 4. Go reads data
 	read := sabSlice[offset : offset+22]
 	assert.Equal(t, testData, read, "Go should read Rust's data from OFFSET_OUTBOX")
 
 	// 5. Go detects epoch change
-	assert.Equal(t, int32(1), epochSlice[sab.IDX_OUTBOX_DIRTY], "Go should detect epoch change")
+	assert.Equal(t, int32(1), epochSlice[int(sab.IDX_OUTBOX_KERNEL_DIRTY)], "Go should detect epoch change")
 }
 
 // TestZeroCopyValidation ensures no data copying occurs

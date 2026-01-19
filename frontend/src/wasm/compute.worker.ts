@@ -311,7 +311,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
   try {
     switch (type) {
       case 'init': {
-        const { sab, memory, sabOffset, sabSize } = event.data;
+        const { sab, memory, sabOffset, sabSize, identity } = event.data;
         if (!sab) throw new Error('SAB is required');
         _memory =
           memory ||
@@ -327,6 +327,18 @@ self.onmessage = async (event: MessageEvent<any>) => {
         (self as any).__INOS_SAB_OFFSET__ = sabOffset || 0;
         (self as any).__INOS_SAB_SIZE__ = sabSize || sab.byteLength;
         (self as any).__INOS_SAB_INT32__ = INOSBridge.getFlagsView();
+        if (identity) {
+          (self as any).__INOS_IDENTITY__ = identity;
+          if (typeof identity.nodeId === 'string') {
+            (self as any).__INOS_NODE_ID__ = identity.nodeId;
+          }
+          if (typeof identity.deviceId === 'string') {
+            (self as any).__INOS_DEVICE_ID__ = identity.deviceId;
+          }
+          if (typeof identity.did === 'string') {
+            (self as any).__INOS_DID__ = identity.did;
+          }
+        }
 
         // Load modules
         for (const name of ['compute', 'diagnostics']) {

@@ -104,8 +104,9 @@ pub use shader_registry::{
     BindingProfile, GpuRequirements, ShaderManifest, ShaderMeta, ShaderRegistry, ValidationMetadata,
 };
 pub use signal::{
-    Epoch, Reactor, IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_DIRTY,
-    IDX_PANIC_STATE, IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH, IDX_SYSTEM_EPOCH,
+    Epoch, Reactor, IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_HOST_DIRTY,
+    IDX_OUTBOX_KERNEL_DIRTY, IDX_PANIC_STATE, IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH,
+    IDX_SYSTEM_EPOCH,
 };
 pub use social_graph::{SocialEntry, SocialGraph};
 

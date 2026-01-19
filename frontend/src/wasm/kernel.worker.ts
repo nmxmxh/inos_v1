@@ -13,10 +13,17 @@
 
 /// <reference lib="webworker" />
 
+console.log('[KernelWorker] 🚀 SCRIPT LOADED - Top Level Executing');
+
+self.addEventListener('error', (e: ErrorEvent) => {
+  console.error('[KernelWorker] 💥 UNCAUGHT ERROR:', e.message, e.error);
+});
+
 declare const self: DedicatedWorkerGlobalScope;
 import { INOSBridge } from './bridge-state';
 import {
   checkSharedMemoryCapability,
+  exposeBrowserApis,
   fetchWasmWithFallback,
   instantiateWasm,
   loadGoRuntime,
@@ -26,6 +33,9 @@ import {
   IDX_EVOLUTION_EPOCH,
   IDX_REGISTRY_EPOCH,
   IDX_SYSTEM_EPOCH,
+  IDX_INBOX_DIRTY,
+  IDX_OUTBOX_KERNEL_DIRTY,
+  IDX_ECONOMY_EPOCH,
 } from './layout';
 import EpochWatcherWorkerUrl from './epoch-watcher.worker?worker&url';
 
@@ -42,6 +52,7 @@ interface KernelWorkerMessage {
   sabSize?: number;
   tier?: 'light' | 'moderate' | 'heavy' | 'dedicated';
   wasmUrl?: string;
+  meshConfig?: any;
   method?: string;
   args?: any[];
   requestId?: string;
@@ -75,8 +86,25 @@ const MEMORY_PAGES: Record<string, { initial: number; maximum: number }> = {
  */
 async function initializeKernel(
   tier: 'light' | 'moderate' | 'heavy' | 'dedicated',
-  wasmUrl: string
+  wasmUrl: string,
+  meshConfig?: any,
+  injectedSab?: SharedArrayBuffer
 ): Promise<{ sabOffset: number; sabSize: number }> {
+  if (meshConfig) {
+    (self as any).__INOS_MESH_CONFIG__ = meshConfig;
+    if (meshConfig.identity) {
+      (self as any).__INOS_IDENTITY__ = meshConfig.identity;
+      if (typeof meshConfig.identity.nodeId === 'string') {
+        (self as any).__INOS_NODE_ID__ = meshConfig.identity.nodeId;
+      }
+      if (typeof meshConfig.identity.deviceId === 'string') {
+        (self as any).__INOS_DEVICE_ID__ = meshConfig.identity.deviceId;
+      }
+      if (typeof meshConfig.identity.did === 'string') {
+        (self as any).__INOS_DID__ = meshConfig.identity.did;
+      }
+    }
+  }
   // 0. Check shared memory capability FIRST (prevents iOS "body is distributed" error)
   const capability = checkSharedMemoryCapability();
   if (!capability.supported) {
@@ -91,14 +119,24 @@ async function initializeKernel(
   // 1. Load Go runtime
   await loadGoRuntime(self, '/wasm_exec.js', '[KernelWorker]');
 
+  exposeBrowserApis(self, '[KernelWorker]');
+
   const config = MEMORY_PAGES[tier];
 
-  // 2. Create shared memory
-  _memory = new WebAssembly.Memory({
-    initial: config.initial,
-    maximum: config.maximum,
-    shared: true,
-  });
+  // 2. Setup Memory (Either Injected or Created)
+  if (injectedSab) {
+    console.log('[KernelWorker] Using injected SharedArrayBuffer (Single Source of Truth)');
+    _sab = injectedSab;
+    _memory = null; // Go uses private memory in split architecture
+  } else {
+    console.warn('[KernelWorker] Creating NEW SharedArrayBuffer (Split Brain Risk!)');
+    _memory = new WebAssembly.Memory({
+      initial: config.initial,
+      maximum: config.maximum,
+      shared: true,
+    });
+    _sab = _memory.buffer as unknown as SharedArrayBuffer;
+  }
 
   // 3. Instantiate Go kernel
   _go = new (self as any).Go();
@@ -115,7 +153,9 @@ async function initializeKernel(
   let result: WebAssembly.WebAssemblyInstantiatedSource;
 
   try {
-    result = await instantiateWasm(response, _go, _memory, '[KernelWorker]');
+    // FIX: Pass undefined for memory to ensure Go uses its own private memory (Split Memory Architecture)
+    // This prevents Go's runtime (Stack/Heap) from overwriting the SAB at offset 0.
+    result = await instantiateWasm(response, _go, undefined, '[KernelWorker]');
   } catch (err) {
     throw new Error(
       `Failed to instantiate WASM in worker: ${err instanceof Error ? err.message : String(err)}`
@@ -123,14 +163,12 @@ async function initializeKernel(
   }
 
   // 4. Pre-initialize __INOS_SAB_INT32__ BEFORE Go runs (critical for Go's SABBridge)
-  // Go's WaitForEpochAsync uses Atomics.waitAsync(sb.jsInt32View, ...) which fails if undefined
-  const buffer = _memory.buffer as unknown as SharedArrayBuffer;
-  _sab = buffer;
+  const buffer = _sab!;
 
   // Expose SAB to Go Bridge (Pre-initialization)
   (self as any).__INOS_SAB__ = buffer;
   (self as any).__INOS_SAB_SIZE__ = buffer.byteLength;
-  (self as any).__INOS_SAB_INT32__ = new Int32Array(buffer, 0, 128);
+  (self as any).__INOS_SAB_INT32__ = new Int32Array(buffer, 0, buffer.byteLength / 4);
 
   // 5. Run Go kernel (this starts the Go runtime)
   // This must happen AFTER __INOS_SAB_INT32__ is set for Go's SABBridge to work
@@ -141,36 +179,59 @@ async function initializeKernel(
   const maxWaitMs = 5000;
   const startTime = Date.now();
 
-  while (!(self as any).getSystemSABAddress || !(self as any).getSystemSABSize) {
+  while (
+    !(self as any).getSystemSABAddress ||
+    !(self as any).getSystemSABSize ||
+    !(self as any).jsGetKernelStats ||
+    !(self as any).jsSubmitJob ||
+    !(self as any).jsDeserializeResult ||
+    !(self as any).jsDelegateJob
+  ) {
     if (Date.now() - startTime > maxWaitMs) {
-      console.warn('[KernelWorker] Timeout waiting for SAB functions');
+      console.warn('[KernelWorker] Timeout waiting for Go WASM exports');
       break;
     }
     await new Promise(r => setTimeout(r, 10));
   }
 
-  // 7. Get SAB info from kernel
-  let sabOffset = 0;
-  let sabSize = buffer.byteLength;
-
-  if ((self as any).getSystemSABAddress && (self as any).getSystemSABSize) {
-    const kAddr = (self as any).getSystemSABAddress();
-    const kSize = (self as any).getSystemSABSize();
-    if (kSize > 0) {
-      sabOffset = kAddr;
-      sabSize = kSize;
-    }
-  }
+  // 7. Get SAB info (Authoritative Schema: 0-based)
+  const sabOffset = 0;
+  const sabSize = buffer.byteLength;
 
   (self as any).__INOS_SAB_OFFSET__ = sabOffset;
   (self as any).__INOS_SAB_SIZE__ = sabSize;
-  if (sabOffset !== 0) {
-    (self as any).__INOS_SAB_INT32__ = new Int32Array(buffer, sabOffset, 128);
-  }
+  (self as any).__INOS_SAB_INT32__ = new Int32Array(
+    buffer,
+    sabOffset,
+    (buffer.byteLength - sabOffset) / 4
+  );
 
   // 8. Initialize centralized bridge for worker-local atomic access
-  INOSBridge.initialize(buffer, sabOffset, sabSize, _memory);
+  INOSBridge.initialize(buffer, sabOffset, sabSize, _memory as WebAssembly.Memory);
   startEpochWatchers(buffer, sabOffset);
+
+  // 9. Expose Go exports as mesh/kernel APIs for Worker proxy
+  const global = self as any;
+  if (!global.mesh) global.mesh = {};
+  if (!global.kernel) global.kernel = {};
+
+  // Map/Alias key functions for Mesh
+  global.mesh.delegateJob = global.mesh.delegateJob || global.jsDelegateJob;
+  global.mesh.delegateCompute = global.mesh.delegateCompute || global.mesh.delegateJob;
+  global.mesh.subscribeToEvents = global.mesh.subscribeToEvents || global.subscribeToEvents;
+  global.mesh.unsubscribeFromEvents =
+    global.mesh.unsubscribeFromEvents || global.unsubscribeFromEvents;
+  global.mesh.connectToPeer = global.mesh.connectToPeer || global.jsMeshConnectToPeer;
+
+  // Map/Alias key functions for Kernel
+  global.kernel.submitJob = global.kernel.submitJob || global.jsSubmitJob;
+  global.kernel.deserializeResult = global.kernel.deserializeResult || global.jsDeserializeResult;
+  global.kernel.getStats =
+    global.kernel.getStats || global.jsGetKernelStats || global.getKernelStats;
+
+  if (!(self as any).jsDelegateJob) {
+    console.warn('[KernelWorker] ⚠️ jsDelegateJob not found in global scope - Go exports missing?');
+  }
 
   return { sabOffset, sabSize };
 }
@@ -227,7 +288,15 @@ function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
     return;
   }
 
-  const indices = [IDX_SYSTEM_EPOCH, IDX_BIRD_EPOCH, IDX_EVOLUTION_EPOCH, IDX_REGISTRY_EPOCH];
+  const indices = [
+    IDX_SYSTEM_EPOCH,
+    IDX_BIRD_EPOCH,
+    IDX_EVOLUTION_EPOCH,
+    IDX_REGISTRY_EPOCH,
+    IDX_INBOX_DIRTY,
+    IDX_OUTBOX_KERNEL_DIRTY,
+    IDX_ECONOMY_EPOCH,
+  ];
 
   _epochWatchers = indices.map(index => {
     const worker = new Worker(EpochWatcherWorkerUrl, { type: 'module' });
@@ -255,19 +324,29 @@ function stopEpochWatchers(): void {
 // MESSAGE HANDLER
 // =============================================================================
 
+console.log('[KernelWorker] 🛠️ Setting up MESSAGE HANDLER...');
 self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
-  const { type } = event.data;
-  console.log(`[KernelWorker] Received message: type=${type}`);
+  // console.log('[KernelWorker] 📨 RAW MESSAGE RECEIVED', event.data);
+  const { type, method, args, requestId } = event.data;
+  // console.log(`[KernelWorker] 📨 Received message: type=${type} method=${method || 'N/A'}`, { ... });
 
   try {
-    switch (type) {
+    switch (type as any) {
+      case 'ping':
+        console.log('[KernelWorker] 🏓 PONG! Communication channel is open.');
+        return;
       case 'init': {
         const tier = event.data.tier || 'light';
         const wasmUrl = event.data.wasmUrl || '/kernel.wasm';
 
         console.log(`[KernelWorker] Initializing kernel (tier: ${tier})`);
 
-        const { sabOffset, sabSize } = await initializeKernel(tier, wasmUrl);
+        const { sabOffset, sabSize } = await initializeKernel(
+          tier,
+          wasmUrl,
+          event.data.meshConfig,
+          event.data.sab // Pass injected SAB
+        );
 
         // Send back the SAB for main thread and other workers
         const response = {
@@ -324,7 +403,6 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
       }
 
       case 'mesh_call': {
-        const { method, args, requestId } = event.data;
         const mesh = (self as any).mesh;
         if (!mesh || !mesh[method!]) {
           self.postMessage({
@@ -346,6 +424,13 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
         }
         break;
       }
+
+      case 'webrtc_event':
+      case 'webrtc_datachannel_created':
+      case 'webrtc_datachannel_event':
+      case 'webrtc_response':
+        // Handled by WebRTCProxy in kernel.shared.ts
+        break;
 
       default:
         console.warn(`[KernelWorker] Unknown message type: ${type}`);

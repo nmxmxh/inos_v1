@@ -1,3 +1,5 @@
+//go:build !js || !wasm
+
 package transport
 
 import (
@@ -244,7 +246,10 @@ func TestWebRTCTransport_RPC(t *testing.T) {
 		var lastReq RPCRequest
 		sent := mockConn.getSent()
 		if len(sent) > 0 {
-			json.Unmarshal(sent[0], &lastReq)
+			env := &common.Envelope{}
+			if err := env.Unmarshal(sent[0]); err == nil {
+				json.Unmarshal(env.Payload, &lastReq)
+			}
 		}
 
 		if lastReq.ID == "" {
@@ -293,9 +298,12 @@ func TestWebRTCTransport_StreamRPC(t *testing.T) {
 		for i := 0; i < 20; i++ {
 			tr.connMu.Lock()
 			if len(mockConn.getSent()) > 0 {
-				json.Unmarshal(mockConn.getSent()[0], &lastReq)
-				tr.connMu.Unlock()
-				break
+				env := &common.Envelope{}
+				if err := env.Unmarshal(mockConn.getSent()[0]); err == nil {
+					json.Unmarshal(env.Payload, &lastReq)
+					tr.connMu.Unlock()
+					break
+				}
 			}
 			tr.connMu.Unlock()
 			time.Sleep(10 * time.Millisecond)
@@ -493,8 +501,11 @@ func TestWebRTCTransport_HandleIncomingMessages(t *testing.T) {
 	tr.connMu.Unlock()
 
 	// 1. Test Ping
-	pingMsg := map[string]interface{}{"type": "ping"}
-	pingData, _ := json.Marshal(pingMsg)
+	pingEnv := &common.Envelope{
+		Type: "ping",
+		ID:   "ping123",
+	}
+	pingData, _ := pingEnv.Marshal()
 	tr.handleIncomingMessage(peerID, pingData)
 
 	// 2. Test Pong (Latency update)
@@ -503,16 +514,23 @@ func TestWebRTCTransport_HandleIncomingMessages(t *testing.T) {
 		"type":      "pong",
 		"timestamp": float64(now),
 	}
-	pongData, _ := json.Marshal(pongMsg)
+	pongPayload, _ := json.Marshal(pongMsg)
+	pongEnv := &common.Envelope{
+		Type:      "pong",
+		Timestamp: now,
+		Payload:   pongPayload,
+	}
+	pongData, _ := pongEnv.Marshal()
 	tr.handleIncomingMessage(peerID, pongData)
 
 	// 3. Test Capability Update
 	newCap := common.PeerCapability{PeerID: peerID, Reputation: 0.95}
-	updateMsg := map[string]interface{}{
-		"type":    "capability_update",
-		"payload": newCap,
+	capPayload, _ := json.Marshal(newCap)
+	updateEnv := &common.Envelope{
+		Type:    "capability_update",
+		Payload: capPayload,
 	}
-	updateData, _ := json.Marshal(updateMsg)
+	updateData, _ := updateEnv.Marshal()
 	tr.handleIncomingMessage(peerID, updateData)
 
 	tr.connMu.RLock()
@@ -969,13 +987,21 @@ func TestWebRTCTransport_HandleIncomingEdgeCases(t *testing.T) {
 	}
 	respData, _ := json.Marshal(rpcResp)
 
+	// Wrap in Envelope
+	env := &common.Envelope{
+		ID:      "test-123",
+		Type:    "rpc_response",
+		Payload: respData,
+	}
+	envData, _ := env.Marshal()
+
 	// Create response channel
 	tr.rpcMu.Lock()
 	respChan := make(chan RPCResponse, 1)
 	tr.rpcResponses["test-123"] = respChan
 	tr.rpcMu.Unlock()
 
-	tr.handleIncomingMessage(peerID, respData)
+	tr.handleIncomingMessage(peerID, envData)
 
 	// Verify response was delivered
 	select {
@@ -992,7 +1018,15 @@ func TestWebRTCTransport_HandleIncomingEdgeCases(t *testing.T) {
 		"payload": "test data",
 	}
 	broadcastData, _ := json.Marshal(broadcastMsg)
-	tr.handleIncomingMessage(peerID, broadcastData)
+
+	broadcastEnv := &common.Envelope{
+		ID:      "test-broadcast",
+		Type:    "broadcast",
+		Payload: broadcastData,
+	}
+	broadcastEnvData, _ := broadcastEnv.Marshal()
+
+	tr.handleIncomingMessage(peerID, broadcastEnvData)
 }
 
 // TestWebSocketConnection_SendError tests error handling

@@ -21,12 +21,16 @@ func TestSABLayout(t *testing.T) {
 		t.Error("Inbox overlaps with module registry")
 	}
 
-	if OFFSET_OUTBOX_BASE < OFFSET_INBOX_BASE+SIZE_INBOX_TOTAL {
-		t.Error("Outbox overlaps with inbox")
+	if OFFSET_OUTBOX_HOST_BASE < OFFSET_INBOX_BASE+SIZE_INBOX_TOTAL {
+		t.Error("Outbox Host overlaps with inbox")
 	}
 
-	if OFFSET_ARENA < OFFSET_OUTBOX_BASE+SIZE_OUTBOX_TOTAL {
-		t.Error("Arena overlaps with outbox")
+	if OFFSET_OUTBOX_KERNEL_BASE < OFFSET_OUTBOX_HOST_BASE+SIZE_OUTBOX_HOST_TOTAL {
+		t.Error("Outbox Kernel overlaps with outbox host")
+	}
+
+	if OFFSET_ARENA < OFFSET_OUTBOX_KERNEL_BASE+SIZE_OUTBOX_KERNEL_TOTAL {
+		t.Error("Arena overlaps with outbox kernel")
 	}
 }
 

@@ -20,7 +20,18 @@ type DataSupervisor struct {
 
 func NewDataSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string, delegator foundation.MeshDelegator) *DataSupervisor {
 	if len(capabilities) == 0 {
-		capabilities = []string{"data.transform", "data.filter", "data.aggregate", "data.validate", "data.query"}
+		capabilities = []string{"data", "data.transform", "data.filter", "data.aggregate", "data.validate", "data.query"}
+	} else {
+		hasAlias := false
+		for _, cap := range capabilities {
+			if cap == "data" {
+				hasAlias = true
+				break
+			}
+		}
+		if !hasAlias {
+			capabilities = append([]string{"data"}, capabilities...)
+		}
 	}
 	return &DataSupervisor{
 		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("data", capabilities, patterns, knowledge, delegator, bridge, nil),

@@ -72,6 +72,19 @@ npm test
 - P2P Mesh Initialization
 - SAB Zero-Copy Validation
 
+### Local Signaling (Mesh Multi-Node)
+
+```bash
+cd integration
+npm run signaling
+```
+
+Then open two peers locally with distinct IDs:
+```
+http://localhost:5173/?nodeId=node-a&deviceId=device-a&signaling=ws://localhost:8787/ws
+http://localhost:5173/?nodeId=node-b&deviceId=device-b&signaling=ws://localhost:8787/ws
+```
+
 ## Test Scenarios
 
 ### 1. Go → Rust Communication

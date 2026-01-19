@@ -12,13 +12,14 @@ import (
 	"math"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
+	"github.com/nmxmxh/inos_v1/kernel/runtime"
 
-	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -38,11 +39,10 @@ type WebRTCTransport struct {
 	pcMu            sync.RWMutex
 
 	// WebSocket signaling
-	signalingURL     string
-	signalingConn    *websocket.Conn
-	signalingMu      sync.RWMutex
-	signalingWriteMu sync.Mutex
-	signalingStatus  atomic.Value // "connected", "connecting", "disconnected"
+	signalingURL    string
+	signaling       SignalingChannel
+	signalingMu     sync.RWMutex
+	signalingStatus atomic.Value // "connected", "connecting", "disconnected"
 
 	// STUN/TURN servers
 	// iceServers []string // Removed per lint warning (unused, present in config)
@@ -62,6 +62,7 @@ type WebRTCTransport struct {
 
 	// Health monitoring
 	health       common.TransportHealth
+	healthMu     sync.RWMutex
 	healthTicker *time.Ticker
 
 	// Configuration
@@ -73,6 +74,13 @@ type WebRTCTransport struct {
 	// State
 	startTime time.Time
 	started   atomic.Bool
+
+	peerEventMu      sync.RWMutex
+	peerEventHandler func(peerID string, connected bool)
+
+	// Single-flight connection management
+	connWaiters map[string]chan struct{}
+	waiterMu    sync.Mutex
 }
 
 // RPCRequest represents a remote procedure call
@@ -157,6 +165,10 @@ type TransportConfig struct {
 
 	// Metrics settings
 	MetricsInterval time.Duration `json:"metrics_interval"`
+
+	// Adaptive Mesh
+	GossipFanout  int           `json:"gossip_fanout"`
+	BatchInterval time.Duration `json:"batch_interval"`
 }
 
 // QueuedMessage represents a message in the send queue
@@ -213,6 +225,9 @@ func DefaultTransportConfig() TransportConfig {
 		PoolMaxIdle: 5 * time.Minute,
 
 		MetricsInterval: 10 * time.Second,
+
+		GossipFanout:  3,
+		BatchInterval: 50 * time.Millisecond,
 	}
 }
 
@@ -238,6 +253,7 @@ func NewWebRTCTransport(nodeID string, config TransportConfig, logger *slog.Logg
 		config:          config,
 		logger:          logger.With("component", "transport", "node_id", getShortID(nodeID)),
 		startTime:       time.Now(),
+		connWaiters:     make(map[string]chan struct{}),
 	}
 
 	// Initialize WebRTC configuration
@@ -269,7 +285,7 @@ func (t *WebRTCTransport) Start(ctx context.Context) error {
 		return errors.New("transport already started")
 	}
 
-	t.logger.Info("starting transport")
+	t.logger.Info("starting transport", "signaling_servers", t.signalingServerList())
 
 	// Connect to signaling server
 	if err := t.connectSignaling(); err != nil {
@@ -284,10 +300,50 @@ func (t *WebRTCTransport) Start(ctx context.Context) error {
 	go t.metricsCollector()
 
 	t.started.Store(true)
+	t.healthMu.Lock()
 	t.health.Status = "running"
+	t.healthMu.Unlock()
 	t.logger.Info("transport started successfully")
 
 	return nil
+}
+
+func (t *WebRTCTransport) ensureSignaling() error {
+	t.signalingMu.RLock()
+	s := t.signaling
+	t.signalingMu.RUnlock()
+
+	if s != nil && s.IsConnected() {
+		return nil
+	}
+	t.logger.Debug("signaling not connected; dialing", "servers", t.signalingServerList())
+	return t.connectSignaling()
+}
+
+func (t *WebRTCTransport) signalingServerList() []string {
+	if len(t.config.SignalingServers) > 0 {
+		return t.config.SignalingServers
+	}
+	if t.config.WebSocketURL != "" {
+		return []string{t.config.WebSocketURL}
+	}
+	return nil
+}
+
+// SetPeerEventHandler registers a callback for peer connection state changes.
+func (t *WebRTCTransport) SetPeerEventHandler(handler func(peerID string, connected bool)) {
+	t.peerEventMu.Lock()
+	t.peerEventHandler = handler
+	t.peerEventMu.Unlock()
+}
+
+func (t *WebRTCTransport) notifyPeerEvent(peerID string, connected bool) {
+	t.peerEventMu.RLock()
+	handler := t.peerEventHandler
+	t.peerEventMu.RUnlock()
+	if handler != nil {
+		handler(peerID, connected)
+	}
 }
 
 // Stop gracefully shuts down the transport
@@ -301,9 +357,9 @@ func (t *WebRTCTransport) Stop() error {
 
 	// Close signaling connection
 	t.signalingMu.Lock()
-	if t.signalingConn != nil {
-		t.signalingConn.Close()
-		t.signalingConn = nil
+	if t.signaling != nil {
+		t.signaling.Close()
+		t.signaling = nil
 	}
 	t.signalingMu.Unlock()
 
@@ -343,6 +399,44 @@ func (t *WebRTCTransport) Connect(ctx context.Context, peerID string) error {
 		return nil
 	}
 
+	if !t.started.Load() {
+		if err := t.Start(ctx); err != nil {
+			t.logger.Warn("failed to auto-start transport", "error", err)
+		}
+	}
+
+	if err := t.ensureSignaling(); err != nil {
+		t.logger.Warn("signaling unavailable before connect", "peer", getShortID(peerID), "error", err)
+	}
+
+	// Single-flight: only one connection attempt per peer at a time
+	t.waiterMu.Lock()
+	if waiter, ok := t.connWaiters[peerID]; ok {
+		t.waiterMu.Unlock()
+		t.logger.Debug("connection already in progress, waiting", "peer", getShortID(peerID))
+		select {
+		case <-waiter:
+			if t.IsConnected(peerID) {
+				return nil
+			}
+			return errors.New("concurrent connection attempt failed")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	// We are the initiator for this peer
+	waiter := make(chan struct{})
+	t.connWaiters[peerID] = waiter
+	t.waiterMu.Unlock()
+
+	defer func() {
+		t.waiterMu.Lock()
+		delete(t.connWaiters, peerID)
+		close(waiter)
+		t.waiterMu.Unlock()
+	}()
+
 	ctx, cancel := context.WithTimeout(ctx, t.config.ConnectionTimeout)
 	defer cancel()
 
@@ -357,7 +451,7 @@ func (t *WebRTCTransport) Connect(ctx context.Context, peerID string) error {
 			t.metricsMu.Unlock()
 			return nil
 		} else {
-			t.logger.Debug("WebRTC connection failed", "peer", getShortID(peerID), "error", err)
+			t.logger.Info("WebRTC connection failed", "peer", getShortID(peerID), "error", err)
 		}
 	}
 
@@ -376,12 +470,21 @@ func (t *WebRTCTransport) Connect(ctx context.Context, peerID string) error {
 
 // connectViaWebRTC attempts to establish a WebRTC connection
 func (t *WebRTCTransport) connectViaWebRTC(ctx context.Context, peerID string) error {
-	// Create WebRTC peer connection
+	t.logger.Info("attempting WebRTC connection", "peer", getShortID(peerID))
+
+	// Check WebRTC support (platform-specific)
+	if !t.isWebRTCSupported() {
+		return errors.New("WebRTC not supported on this platform/browser")
+	}
+
 	config := t.webrtcConfig
 	peerConnection, err := webrtc.NewPeerConnection(config)
 	if err != nil {
+		t.logger.Error("failed to create peer connection", "error", err)
 		return fmt.Errorf("failed to create peer connection: %w", err)
 	}
+
+	t.logger.Debug("peer connection created", "peer", getShortID(peerID))
 
 	// Store peer connection immediately so signaling can find it
 	t.pcMu.Lock()
@@ -442,6 +545,7 @@ func (t *WebRTCTransport) connectViaWebRTC(ctx context.Context, peerID string) e
 			t.connMu.Unlock()
 
 			t.logger.Info("WebRTC connection established", "peer", getShortID(peerID))
+			t.notifyPeerEvent(peerID, true)
 
 			// Signal success if waiting
 			select {
@@ -464,6 +568,7 @@ func (t *WebRTCTransport) connectViaWebRTC(ctx context.Context, peerID string) e
 			t.pcMu.Lock()
 			delete(t.peerConnections, peerID)
 			t.pcMu.Unlock()
+			t.notifyPeerEvent(peerID, false)
 		}
 	})
 
@@ -488,6 +593,7 @@ func (t *WebRTCTransport) connectViaWebRTC(ctx context.Context, peerID string) e
 	}
 
 	if err := t.sendSignalingMessage(msg); err != nil {
+		t.logger.Warn("failed to send WebRTC offer", "peer", getShortID(peerID), "error", err)
 		peerConnection.Close()
 		return fmt.Errorf("failed to send offer: %w", err)
 	}
@@ -500,50 +606,6 @@ func (t *WebRTCTransport) connectViaWebRTC(ctx context.Context, peerID string) e
 	case <-connected:
 		return nil
 	}
-}
-
-// connectViaWebSocket establishes a WebSocket connection as fallback
-func (t *WebRTCTransport) connectViaWebSocket(ctx context.Context, peerID string) error {
-	// Check if we have a direct WebSocket URL for the peer
-	wsURL, err := t.getPeerWebSocketURL(peerID)
-	if err != nil {
-		return fmt.Errorf("failed to get peer WebSocket URL: %w", err)
-	}
-
-	// Connect to peer's WebSocket
-	dialer := websocket.Dialer{
-		HandshakeTimeout: t.config.ConnectionTimeout,
-		ReadBufferSize:   t.config.MaxMessageSize,
-		WriteBufferSize:  t.config.MaxMessageSize,
-	}
-
-	conn, _, err := dialer.DialContext(ctx, wsURL, nil)
-	if err != nil {
-		return fmt.Errorf("failed to dial WebSocket: %w", err)
-	}
-
-	// Create WebSocket connection wrapper
-	wsConn := &WebSocketConnection{
-		peerID:   peerID,
-		conn:     conn,
-		stats:    ConnectionStats{OpenedAt: time.Now()},
-		shutdown: make(chan struct{}),
-	}
-
-	// Store connection
-	t.connMu.Lock()
-	t.connections[peerID] = &PeerConnection{
-		PeerID:      peerID,
-		Connection:  wsConn,
-		Connected:   true,
-		LastContact: time.Now(),
-	}
-	t.connMu.Unlock()
-
-	// Start receiving messages
-	go wsConn.receiveLoop(t.handleIncomingMessage)
-
-	return nil
 }
 
 // Disconnect closes connection to a peer
@@ -565,6 +627,7 @@ func (t *WebRTCTransport) Disconnect(peerID string) error {
 	}
 	t.pcMu.Unlock()
 
+	t.notifyPeerEvent(peerID, false)
 	t.logger.Debug("disconnected from peer", "peer", getShortID(peerID))
 	return nil
 }
@@ -882,6 +945,8 @@ func (t *WebRTCTransport) GetConnectionMetrics() common.ConnectionMetrics {
 
 // GetHealth returns transport health status
 func (t *WebRTCTransport) GetHealth() common.TransportHealth {
+	t.healthMu.Lock()
+	defer t.healthMu.Unlock()
 	t.health.Uptime = time.Since(t.startTime).String()
 
 	// Calculate health score
@@ -952,30 +1017,31 @@ func (t *WebRTCTransport) GetStats() map[string]interface{} {
 
 // ========== Internal Methods ==========
 
-// connectSignaling connects to signaling server
+// Started on line 980 in the original file
 func (t *WebRTCTransport) connectSignaling() error {
 	t.signalingMu.Lock()
 	defer t.signalingMu.Unlock()
 
-	if t.signalingConn != nil {
+	if t.signaling != nil && t.signaling.IsConnected() {
 		return nil // Already connected
 	}
 
 	// Try servers in order
 	var lastErr error
-	for _, server := range t.config.SignalingServers {
-		dialer := websocket.Dialer{
-			HandshakeTimeout: t.config.ConnectionTimeout,
-		}
-
-		conn, _, err := dialer.Dial(server, nil)
+	servers := t.signalingServerList()
+	if len(servers) == 0 {
+		return errors.New("no signaling servers configured")
+	}
+	t.logger.Info("dialing signaling servers", "servers", servers)
+	for _, server := range servers {
+		conn, err := dialSignaling(server)
 		if err != nil {
 			lastErr = err
 			t.logger.Debug("failed to connect to signaling server", "server", server, "error", err)
 			continue
 		}
 
-		t.signalingConn = conn
+		t.signaling = conn
 		t.signalingURL = server
 		t.signalingStatus.Store("connected")
 
@@ -983,6 +1049,13 @@ func (t *WebRTCTransport) connectSignaling() error {
 		go t.receiveSignalingMessages()
 
 		t.logger.Info("connected to signaling server", "server", server)
+		go func(s SignalingChannel) {
+			_ = s.Send(map[string]interface{}{
+				"type":      "peer_discovery",
+				"peer_id":   t.nodeID,
+				"timestamp": time.Now().UnixNano(),
+			})
+		}(conn)
 		return nil
 	}
 
@@ -1007,21 +1080,15 @@ func (t *WebRTCTransport) reconnectSignaling() {
 // sendSignalingMessage sends a message to signaling server
 func (t *WebRTCTransport) sendSignalingMessage(message interface{}) error {
 	t.signalingMu.RLock()
-	conn := t.signalingConn
+	s := t.signaling
 	t.signalingMu.RUnlock()
 
-	if conn == nil {
+	if s == nil {
+		t.logger.Warn("signaling channel missing", "servers", t.signalingServerList())
 		return errors.New("not connected to signaling server")
 	}
 
-	messageBytes, err := json.Marshal(message)
-	if err != nil {
-		return fmt.Errorf("failed to marshal signaling message: %w", err)
-	}
-
-	t.signalingWriteMu.Lock()
-	defer t.signalingWriteMu.Unlock()
-	return conn.WriteMessage(websocket.TextMessage, messageBytes)
+	return s.Send(message)
 }
 
 // receiveSignalingMessages handles incoming signaling messages
@@ -1029,7 +1096,7 @@ func (t *WebRTCTransport) receiveSignalingMessages() {
 	defer func() {
 		t.signalingStatus.Store("disconnected")
 		t.signalingMu.Lock()
-		t.signalingConn = nil
+		t.signaling = nil
 		t.signalingMu.Unlock()
 
 		// Attempt reconnect
@@ -1042,19 +1109,20 @@ func (t *WebRTCTransport) receiveSignalingMessages() {
 			return
 		default:
 			t.signalingMu.RLock()
-			conn := t.signalingConn
+			s := t.signaling
 			t.signalingMu.RUnlock()
 
-			if conn == nil {
+			if s == nil {
 				return
 			}
 
-			_, message, err := conn.ReadMessage()
+			message, err := s.Receive()
 			if err != nil {
 				t.logger.Error("failed to read signaling message", "error", err)
 				return
 			}
 
+			t.logger.Debug("received signaling data", "len", len(message))
 			t.handleSignalingMessage(message)
 		}
 	}
@@ -1070,6 +1138,7 @@ func (t *WebRTCTransport) handleSignalingMessage(message []byte) {
 
 	msgType, _ := msg["type"].(string)
 	senderID, _ := msg["peer_id"].(string)
+	t.logger.Info("signaling message received", "type", msgType, "from", getShortID(senderID))
 
 	switch msgType {
 	case "webrtc_offer":
@@ -1105,9 +1174,10 @@ func (t *WebRTCTransport) handleWebRTCOffer(senderID string, msg map[string]inte
 	}
 
 	// Create peer connection
+	t.logger.Info("handling WebRTC offer", "from", getShortID(senderID))
 	peerConnection, err := webrtc.NewPeerConnection(t.webrtcConfig)
 	if err != nil {
-		t.logger.Error("failed to create peer connection", "error", err)
+		t.logger.Error("failed to create peer connection for offer", "error", err)
 		return
 	}
 
@@ -1115,6 +1185,25 @@ func (t *WebRTCTransport) handleWebRTCOffer(senderID string, msg map[string]inte
 	t.pcMu.Lock()
 	t.peerConnections[senderID] = peerConnection
 	t.pcMu.Unlock()
+
+	// Set up ICE candidate handler
+	peerConnection.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			return
+		}
+
+		// Send candidate to peer via signaling
+		msg := map[string]interface{}{
+			"type":      "ice_candidate",
+			"peer_id":   t.nodeID,
+			"target_id": senderID,
+			"candidate": candidate.ToJSON(),
+		}
+
+		if err := t.sendSignalingMessage(msg); err != nil {
+			t.logger.Error("failed to send ICE candidate", "error", err)
+		}
+	})
 
 	// Set up data channel
 	peerConnection.OnDataChannel(func(dc *webrtc.DataChannel) {
@@ -1135,6 +1224,7 @@ func (t *WebRTCTransport) handleWebRTCOffer(senderID string, msg map[string]inte
 				LastContact: time.Now(),
 			}
 			t.connMu.Unlock()
+			t.notifyPeerEvent(senderID, true)
 
 			go conn.receiveLoop()
 		})
@@ -1240,6 +1330,17 @@ func (t *WebRTCTransport) handleICECandidate(senderID string, msg map[string]int
 
 // handlePeerDiscovery processes peer discovery messages
 func (t *WebRTCTransport) handlePeerDiscovery(msg map[string]interface{}) {
+	if peerID, ok := msg["peer_id"].(string); ok {
+		if peerID != "" && peerID != t.nodeID {
+			t.connMu.Lock()
+			if _, exists := t.connections[peerID]; !exists {
+				t.connections[peerID] = &PeerConnection{PeerID: peerID, Connected: false}
+			}
+			t.connMu.Unlock()
+		}
+		return
+	}
+
 	peers, ok := msg["peers"].([]interface{})
 	if !ok {
 		return
@@ -1525,9 +1626,12 @@ func (t *WebRTCTransport) checkHealth() {
 	}
 
 	// Log health status
-	health := t.GetHealth()
-	if health.Score < 0.5 {
-		t.logger.Error("transport health degraded", "score", health.Score)
+	t.healthMu.RLock()
+	score := t.health.Score
+	t.healthMu.RUnlock()
+
+	if score < 0.5 {
+		t.logger.Error("transport health degraded", "score", score)
 	}
 }
 
@@ -1617,25 +1721,45 @@ func (t *WebRTCTransport) updatePeerLatency(peerID string, latency time.Duration
 func (t *WebRTCTransport) createWebRTCConfig() webrtc.Configuration {
 	var iceServers []webrtc.ICEServer
 
-	for _, server := range t.config.ICEServers {
-		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs: []string{server},
-		})
+	// For local testing (localhost), skip STUN/TURN to force host candidates
+	// and avoid timeout/blocking issues with public STUN servers.
+	isLocal := false
+	if t.config.WebSocketURL != "" && strings.Contains(t.config.WebSocketURL, "localhost") {
+		isLocal = true
+	} else if len(t.config.SignalingServers) > 0 {
+		for _, s := range t.config.SignalingServers {
+			if strings.Contains(s, "localhost") {
+				isLocal = true
+				break
+			}
+		}
 	}
 
-	for _, server := range t.config.STUNServers {
-		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs: []string{server},
-		})
+	if !isLocal {
+		for _, server := range t.config.ICEServers {
+			iceServers = append(iceServers, webrtc.ICEServer{
+				URLs: []string{server},
+			})
+		}
 	}
 
-	for _, server := range t.config.TURNServers {
-		// Parse TURN server credentials (username:password@server)
-		iceServers = append(iceServers, webrtc.ICEServer{
-			URLs:       []string{server},
-			Username:   "", // Would be parsed from server string
-			Credential: "", // Would be parsed from server string
-		})
+	if !isLocal {
+		for _, server := range t.config.STUNServers {
+			iceServers = append(iceServers, webrtc.ICEServer{
+				URLs: []string{server},
+			})
+		}
+	}
+
+	if !isLocal {
+		for _, server := range t.config.TURNServers {
+			// Parse TURN server credentials (username:password@server)
+			iceServers = append(iceServers, webrtc.ICEServer{
+				URLs:       []string{server},
+				Username:   "", // Would be parsed from server string
+				Credential: "", // Would be parsed from server string
+			})
+		}
 	}
 
 	return webrtc.Configuration{
@@ -1722,102 +1846,6 @@ func (c *WebRTCConnection) GetStats() ConnectionStats {
 func (c *WebRTCConnection) receiveLoop() {
 	// WebRTC uses callbacks, so this just keeps the connection alive
 	<-c.shutdown
-}
-
-// ========== WebSocketConnection Implementation ==========
-
-// WebSocketConnection implements Connection for WebSocket
-type WebSocketConnection struct {
-	peerID   string
-	conn     *websocket.Conn
-	stats    ConnectionStats
-	shutdown chan struct{}
-	mu       sync.RWMutex
-}
-
-func (c *WebSocketConnection) Send(ctx context.Context, data []byte) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.conn == nil {
-		return errors.New("connection not open")
-	}
-
-	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		c.stats.LastError = err.Error()
-		return err
-	}
-
-	c.stats.BytesSent += uint64(len(data))
-	c.stats.MessagesSent++
-	return nil
-}
-
-func (c *WebSocketConnection) Receive(ctx context.Context) ([]byte, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-c.shutdown:
-		return nil, errors.New("connection closed")
-	default:
-		_, message, err := c.conn.ReadMessage()
-		if err != nil {
-			return nil, err
-		}
-
-		c.stats.BytesReceived += uint64(len(message))
-		c.stats.MessagesRecv++
-		return message, nil
-	}
-}
-
-func (c *WebSocketConnection) Close() error {
-	close(c.shutdown)
-
-	if c.conn != nil {
-		return c.conn.Close()
-	}
-	return nil
-}
-
-func (c *WebSocketConnection) IsOpen() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.conn != nil
-}
-
-func (c *WebSocketConnection) GetStats() ConnectionStats {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.stats
-}
-
-func (c *WebSocketConnection) receiveLoop(handler func(string, []byte)) {
-	defer c.Close()
-
-	for {
-		select {
-		case <-c.shutdown:
-			return
-		default:
-			_, message, err := c.conn.ReadMessage()
-			if err != nil {
-				if websocket.IsUnexpectedCloseError(err,
-					websocket.CloseGoingAway,
-					websocket.CloseAbnormalClosure) {
-					// Log unexpected closure
-				}
-				return
-			}
-
-			c.stats.BytesReceived += uint64(len(message))
-			c.stats.MessagesRecv++
-
-			// Handle message
-			handler(c.peerID, message)
-		}
-	}
 }
 
 // ========== Helper Functions ==========
@@ -1916,4 +1944,27 @@ func getShortID(id string) string {
 		return id
 	}
 	return id[:8]
+}
+
+// ApplyRoleConfig updates transport settings based on assigned runtime role
+func (t *WebRTCTransport) ApplyRoleConfig(config runtime.RoleConfig) {
+	t.logger.Info("applying runtime role config",
+		"role", config.Role.String(),
+		"fanout", config.GossipFanout,
+		"batch_ms", config.BatchInterval.Milliseconds())
+
+	// Update config atomically-ish (some fields might race if read without lock, but these are mostly static or eventually consistent)
+	t.config.GossipFanout = config.GossipFanout
+	t.config.BatchInterval = config.BatchInterval
+
+	// Ensure MaxConnections respects role capabilities
+	if config.MaxPeers > 0 {
+		t.config.MaxConnections = config.MaxPeers
+		t.connectionPool.maxSize = config.MaxPeers
+	}
+
+	// Update local capability cache (to be broadcasted)
+	if t.localCapability != nil {
+		t.localCapability.Role = config.Role
+	}
 }

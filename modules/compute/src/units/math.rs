@@ -949,14 +949,14 @@ mod tests {
     #[tokio::test]
     async fn test_compute_instance_matrices() {
         let unit = MathUnit::new();
-        let sab_size = 10 * 1024 * 1024; // 10MB
+        let sab_size = sdk::layout::SAB_SIZE_MIN; // 32MB to fit production offsets
         let sab_inner = sdk::sab::SafeSAB::with_size(sab_size);
         crate::set_cached_sab(sab_inner.clone());
 
-        const BYTES_PER_BIRD: usize = 236; // MUST match sdk::layout::BIRD_STRIDE
+        const BYTES_PER_BIRD: usize = sdk::layout::BIRD_STRIDE;
         let count = 2;
-        let source_offset = 0x400000;
-        let target_offset = 0x500000;
+        let source_offset = sdk::layout::OFFSET_BIRD_BUFFER_A;
+        let target_offset = sdk::layout::OFFSET_MATRIX_BUFFER_B;
 
         // 1. Setup bird data in mocked SAB
         // Bird 0: At origin, facing forward
@@ -965,6 +965,7 @@ mod tests {
         bird0[0] = 0.0;
         bird0[1] = 0.0;
         bird0[2] = 0.0; // pos
+        bird0[9] = 1.0; // qw (identity rotation)
         bird0[6] = 0.0;
         bird0[7] = 0.0; // rot
         bird0[11] = 0.5; // flap

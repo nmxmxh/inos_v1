@@ -10,21 +10,34 @@ import (
 
 	"github.com/nmxmxh/inos_v1/kernel/gen/base/v1"
 	p2p "github.com/nmxmxh/inos_v1/kernel/gen/p2p/v1"
+	system "github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
 	capnp "zombiezen.com/go/capnproto2"
 )
 
 // PeerCapability represents a node's ability and status in the mesh.
 type PeerCapability struct {
-	PeerID          string          `json:"peer_id"`
-	AvailableChunks []string        `json:"available_chunks"` // BLAKE3 Hashes
-	BandwidthKbps   float32         `json:"bandwidth_kbps"`
-	LatencyMs       float32         `json:"latency_ms"`
-	Reputation      float32         `json:"reputation"`
-	Capabilities    []string        `json:"capabilities"` // "gpu", "storage", etc.
-	LastSeen        int64           `json:"last_seen"`    // Unix Nanoseconds
-	ConnectionState ConnectionState `json:"connection_state"`
-	Region          string          `json:"region,omitempty"`
-	Coordinates     *GeoCoordinates `json:"coordinates,omitempty"`
+	PeerID          string                     `json:"peer_id"`
+	AvailableChunks []string                   `json:"available_chunks"` // BLAKE3 Hashes
+	BandwidthKbps   float32                    `json:"bandwidth_kbps"`
+	LatencyMs       float32                    `json:"latency_ms"`
+	Reputation      float32                    `json:"reputation"`
+	Capabilities    []string                   `json:"capabilities"` // "gpu", "storage", etc.
+	LastSeen        int64                      `json:"last_seen"`    // Unix Nanoseconds
+	ConnectionState ConnectionState            `json:"connection_state"`
+	Region          string                     `json:"region,omitempty"`
+	Coordinates     *GeoCoordinates            `json:"coordinates,omitempty"`
+	Role            system.Runtime_RuntimeRole `json:"role"`
+	RuntimeCaps     *RuntimeCapabilities       `json:"runtime_caps,omitempty"`
+}
+
+type RuntimeCapabilities struct {
+	ComputeScore    float32 `json:"compute_score"`
+	NetworkLatency  float32 `json:"network_latency"`
+	AtomicsOverhead float32 `json:"atomics_overhead"`
+	HasSimd         bool    `json:"has_simd"`
+	HasGpu          bool    `json:"has_gpu"`
+	IsHeadless      bool    `json:"is_headless"`
+	BatteryLevel    float32 `json:"battery_level"`
 }
 
 type GeoCoordinates struct {
@@ -73,6 +86,22 @@ func (p *PeerCapability) ToCapnp(seg *capnp.Segment) (p2p.PeerCapability, error)
 		coords.SetLongitude(p.Coordinates.Longitude)
 	}
 
+	cap.SetRole(p.Role)
+
+	if p.RuntimeCaps != nil {
+		rc, err := cap.NewRuntimeCaps()
+		if err != nil {
+			return p2p.PeerCapability{}, err
+		}
+		rc.SetComputeScore(p.RuntimeCaps.ComputeScore)
+		rc.SetNetworkLatency(p.RuntimeCaps.NetworkLatency)
+		rc.SetAtomicsOverhead(p.RuntimeCaps.AtomicsOverhead)
+		rc.SetHasSimd(p.RuntimeCaps.HasSimd)
+		rc.SetHasGpu(p.RuntimeCaps.HasGpu)
+		rc.SetIsHeadless(p.RuntimeCaps.IsHeadless)
+		rc.SetBatteryLevel(p.RuntimeCaps.BatteryLevel)
+	}
+
 	return cap, nil
 }
 
@@ -109,11 +138,18 @@ func (p *PeerCapability) FromCapnp(cap p2p.PeerCapability) error {
 	region, _ := cap.Region()
 	p.Region = region
 
-	if cap.HasCoordinates() {
-		coords, _ := cap.Coordinates()
-		p.Coordinates = &GeoCoordinates{
-			Latitude:  coords.Latitude(),
-			Longitude: coords.Longitude(),
+	p.Role = cap.Role()
+
+	if cap.HasRuntimeCaps() {
+		rc, _ := cap.RuntimeCaps()
+		p.RuntimeCaps = &RuntimeCapabilities{
+			ComputeScore:    rc.ComputeScore(),
+			NetworkLatency:  rc.NetworkLatency(),
+			AtomicsOverhead: rc.AtomicsOverhead(),
+			HasSimd:         rc.HasSimd(),
+			HasGpu:          rc.HasGpu(),
+			IsHeadless:      rc.IsHeadless(),
+			BatteryLevel:    rc.BatteryLevel(),
 		}
 	}
 
@@ -252,6 +288,10 @@ type StorageProvider interface {
 type Transport interface {
 	Start(ctx context.Context) error
 	Stop() error
+	Connect(ctx context.Context, peerID string) error
+	Disconnect(peerID string) error
+	IsConnected(peerID string) bool
+	GetConnectedPeers() []string
 	Advertise(ctx context.Context, key string, value string) error
 	FindPeers(ctx context.Context, key string) ([]PeerInfo, error)
 	SendRPC(ctx context.Context, peerID string, method string, args interface{}, reply interface{}) error

@@ -507,13 +507,14 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
     let size_key = sdk::js_interop::create_string("__INOS_SAB_SIZE__");
     let size_val = sdk::js_interop::reflect_get(&global, &size_key);
 
-    let _id_key = sdk::js_interop::create_string("__INOS_MODULE_ID__");
-    let _id_val = sdk::js_interop::reflect_get(&global, &_id_key);
+    let id_key = sdk::js_interop::create_string("__INOS_MODULE_ID__");
+    let id_val = sdk::js_interop::reflect_get(&global, &id_key);
 
     if let (Ok(val), Ok(off), Ok(sz)) = (sab_val, offset_val, size_val) {
         if !val.is_undefined() && !val.is_null() {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
+            let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
@@ -521,6 +522,8 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
             // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
 
+            sdk::set_module_id(module_id);
+            sdk::identity::init_identity_from_js();
             sdk::init_logging();
             info!("Drivers module v0.2.0 initialized - I/O Socket System (Offset: 0x{:x}, Size: {}MB)", 
                 offset, size / 1024 / 1024);

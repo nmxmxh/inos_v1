@@ -2,6 +2,12 @@ import { MEMORY_PAGES, type ResourceTier } from './layout';
 import { clearViewCache } from '../../app/features/scenes/SceneWrapper';
 import { initializeBridge, clearBridge, INOSBridge } from './bridge-state';
 import { fetchWasmWithFallback, instantiateWasm, loadGoRuntime } from './kernel.shared';
+import {
+  applyMeshBootstrapConfig,
+  exposeBrowserApis,
+  type MeshBootstrapConfig,
+} from './kernel.shared';
+import { createMeshClient } from './mesh';
 
 // Vite worker import syntax
 import KernelWorkerUrl from './kernel.worker?worker&url';
@@ -9,17 +15,7 @@ import KernelWorkerUrl from './kernel.worker?worker&url';
 // Re-export IDX_CONTEXT_ID_HASH for other modules
 export { IDX_CONTEXT_ID_HASH } from './layout';
 
-/**
- * Hash a string to a 32-bit integer for zero-copy comparison in SAB.
- */
-function stringHash(s: string): number {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    hash = (hash << 5) - hash + s.charCodeAt(i);
-    hash |= 0; // Convert to 32bit integer
-  }
-  return hash;
-}
+console.log('!!! KERNEL TS LOADED !!!');
 
 function ensureInosApi(): void {
   const global = window as any;
@@ -104,17 +100,23 @@ export interface KernelInitResult {
   sabSize: number;
 }
 
-export async function initializeKernel(tier: ResourceTier = 'light'): Promise<KernelInitResult> {
-  // 0. Update Context ID - Used to kill zombie loops
+export async function initializeKernel(
+  tier: ResourceTier = 'light',
+  meshConfig?: MeshBootstrapConfig
+): Promise<KernelInitResult> {
+  // 0. Ensure API is available early for tests
+  ensureInosApi();
   const contextId = Math.random().toString(36).substring(2, 9);
   window.__INOS_CONTEXT_ID__ = contextId;
-  console.log(`[Kernel] 🌐 New Context Instance: ${contextId} (Tier: ${tier})`);
 
   // 1. Atomic Locking - Prevent concurrent initialization spawns
   if (window.__INOS_INIT_PROMISE__) {
     console.log('[Kernel] Waiting for existing initialization to complete...');
     return window.__INOS_INIT_PROMISE__;
   }
+
+  applyMeshBootstrapConfig(window, meshConfig);
+  exposeBrowserApis(window, '[Kernel]');
 
   // Reuse existing kernel (avoid dual main-thread + worker execution)
   if (window.__INOS_SAB__ && window.__INOS_KERNEL_MODE__ === 'main') {
@@ -168,18 +170,36 @@ export async function initializeKernel(tier: ResourceTier = 'light'): Promise<Ke
 
     if (isIOS || isSafari) {
       console.log('[Kernel] Safari/iOS detected, prioritizing main-thread initialization');
-      return await initializeKernelOnMainThread(tier, wasmUrl, contextId);
+      return await initializeKernelOnMainThread(tier, wasmUrl);
     }
 
     // Try Worker-based initialization first, fall back to main thread
     try {
-      return await initializeKernelInWorker(tier, wasmUrl, contextId);
+      // Create SAB on Main Thread (One SAB to rule them all)
+      if (!window.__INOS_SAB__) {
+        const config = MEMORY_PAGES[tier];
+        // We create a Shared Memory to get the buffer, but we don't necessarily use it as WASM memory
+        // if we are in "Split Memory" mode. But for now, we just need the buffer.
+        const mem = new WebAssembly.Memory({
+          initial: config.initial,
+          maximum: config.maximum,
+          shared: true,
+        });
+        window.__INOS_SAB__ = mem.buffer as unknown as SharedArrayBuffer;
+        window.__INOS_SAB_SIZE__ = mem.buffer.byteLength;
+        window.__INOS_SAB_OFFSET__ = 0;
+        window.__INOS_MEM__ = mem;
+
+        console.log(`[Kernel] allocated Shared SAB: ${mem.buffer.byteLength} bytes`);
+      }
+
+      return await initializeKernelInWorker(tier, wasmUrl, meshConfig);
     } catch (workerError) {
       console.warn(
         '[Kernel] Worker initialization failed, falling back to main thread:',
         workerError
       );
-      return await initializeKernelOnMainThread(tier, wasmUrl, contextId);
+      return await initializeKernelOnMainThread(tier, wasmUrl);
     }
   };
 
@@ -213,12 +233,14 @@ function startEpochLogger(label: string, sabOffset: number): void {
 async function initializeKernelInWorker(
   tier: ResourceTier,
   wasmUrl: string,
-  contextId: string
+  meshConfig?: MeshBootstrapConfig
 ): Promise<KernelInitResult> {
   console.log('[Kernel] Spawning Kernel Worker...');
   window.__INOS_KERNEL_MODE__ = 'worker';
   const worker = new Worker(KernelWorkerUrl, { type: 'module' });
   window.__INOS_KERNEL_WORKER__ = worker;
+  setupWebRTCProxyHost(worker);
+
   let workerReadyResolve: (() => void) | null = null;
   let workerReadyResolved = false;
   const workerReady = new Promise<void>(resolve => {
@@ -232,9 +254,8 @@ async function initializeKernelInWorker(
       window.__INOS_KERNEL_MODE__ = undefined;
       reject(new Error('Kernel worker initialization timeout (10s)'));
     }, 10000);
-
     const messageHandler = (event: MessageEvent<any>) => {
-      const { type, sab, sabOffset, sabSize, error } = event.data;
+      const { type, sab, sabSize, error } = event.data;
 
       if (type === 'error') {
         clearTimeout(timeoutId);
@@ -248,7 +269,7 @@ async function initializeKernelInWorker(
 
       if (type === 'sab_functions_ready') {
         clearTimeout(timeoutId);
-        console.log('[Kernel] Kernel Worker SAB received');
+        console.log('[Kernel] Kernel Worker SAB ready');
         if (!workerReadyResolved) {
           workerReadyResolved = true;
           workerReadyResolve?.();
@@ -257,149 +278,145 @@ async function initializeKernelInWorker(
         const { memory } = event.data;
         window.__INOS_SAB__ = sab;
         window.__INOS_MEM__ = memory;
+
+        // Use absolute 0-based offsets (authoritative schema)
+        const sabOffset = 0;
         window.__INOS_SAB_OFFSET__ = sabOffset;
         window.__INOS_SAB_SIZE__ = sabSize;
         window.__INOS_TIER__ = tier;
 
-        // Initialize centralized SAB bridge
-        initializeBridge(sab, sabOffset, sabSize, memory);
-        (window as any).INOSBridge = INOSBridge;
-        startEpochLogger('worker', sabOffset);
-
-        // Write Context ID Hash
-        const contextHash = stringHash(contextId);
-        const flags = INOSBridge.getFlagsView();
-        if (flags) {
-          flags[31] = contextHash; // IDX_CONTEXT_ID_HASH
+        // Initialize centralized SAB bridge (if not already done)
+        if (!INOSBridge.isReady()) {
+          initializeBridge(
+            window.__INOS_SAB__,
+            sabOffset,
+            window.__INOS_SAB_SIZE__,
+            window.__INOS_MEM__
+          );
+          (window as any).INOSBridge = INOSBridge;
+          startEpochLogger('worker', sabOffset);
         }
 
-        console.log(`[Kernel] Worker SAB initialized. Context hash: ${contextHash}`);
-
-        // Economics data is read directly from SAB at OFFSET_ECONOMICS
-        // Use the useEconomics() hook for zero-copy access - no worker messaging needed
-
-        // Expose kernel and mesh APIs via proxy to worker
-        window.kernel = {
-          submitJob: (job: any) => {
-            return new Promise((resolve, reject) => {
-              const requestId = Math.random().toString(36).substring(7);
-              const handler = (e: MessageEvent) => {
-                if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  if (e.data.error) reject(new Error(e.data.error));
-                  else resolve(e.data.result);
-                }
-                if (e.data.type === 'error' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  reject(new Error(e.data.error));
-                }
-              };
-              workerReady.then(() => {
+        // Initialize API proxies to worker
+        if (!(window as any).kernel) {
+          (window as any).kernel = {
+            submitJob: (job: any) => {
+              return new Promise((res, rej) => {
+                const reqId = Math.random().toString(36).substring(7);
+                const handler = (e: MessageEvent) => {
+                  if (e.data.type === 'kernel_response' && e.data.requestId === reqId) {
+                    worker.removeEventListener('message', handler);
+                    if (e.data.error) rej(new Error(e.data.error));
+                    else res(e.data.result);
+                  }
+                };
                 worker.addEventListener('message', handler);
                 worker.postMessage({
                   type: 'kernel_call',
                   method: 'submitJob',
                   args: [job],
-                  requestId,
+                  requestId: reqId,
                 });
               });
-            });
-          },
-          deserializeResult: (data: Uint8Array) => {
-            return new Promise((resolve, reject) => {
-              const requestId = Math.random().toString(36).substring(7);
-              const handler = (e: MessageEvent) => {
-                if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  if (e.data.error) reject(new Error(e.data.error));
-                  else resolve(e.data.result);
-                }
-                if (e.data.type === 'error' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  reject(new Error(e.data.error));
-                }
-              };
-              workerReady.then(() => {
+            },
+            deserializeResult: (data: Uint8Array) => {
+              return new Promise((res, rej) => {
+                const reqId = Math.random().toString(36).substring(7);
+                const handler = (e: MessageEvent) => {
+                  if (e.data.type === 'kernel_response' && e.data.requestId === reqId) {
+                    worker.removeEventListener('message', handler);
+                    if (e.data.error) rej(new Error(e.data.error));
+                    else res(e.data.result);
+                  }
+                };
                 worker.addEventListener('message', handler);
                 worker.postMessage({
                   type: 'kernel_call',
                   method: 'deserializeResult',
                   args: [data],
-                  requestId,
+                  requestId: reqId,
                 });
               });
-            });
-          },
-        };
-
-        window.mesh = {
-          delegateJob: (job: any) => {
-            return new Promise((resolve, reject) => {
-              const requestId = Math.random().toString(36).substring(7);
-              const handler = (e: MessageEvent) => {
-                if (e.data.type === 'mesh_response' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  if (e.data.error) reject(new Error(e.data.error));
-                  else resolve(e.data.result);
-                }
-                if (e.data.type === 'error' && e.data.requestId === requestId) {
-                  worker.removeEventListener('message', handler);
-                  reject(new Error(e.data.error));
-                }
-              };
-              workerReady.then(() => {
+            },
+            getStats: () => {
+              return new Promise((res, rej) => {
+                const reqId = Math.random().toString(36).substring(7);
+                const handler = (e: MessageEvent) => {
+                  if (e.data.type === 'kernel_response' && e.data.requestId === reqId) {
+                    worker.removeEventListener('message', handler);
+                    if (e.data.error) rej(new Error(e.data.error));
+                    else res(e.data.result);
+                  }
+                };
                 worker.addEventListener('message', handler);
                 worker.postMessage({
-                  type: 'mesh_call',
-                  method: 'delegateJob',
-                  args: [job],
-                  requestId,
+                  type: 'kernel_call',
+                  method: 'getStats',
+                  args: [],
+                  requestId: reqId,
                 });
               });
-            });
-          },
-        };
+            },
+          };
+        }
 
-        ensureInosApi();
-        workerReady.then(() => {
-          setInosReady();
-        });
-
-        // Proxy getKernelStats
-        (window as any).getKernelStats = () => {
-          return new Promise((resolve, reject) => {
-            const requestId = Math.random().toString(36).substring(7);
-            const handler = (e: MessageEvent) => {
-              if (e.data.type === 'kernel_response' && e.data.requestId === requestId) {
-                worker.removeEventListener('message', handler);
-                if (e.data.error) reject(new Error(e.data.error));
-                else resolve(e.data.result);
-              }
-              if (e.data.type === 'error' && e.data.requestId === requestId) {
-                worker.removeEventListener('message', handler);
-                reject(new Error(e.data.error));
-              }
-            };
-            workerReady.then(() => {
+        if (!(window as any).mesh) {
+          (window as any).mesh = createMeshClient((method, args = []) => {
+            return new Promise((res, rej) => {
+              const reqId = Math.random().toString(36).substring(7);
+              const handler = (e: MessageEvent) => {
+                if (e.data.type === 'mesh_response' && e.data.requestId === reqId) {
+                  worker.removeEventListener('message', handler);
+                  if (e.data.error) rej(new Error(e.data.error));
+                  else res(e.data.result);
+                }
+              };
               worker.addEventListener('message', handler);
-              worker.postMessage({
-                type: 'kernel_call',
-                method: 'getStats',
-                args: [],
-                requestId,
-              });
+              worker.postMessage({ type: 'mesh_call', method, args, requestId: reqId });
             });
           });
-        };
+        }
 
+        ensureInosApi();
+        setInosReady();
+
+        // Resolve the initialization promise
         resolve({
           memory,
           sabBase: sab,
-          sabOffset,
+          sabOffset: 0,
           sabSize,
         });
-      }
-    };
+        // ...
+        // Intentionally skipped duplicate postMessage
+
+        const readyHandler = (event: MessageEvent<any>) => {
+          if (event.data?.type === 'ready') {
+            if (!workerReadyResolved) {
+              workerReadyResolved = true;
+              workerReadyResolve?.();
+            }
+            console.log('[Kernel] Kernel Worker ready');
+            worker.removeEventListener('message', readyHandler);
+          }
+        };
+        worker.addEventListener('message', readyHandler);
+
+        const readyFallback = setTimeout(() => {
+          if (!workerReadyResolved) {
+            console.warn('[Kernel] Worker ready signal not received; continuing');
+            workerReadyResolved = true;
+            workerReadyResolve?.();
+          }
+        }, 5000);
+
+        // Moved init message to end of function to avoid deadlock
+
+        workerReady.then(() => {
+          clearTimeout(readyFallback);
+        });
+      } // End if (sab_functions_ready)
+    }; // End messageHandler
 
     worker.addEventListener('message', messageHandler);
     worker.addEventListener('error', e => {
@@ -409,35 +426,21 @@ async function initializeKernelInWorker(
       reject(new Error(`Worker error: ${e.message}`));
     });
 
-    const readyHandler = (event: MessageEvent<any>) => {
-      if (event.data?.type === 'ready') {
-        if (!workerReadyResolved) {
-          workerReadyResolved = true;
-          workerReadyResolve?.();
-        }
-        console.log('[Kernel] Kernel Worker ready');
-        worker.removeEventListener('message', readyHandler);
-      }
-    };
-    worker.addEventListener('message', readyHandler);
-
-    const readyFallback = setTimeout(() => {
-      if (!workerReadyResolved) {
-        console.warn('[Kernel] Worker ready signal not received; continuing');
-        workerReadyResolved = true;
-        workerReadyResolve?.();
-      }
-    }, 5000);
-
+    // Send INIT immediately (break deadlock)
+    console.log('[Kernel] Sending INIT to worker...', { tier, hasSab: !!window.__INOS_SAB__ });
     worker.postMessage({
       type: 'init',
       tier,
       wasmUrl,
+      meshConfig,
+      sab: window.__INOS_SAB__,
     });
 
-    workerReady.then(() => {
-      clearTimeout(readyFallback);
-    });
+    // We already attach specific readyHandler inside, so maybe we don't need this global one,
+    // but the original code had it. Let's keep the structure clean.
+
+    // Actually, looking at the previous code, there was a secondary readyHandler attached at the top level
+    // Let's restore the basic error handling and event attachment.
   });
 }
 
@@ -447,8 +450,7 @@ async function initializeKernelInWorker(
  */
 async function initializeKernelOnMainThread(
   tier: ResourceTier,
-  wasmUrl: string,
-  contextId: string
+  wasmUrl: string
 ): Promise<KernelInitResult> {
   console.log('[Kernel] 🔄 Initializing kernel on MAIN THREAD (fallback mode)');
   window.__INOS_KERNEL_MODE__ = 'main';
@@ -457,6 +459,7 @@ async function initializeKernelOnMainThread(
 
   // 1. Load Go runtime
   await loadGoRuntime(window, '/wasm_exec.js', '[Kernel]');
+  exposeBrowserApis(window, '[Kernel]');
 
   // 2. Create shared memory (or fallback to non-shared if unavailable)
   const config = MEMORY_PAGES[tier];
@@ -495,7 +498,8 @@ async function initializeKernelOnMainThread(
       }
 
       const wasmResponse = await fetchWasmWithFallback(currentUrl, '[Kernel]');
-      result = await instantiateWasm(wasmResponse, go, memory, '[Kernel]');
+      // FIX: Pass undefined for memory to ensure Go uses its own private memory (Split Memory Architecture)
+      result = await instantiateWasm(wasmResponse, go, undefined, '[Kernel]');
 
       // If we got here, success
       break;
@@ -522,12 +526,16 @@ async function initializeKernelOnMainThread(
   }
 
   // 4. Run Go kernel (non-blocking - runs async via goroutines)
-  // Set metadata BEFORE starting Go to avoid race conditions in supervisor init
   const buffer = memory.buffer as unknown as SharedArrayBuffer;
+  const sabOffset = 0;
+  const sabSize = buffer.byteLength;
+
   window.__INOS_SAB__ = buffer;
-  window.__INOS_SAB_SIZE__ = buffer.byteLength;
+  window.__INOS_SAB_OFFSET__ = sabOffset;
+  window.__INOS_SAB_SIZE__ = sabSize;
+
   if (isShared) {
-    (window as any).__INOS_SAB_INT32__ = new Int32Array(buffer, 0, 128);
+    (window as any).__INOS_SAB_INT32__ = new Int32Array(buffer, sabOffset, 128);
   }
 
   go.run(result.instance);
@@ -543,44 +551,14 @@ async function initializeKernelOnMainThread(
     await new Promise(r => setTimeout(r, 10));
   }
 
-  // 6. Get SAB info
-  let sabOffset = 0;
-  let sabSize = buffer.byteLength;
-
-  if (window.getSystemSABAddress && window.getSystemSABSize) {
-    const kAddr = window.getSystemSABAddress();
-    const kSize = window.getSystemSABSize();
-    if (kSize > 0) {
-      sabOffset = kAddr;
-      sabSize = kSize;
-    }
-  }
-
-  if (isShared && sabOffset !== 0) {
-    (window as any).__INOS_SAB_INT32__ = new Int32Array(buffer, sabOffset, 128);
-  }
-
-  // 7. Set globals and initialize bridge
+  // 6. Final initialization and bridge setup
   window.__INOS_MEM__ = memory;
-  window.__INOS_SAB_OFFSET__ = sabOffset;
-  window.__INOS_SAB_SIZE__ = sabSize;
   window.__INOS_TIER__ = tier;
 
   if (isShared) {
     initializeBridge(buffer, sabOffset, sabSize, memory);
     (window as any).INOSBridge = INOSBridge;
     startEpochLogger('main', sabOffset);
-  }
-
-  // Write Context ID Hash
-  const contextHash = stringHash(contextId);
-  try {
-    const flags = INOSBridge.getFlagsView();
-    if (flags) {
-      flags[31] = contextHash;
-    }
-  } catch {
-    console.warn('[Kernel] Could not write context hash (non-shared memory mode)');
   }
 
   console.log(`[Kernel] ✅ Main thread kernel initialized (shared: ${isShared})`);
@@ -593,9 +571,29 @@ async function initializeKernelOnMainThread(
     };
   }
   if (!window.mesh) {
-    (window as any).mesh = {
-      delegateJob: (job: any) => (window as any).jsDelegateJob?.(job),
-    };
+    const nativeMesh = (window as any).mesh;
+    if (nativeMesh) {
+      (window as any).__INOS_MESH_NATIVE__ = nativeMesh;
+      (window as any).mesh = createMeshClient((method, args = []) => {
+        const fn = (window as any).__INOS_MESH_NATIVE__?.[method];
+        if (!fn) {
+          return Promise.reject(new Error(`Mesh method ${method} not available`));
+        }
+        try {
+          return Promise.resolve(fn(...args));
+        } catch (err) {
+          return Promise.reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+    } else {
+      (window as any).mesh = createMeshClient((method, args = []) => {
+        const fn = (window as any).jsDelegateJob;
+        if (method !== 'delegateJob' || !fn) {
+          return Promise.reject(new Error(`Mesh method ${method} not available`));
+        }
+        return Promise.resolve(fn(...args));
+      });
+    }
   }
 
   ensureInosApi();
@@ -610,8 +608,187 @@ async function initializeKernelOnMainThread(
 }
 
 /**
- * Stop signal for the Go kernel.
+ * WebRTC Proxy Host (Main Thread)
+ * Handles WebRTC requests from the worker and manages real PeerConnections.
  */
+function setupWebRTCProxyHost(worker: Worker): void {
+  const peerConnections = new Map<string, RTCPeerConnection>();
+  const dataChannels = new Map<string, RTCDataChannel>();
+
+  worker.addEventListener('message', async (event: MessageEvent) => {
+    const { type, proxyId, method, args, channelId } = event.data;
+    if (type !== 'webrtc_proxy') return;
+
+    console.log(
+      `[WebRTCProxyHost] Received ${method} for proxy ${proxyId}`,
+      JSON.stringify(args, null, 2)
+    );
+    let pc = peerConnections.get(proxyId);
+
+    try {
+      switch (method) {
+        case 'create': {
+          const configuration = args.configuration;
+          pc = new RTCPeerConnection(configuration);
+          peerConnections.set(proxyId, pc);
+
+          // Standard events
+          const events = [
+            'icecandidate',
+            'connectionstatechange',
+            'iceconnectionstatechange',
+            'signalingstatechange',
+            'track',
+          ];
+          events.forEach(evtType => {
+            pc!.addEventListener(evtType, (e: any) => {
+              console.log(`[WebRTCProxyHost] Event fired: ${evtType} for ${proxyId}`);
+              const data: any = {};
+              // Explicitly handle null for end-of-candidates
+              if (evtType === 'icecandidate') {
+                data.candidate = e.candidate;
+              }
+              data.connectionState = pc!.connectionState;
+              data.iceConnectionState = pc!.iceConnectionState;
+              data.signalingState = pc!.signalingState;
+              data.localDescription = pc!.localDescription;
+              data.remoteDescription = pc!.remoteDescription;
+
+              try {
+                // Ensure data is plain object to avoid DataCloneError
+                const safeData = JSON.parse(JSON.stringify(data));
+                worker.postMessage({
+                  type: 'webrtc_event',
+                  proxyId,
+                  eventType: evtType,
+                  data: safeData,
+                });
+              } catch (err) {
+                console.error(`[WebRTCProxyHost] Failed to post message to worker:`, err);
+              }
+            });
+          });
+
+          // DataChannel event (incoming)
+          pc.ondatachannel = (e: RTCDataChannelEvent) => {
+            const incomingChannelId = Math.random().toString(36).substring(7);
+            const channel = e.channel;
+            dataChannels.set(incomingChannelId, channel);
+            setupDataChannel(channel, incomingChannelId, proxyId, worker);
+
+            worker.postMessage({
+              type: 'webrtc_datachannel_created',
+              proxyId,
+              channelId: incomingChannelId,
+              label: channel.label,
+            });
+          };
+          break;
+        }
+
+        case 'createOffer': {
+          console.log(`[WebRTCProxyHost] createOffer for ${proxyId}`, args.options);
+          const offer = await pc!.createOffer(args.options || undefined);
+          worker.postMessage({
+            type: 'webrtc_response',
+            proxyId,
+            reqId: args.requestId,
+            result: offer,
+          });
+          break;
+        }
+
+        case 'createAnswer': {
+          console.log(`[WebRTCProxyHost] createAnswer for ${proxyId}`, args.options);
+          const answer = await pc!.createAnswer(args.options || undefined);
+          worker.postMessage({
+            type: 'webrtc_response',
+            proxyId,
+            reqId: args.requestId,
+            result: answer,
+          });
+          break;
+        }
+
+        case 'setLocalDescription': {
+          console.log(`[WebRTCProxyHost] setLocalDescription for ${proxyId}`, args.description);
+          if (!args.description) throw new Error('setLocalDescription: description is required');
+          await pc!.setLocalDescription(args.description);
+          worker.postMessage({ type: 'webrtc_response', proxyId, reqId: args.requestId });
+          break;
+        }
+
+        case 'setRemoteDescription': {
+          console.log(`[WebRTCProxyHost] setRemoteDescription for ${proxyId}`, args.description);
+          if (!args.description) throw new Error('setRemoteDescription: description is required');
+          await pc!.setRemoteDescription(args.description);
+          worker.postMessage({ type: 'webrtc_response', proxyId, reqId: args.requestId });
+          break;
+        }
+
+        case 'addIceCandidate': {
+          console.log(`[WebRTCProxyHost] addIceCandidate for ${proxyId}`, args.candidate);
+          await pc!.addIceCandidate(args.candidate || undefined);
+          worker.postMessage({ type: 'webrtc_response', proxyId, reqId: args.requestId });
+          break;
+        }
+
+        case 'createDataChannel': {
+          const channel = pc!.createDataChannel(args.label, args.dataChannelDict);
+          dataChannels.set(args.channelId, channel);
+          setupDataChannel(channel, args.channelId, proxyId, worker);
+          break;
+        }
+
+        case 'send': {
+          const channel = dataChannels.get(channelId);
+          if (channel && channel.readyState === 'open') {
+            channel.send(args.data);
+          }
+          break;
+        }
+
+        case 'close': {
+          pc?.close();
+          peerConnections.delete(proxyId);
+          break;
+        }
+      }
+    } catch (error: any) {
+      console.error(`[WebRTCProxyHost] Error in ${method}:`, error);
+      worker.postMessage({
+        type: 'webrtc_response',
+        proxyId,
+        reqId: args.requestId,
+        error: error.message || String(error),
+      });
+    }
+  });
+
+  function setupDataChannel(
+    channel: RTCDataChannel,
+    channelId: string,
+    proxyId: string,
+    worker: Worker
+  ) {
+    const events = ['open', 'message', 'close', 'error'];
+    events.forEach(evtType => {
+      channel.addEventListener(evtType, (e: any) => {
+        const data: any = { readyState: channel.readyState };
+        if (evtType === 'message') data.data = e.data;
+
+        worker.postMessage({
+          type: 'webrtc_datachannel_event',
+          proxyId,
+          channelId,
+          eventType: evtType,
+          data,
+        });
+      });
+    });
+  }
+}
+
 export function shutdownKernel() {
   if (window.__INOS_SAB__) {
     const flags = new Int32Array(window.__INOS_SAB__, 0, 16);

@@ -1,7 +1,8 @@
 // use crate::js_interop::JsValue;
 pub use crate::layout::{
-    IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_DIRTY, IDX_PANIC_STATE,
-    IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH, IDX_SYSTEM_EPOCH, OFFSET_INBOX_OUTBOX, SIZE_INBOX_OUTBOX,
+    IDX_ACTOR_EPOCH, IDX_INBOX_DIRTY, IDX_KERNEL_READY, IDX_OUTBOX_HOST_DIRTY,
+    IDX_OUTBOX_KERNEL_DIRTY, IDX_PANIC_STATE, IDX_SENSOR_EPOCH, IDX_STORAGE_EPOCH,
+    IDX_SYSTEM_EPOCH, OFFSET_SAB_INBOX, OFFSET_SAB_OUTBOX, SIZE_INBOX, SIZE_OUTBOX,
 };
 
 use crate::ringbuffer::RingBuffer;
@@ -19,17 +20,9 @@ impl Reactor {
         // We use a shared view of the first 1024 bytes of the provided SafeSAB (which is already offset-scoped)
         let flags = SafeSAB::new_shared_view(sab.inner(), sab.base_offset() as u32, 1024);
 
-        let inbox = RingBuffer::new(
-            sab.clone(),
-            OFFSET_INBOX_OUTBOX as u32,
-            (SIZE_INBOX_OUTBOX / 2) as u32,
-        );
+        let inbox = RingBuffer::new(sab.clone(), OFFSET_SAB_INBOX as u32, SIZE_INBOX as u32);
 
-        let outbox = RingBuffer::new(
-            sab.clone(),
-            (OFFSET_INBOX_OUTBOX + (SIZE_INBOX_OUTBOX / 2)) as u32,
-            (SIZE_INBOX_OUTBOX / 2) as u32,
-        );
+        let outbox = RingBuffer::new(sab.clone(), OFFSET_SAB_OUTBOX as u32, SIZE_OUTBOX as u32);
 
         Self {
             flags,
@@ -47,7 +40,7 @@ impl Reactor {
     }
 
     pub fn raise_outbox(&self) {
-        crate::js_interop::atomic_add(self.flags.barrier_view(), IDX_OUTBOX_DIRTY, 1);
+        crate::js_interop::atomic_add(self.flags.barrier_view(), IDX_OUTBOX_KERNEL_DIRTY, 1);
     }
 
     /// Read next message from Inbox (Ring Buffer)
@@ -132,10 +125,11 @@ mod tests {
         reactor.ack_inbox();
         assert!(!reactor.check_inbox());
 
-        let start_epoch = crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_DIRTY);
+        let start_epoch =
+            crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_KERNEL_DIRTY);
         reactor.raise_outbox();
         assert_eq!(
-            crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_DIRTY),
+            crate::js_interop::atomic_load(sab.barrier_view(), IDX_OUTBOX_KERNEL_DIRTY),
             start_epoch + 1
         );
     }

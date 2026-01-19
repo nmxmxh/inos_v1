@@ -21,7 +21,13 @@ func TestIdentitySupervisor_Basic(t *testing.T) {
 	sabPtr := unsafe.Pointer(&sabData[0])
 	baseOffset := uint32(100)
 
-	bridge := supervisor.NewSABBridge(sabPtr, sabSize, sab.OFFSET_INBOX_BASE, sab.OFFSET_OUTBOX_BASE, sab.IDX_SYSTEM_EPOCH)
+	bridge := supervisor.NewSABBridge(
+		sabData,
+		sab.OFFSET_INBOX_BASE,
+		sab.OFFSET_OUTBOX_HOST_BASE,
+		sab.OFFSET_OUTBOX_KERNEL_BASE,
+		sab.IDX_SYSTEM_EPOCH,
+	)
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 	credits := supervisor.NewCreditSupervisor(sabPtr, sabSize, sab.OFFSET_ECONOMICS)
@@ -53,7 +59,13 @@ func TestIdentitySupervisor_SystemWallets(t *testing.T) {
 	sabPtr := unsafe.Pointer(&sabData[0])
 	baseOffset := uint32(100)
 
-	bridge := supervisor.NewSABBridge(sabPtr, sabSize, sab.OFFSET_INBOX_BASE, sab.OFFSET_OUTBOX_BASE, sab.IDX_SYSTEM_EPOCH)
+	bridge := supervisor.NewSABBridge(
+		sabData,
+		sab.OFFSET_INBOX_BASE,
+		sab.OFFSET_OUTBOX_HOST_BASE,
+		sab.OFFSET_OUTBOX_KERNEL_BASE,
+		sab.IDX_SYSTEM_EPOCH,
+	)
 	patterns := pattern.NewTieredPatternStorage(sabPtr, sabSize, 0, 1024)
 	knowledge := intelligence.NewKnowledgeGraph(sabPtr, sabSize, 0, 1024)
 	credits := supervisor.NewCreditSupervisor(sabPtr, sabSize, sab.OFFSET_ECONOMICS)

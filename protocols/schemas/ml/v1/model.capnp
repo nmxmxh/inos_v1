@@ -128,6 +128,9 @@ interface Model {
         version @4 :UInt32;
         metadata @5 :Base.Base.Metadata;
         data @6 :Base.Base.Payload;
+        magic @7 :UInt64;
+        dataSize @8 :UInt32;
+        dataOffset @9 :UInt32;
     }
 
     enum NodeType {

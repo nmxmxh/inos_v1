@@ -162,11 +162,17 @@ export const OFFSET_INBOX_BASE = 0x050000 as const;
 /** 512KB */
 export const SIZE_INBOX_TOTAL = 0x080000 as const;
 
-/** Outbox start */
-export const OFFSET_OUTBOX_BASE = 0x0D0000 as const;
+/** Outbox for Kernel -> Host (Results) */
+export const OFFSET_OUTBOX_HOST_BASE = 0x0D0000 as const;
 
-/** 512KB */
-export const SIZE_OUTBOX_TOTAL = 0x080000 as const;
+/** 256KB */
+export const SIZE_OUTBOX_HOST_TOTAL = 0x040000 as const;
+
+/** Outbox for Module -> Kernel (Syscalls) */
+export const OFFSET_OUTBOX_KERNEL_BASE = 0x110000 as const;
+
+/** 256KB */
+export const SIZE_OUTBOX_KERNEL_TOTAL = 0x040000 as const;
 
 /** Dynamic allocation for overflow and large data */
 export const OFFSET_ARENA = 0x150000 as const;
@@ -200,6 +206,18 @@ export const ARENA_QUEUE_ENTRY_SIZE = 64 as const;
 
 /** maxArenaRequests */
 export const MAX_ARENA_REQUESTS = 64 as const;
+
+/** Event payload slots */
+export const OFFSET_MESH_EVENT_QUEUE = 0x153000 as const;
+
+/** 52KB (52 slots * 1KB) */
+export const SIZE_MESH_EVENT_QUEUE = 0x00D000 as const;
+
+/** 1KB per slot */
+export const MESH_EVENT_SLOT_SIZE = 1024 as const;
+
+/** Power-of-two not required (monotonic counters) */
+export const MESH_EVENT_SLOT_COUNT = 52 as const;
 
 /** Bird state metadata */
 export const OFFSET_BIRD_STATE = 0x160000 as const;
@@ -243,8 +261,8 @@ export const IDX_KERNEL_READY = 0 as const;
 /** Signal from Kernel to Module */
 export const IDX_INBOX_DIRTY = 1 as const;
 
-/** Signal from Module to Kernel */
-export const IDX_OUTBOX_DIRTY = 2 as const;
+/** Signal from Kernel to Host (Results) */
+export const IDX_OUTBOX_HOST_DIRTY = 2 as const;
 
 /** System panic */
 export const IDX_PANIC_STATE = 3 as const;
@@ -264,16 +282,16 @@ export const IDX_SYSTEM_EPOCH = 7 as const;
 /** Arena bump pointer (atomic) */
 export const IDX_ARENA_ALLOCATOR = 8 as const;
 
-/** Mutex for outbox synchronization */
+/** Mutex for outbox synchronization (unused) */
 export const IDX_OUTBOX_MUTEX = 9 as const;
 
-/** Mutex for inbox synchronization */
+/** Mutex for inbox synchronization (unused) */
 export const IDX_INBOX_MUTEX = 10 as const;
 
 /** Metrics updated */
 export const IDX_METRICS_EPOCH = 11 as const;
 
-/** Bird physics complete (was idxBoidsCount in Go) */
+/** Bird physics complete */
 export const IDX_BIRD_EPOCH = 12 as const;
 
 /** Matrix generation complete */
@@ -303,14 +321,29 @@ export const IDX_BIRD_COUNT = 20 as const;
 /** Global diagnostics complete */
 export const IDX_GLOBAL_METRICS_EPOCH = 21 as const;
 
+/** Signal from Module to Kernel (Syscalls) */
+export const IDX_OUTBOX_KERNEL_DIRTY = 22 as const;
+
 /** Remote job delegation complete */
-export const IDX_DELEGATED_JOB_EPOCH = 22 as const;
+export const IDX_DELEGATED_JOB_EPOCH = 23 as const;
 
 /** Local user job complete */
-export const IDX_USER_JOB_EPOCH = 23 as const;
+export const IDX_USER_JOB_EPOCH = 24 as const;
 
 /** Remote chunk fetch/store complete */
-export const IDX_DELEGATED_CHUNK_EPOCH = 24 as const;
+export const IDX_DELEGATED_CHUNK_EPOCH = 25 as const;
+
+/** Mesh event stream updated */
+export const IDX_MESH_EVENT_EPOCH = 26 as const;
+
+/** Consumer head (monotonic) */
+export const IDX_MESH_EVENT_HEAD = 27 as const;
+
+/** Producer tail (monotonic) */
+export const IDX_MESH_EVENT_TAIL = 28 as const;
+
+/** Dropped event counter */
+export const IDX_MESH_EVENT_DROPPED = 29 as const;
 
 /** Hash of initialization context ID */
 export const IDX_CONTEXT_ID_HASH = 31 as const;
@@ -390,8 +423,10 @@ export const CONSTS = {
   SIZE_INBOX_OUTBOX,
   OFFSET_INBOX_BASE,
   SIZE_INBOX_TOTAL,
-  OFFSET_OUTBOX_BASE,
-  SIZE_OUTBOX_TOTAL,
+  OFFSET_OUTBOX_HOST_BASE,
+  SIZE_OUTBOX_HOST_TOTAL,
+  OFFSET_OUTBOX_KERNEL_BASE,
+  SIZE_OUTBOX_KERNEL_TOTAL,
   OFFSET_ARENA,
   OFFSET_ARENA_METADATA,
   SIZE_ARENA_METADATA,
@@ -403,6 +438,10 @@ export const CONSTS = {
   OFFSET_ARENA_RESPONSE_QUEUE,
   ARENA_QUEUE_ENTRY_SIZE,
   MAX_ARENA_REQUESTS,
+  OFFSET_MESH_EVENT_QUEUE,
+  SIZE_MESH_EVENT_QUEUE,
+  MESH_EVENT_SLOT_SIZE,
+  MESH_EVENT_SLOT_COUNT,
   OFFSET_BIRD_STATE,
   SIZE_BIRD_STATE,
   OFFSET_PINGPONG_CONTROL,
@@ -417,7 +456,7 @@ export const CONSTS = {
   MATRIX_STRIDE,
   IDX_KERNEL_READY,
   IDX_INBOX_DIRTY,
-  IDX_OUTBOX_DIRTY,
+  IDX_OUTBOX_HOST_DIRTY,
   IDX_PANIC_STATE,
   IDX_SENSOR_EPOCH,
   IDX_ACTOR_EPOCH,
@@ -437,9 +476,14 @@ export const CONSTS = {
   IDX_ECONOMY_EPOCH,
   IDX_BIRD_COUNT,
   IDX_GLOBAL_METRICS_EPOCH,
+  IDX_OUTBOX_KERNEL_DIRTY,
   IDX_DELEGATED_JOB_EPOCH,
   IDX_USER_JOB_EPOCH,
   IDX_DELEGATED_CHUNK_EPOCH,
+  IDX_MESH_EVENT_EPOCH,
+  IDX_MESH_EVENT_HEAD,
+  IDX_MESH_EVENT_TAIL,
+  IDX_MESH_EVENT_DROPPED,
   IDX_CONTEXT_ID_HASH,
   SUPERVISOR_POOL_BASE,
   SUPERVISOR_POOL_SIZE,

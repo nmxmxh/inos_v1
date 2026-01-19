@@ -28,6 +28,26 @@ func (m *MockTransport) Stop() error {
 	return args.Error(0)
 }
 
+func (m *MockTransport) Connect(ctx context.Context, peerID string) error {
+	args := m.Called(ctx, peerID)
+	return args.Error(0)
+}
+
+func (m *MockTransport) Disconnect(peerID string) error {
+	args := m.Called(peerID)
+	return args.Error(0)
+}
+
+func (m *MockTransport) IsConnected(peerID string) bool {
+	args := m.Called(peerID)
+	return args.Bool(0)
+}
+
+func (m *MockTransport) GetConnectedPeers() []string {
+	args := m.Called()
+	return args.Get(0).([]string)
+}
+
 func (m *MockTransport) Advertise(ctx context.Context, key string, value string) error {
 	args := m.Called(ctx, key, value)
 	return args.Error(0)

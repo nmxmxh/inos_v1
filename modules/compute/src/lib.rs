@@ -109,6 +109,7 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
 
             // Set global identity context
             sdk::set_module_id(module_id);
+            sdk::identity::init_identity_from_js();
 
             sdk::init_logging();
 

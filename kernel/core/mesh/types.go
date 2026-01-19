@@ -29,6 +29,12 @@ type ContentMerkleTree = common.ContentMerkleTree
 type ContentMerkleLeaf = common.ContentMerkleLeaf
 
 const (
+	ConnectionStateDisconnected = common.ConnectionStateDisconnected
+	ConnectionStateConnecting   = common.ConnectionStateConnecting
+	ConnectionStateConnected    = common.ConnectionStateConnected
+	ConnectionStateDegraded     = common.ConnectionStateDegraded
+	ConnectionStateFailed       = common.ConnectionStateFailed
+
 	EventTypeDHTLookup   = "dht_lookup"
 	EventTypeChunkFetch  = "chunk_fetch"
 	EventTypePeerConnect = "peer_connect"

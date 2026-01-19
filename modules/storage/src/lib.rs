@@ -43,7 +43,7 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
         if !val.is_undefined() && !val.is_null() {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
-            let _module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+            let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
@@ -51,6 +51,8 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
             // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
 
+            sdk::set_module_id(module_id);
+            sdk::identity::init_identity_from_js();
             sdk::init_logging();
             info!("Vault module initialized with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
                 offset, size / 1024 / 1024);

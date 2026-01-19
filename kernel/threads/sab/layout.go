@@ -19,12 +19,12 @@ const (
 	OFFSET_SYSTEM_BASE = system.OffsetSystemBase // 0 (Absolute)
 
 	// ========== SAB SIZE LIMITS ==========
-	SAB_SIZE_DEFAULT = system.SabSizeDefault // 32MB
-	SAB_SIZE_MIN     = system.SabSizeMin     // 32MB minimum
-	SAB_SIZE_MAX     = system.SabSizeMax     // 1GB
-	SAB_SIZE_LIGHT   = system.SabSizeLight
-	SAB_SIZE_MODERATE = system.SabSizeModerate
-	SAB_SIZE_HEAVY   = system.SabSizeHeavy
+	SAB_SIZE_DEFAULT   = system.SabSizeDefault // 32MB
+	SAB_SIZE_MIN       = system.SabSizeMin     // 32MB minimum
+	SAB_SIZE_MAX       = system.SabSizeMax     // 1GB
+	SAB_SIZE_LIGHT     = system.SabSizeLight
+	SAB_SIZE_MODERATE  = system.SabSizeModerate
+	SAB_SIZE_HEAVY     = system.SabSizeHeavy
 	SAB_SIZE_DEDICATED = system.SabSizeDedicated
 
 	// ========== METADATA REGION (0x000000 - 0x000100) ==========
@@ -102,10 +102,12 @@ const (
 	SIZE_INBOX_OUTBOX   = system.SizeInboxOutbox
 
 	// Sub-regions
-	OFFSET_INBOX_BASE  = system.OffsetInboxBase
-	SIZE_INBOX_TOTAL   = system.SizeInboxTotal
-	OFFSET_OUTBOX_BASE = system.OffsetOutboxBase
-	SIZE_OUTBOX_TOTAL  = system.SizeOutboxTotal
+	OFFSET_INBOX_BASE         = system.OffsetInboxBase
+	SIZE_INBOX_TOTAL          = system.SizeInboxTotal
+	OFFSET_OUTBOX_HOST_BASE   = system.OffsetOutboxHostBase
+	SIZE_OUTBOX_HOST_TOTAL    = system.SizeOutboxHostTotal
+	OFFSET_OUTBOX_KERNEL_BASE = system.OffsetOutboxKernelBase
+	SIZE_OUTBOX_KERNEL_TOTAL  = system.SizeOutboxKernelTotal
 
 	// ========== ARENA (0x150000 - end) ==========
 	OFFSET_ARENA          = system.OffsetArena
@@ -124,6 +126,12 @@ const (
 	OFFSET_ARENA_RESPONSE_QUEUE = system.OffsetArenaResponseQueue
 	ARENA_QUEUE_ENTRY_SIZE      = system.ArenaQueueEntrySize
 	MAX_ARENA_REQUESTS          = system.MaxArenaRequests
+
+	// Mesh Event Stream (Ring Buffer)
+	OFFSET_MESH_EVENT_QUEUE = system.OffsetMeshEventQueue
+	SIZE_MESH_EVENT_QUEUE   = system.SizeMeshEventQueue
+	MESH_EVENT_SLOT_SIZE    = system.MeshEventSlotSize
+	MESH_EVENT_SLOT_COUNT   = system.MeshEventSlotCount
 
 	// Bird Animation State
 	OFFSET_BIRD_STATE = system.OffsetBirdState
@@ -147,14 +155,14 @@ const (
 
 	// ========== EPOCH INDEX ALLOCATION ==========
 	// Fixed system epochs (0-31 Reserved)
-	IDX_KERNEL_READY  = system.IdxKernelReady
-	IDX_INBOX_DIRTY   = system.IdxInboxDirty
-	IDX_OUTBOX_DIRTY  = system.IdxOutboxDirty
-	IDX_PANIC_STATE   = system.IdxPanicState
-	IDX_SENSOR_EPOCH  = system.IdxSensorEpoch
-	IDX_ACTOR_EPOCH   = system.IdxActorEpoch
-	IDX_STORAGE_EPOCH = system.IdxStorageEpoch
-	IDX_SYSTEM_EPOCH  = system.IdxSystemEpoch
+	IDX_KERNEL_READY      = system.IdxKernelReady
+	IDX_INBOX_DIRTY       = system.IdxInboxDirty
+	IDX_OUTBOX_HOST_DIRTY = system.IdxOutboxHostDirty
+	IDX_PANIC_STATE       = system.IdxPanicState
+	IDX_SENSOR_EPOCH      = system.IdxSensorEpoch
+	IDX_ACTOR_EPOCH       = system.IdxActorEpoch
+	IDX_STORAGE_EPOCH     = system.IdxStorageEpoch
+	IDX_SYSTEM_EPOCH      = system.IdxSystemEpoch
 
 	// Phase 16: Extended System Epochs
 	IDX_ARENA_ALLOCATOR = system.IdxArenaAllocator
@@ -173,11 +181,18 @@ const (
 	IDX_ECONOMY_EPOCH        = system.IdxEconomyEpoch
 	IDX_BIRD_COUNT           = system.IdxBirdCount // Index 20: Bird population count
 	IDX_GLOBAL_METRICS_EPOCH = system.IdxGlobalMetricsEpoch
+	IDX_OUTBOX_KERNEL_DIRTY  = system.IdxOutboxKernelDirty
 
 	// Mesh Delegation Epochs (P2P Coordination)
 	IDX_DELEGATED_JOB_EPOCH   = system.IdxDelegatedJobEpoch   // Index 22: Remote job delegation complete
 	IDX_USER_JOB_EPOCH        = system.IdxUserJobEpoch        // Index 23: Local user job complete
 	IDX_DELEGATED_CHUNK_EPOCH = system.IdxDelegatedChunkEpoch // Index 24: Remote chunk fetch/store complete
+
+	// Mesh Event Stream (Atomic Counters + Epoch)
+	IDX_MESH_EVENT_EPOCH   = system.IdxMeshEventEpoch
+	IDX_MESH_EVENT_HEAD    = system.IdxMeshEventHead
+	IDX_MESH_EVENT_TAIL    = system.IdxMeshEventTail
+	IDX_MESH_EVENT_DROPPED = system.IdxMeshEventDropped
 
 	// Dynamic supervisor pool (32-127)
 	SUPERVISOR_POOL_BASE = system.SupervisorPoolBase

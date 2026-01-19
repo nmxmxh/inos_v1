@@ -6,7 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"runtime"
+	goruntime "runtime"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/transport"
+	inosruntime "github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads"
 	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
@@ -60,6 +61,8 @@ type Kernel struct {
 	supervisor      *threads.Supervisor
 	meshCoordinator *mesh.MeshCoordinator
 	sabSize         atomic.Uint32
+	meshIdentity    MeshIdentity
+	roleConfig      inosruntime.RoleConfig
 
 	// Lifecycle
 	startTime time.Time
@@ -74,6 +77,7 @@ type Kernel struct {
 // NewKernel creates a new kernel instance
 func NewKernel() *Kernel {
 	config := detectOptimalConfig()
+	meshConfig := loadMeshConfig()
 
 	logger := utils.NewLogger(utils.LoggerConfig{
 		Level:      config.LogLevel,
@@ -85,9 +89,10 @@ func NewKernel() *Kernel {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize Mesh Components
-	nodeID := "did:inos:nmxmxh"
-	tr, _ := transport.NewWebRTCTransport(nodeID, transport.DefaultTransportConfig(), nil)
-	m := mesh.NewMeshCoordinator(nodeID, "global", tr, nil)
+	nodeID := meshConfig.Identity.NodeID
+	tr, _ := transport.NewWebRTCTransport(nodeID, meshConfig.Transport, nil)
+	m := mesh.NewMeshCoordinator(nodeID, meshConfig.Region, tr, nil)
+	m.SetIdentity(meshConfig.Identity.DID, meshConfig.Identity.DeviceID, meshConfig.Identity.DisplayName)
 
 	k := &Kernel{
 		config:          config,
@@ -95,6 +100,7 @@ func NewKernel() *Kernel {
 		ctx:             ctx,
 		cancel:          cancel,
 		meshCoordinator: m,
+		meshIdentity:    meshConfig.Identity,
 		sabReady:        make(chan struct{}),
 	}
 
@@ -114,11 +120,11 @@ func (k *Kernel) Boot() {
 
 	k.logger.Info("INOS Kernel Boot Sequence",
 		utils.String("version", "2.0"),
-		utils.Int("cores", runtime.NumCPU()),
+		utils.Int("cores", goruntime.NumCPU()),
 		utils.Int("workers", k.config.MaxWorkers))
 
 	if k.config.EnableThreading {
-		runtime.GOMAXPROCS(k.config.MaxWorkers)
+		goruntime.GOMAXPROCS(k.config.MaxWorkers)
 	}
 
 	// Signal kernel is ready for SAB injection
@@ -129,6 +135,13 @@ func (k *Kernel) Boot() {
 	})
 
 	k.logger.Info("Kernel waiting for SAB injection...")
+
+	// Phase 1.5: Runtime Profiling (Adaptive Mesh)
+	// We run this parallel to waiting for SAB to save time,
+	// or block here. Since it's CPU bound (compute test), we do it here.
+	profiler := inosruntime.NewProfiler()
+	caps := profiler.Profile()
+	k.roleConfig = inosruntime.AssignRole(caps)
 
 	// Phase 2: Reactive Synchronization
 	// Wait for InjectSAB to signal the channel
@@ -168,6 +181,9 @@ func (k *Kernel) Boot() {
 		// Inject monitor for delegation engine
 		k.meshCoordinator.SetMonitor(k.supervisor)
 
+		// Adaptive Mesh: Apply Role Configuration
+		k.meshCoordinator.ApplyRoleConfig(k.roleConfig)
+
 		if err := k.meshCoordinator.Start(k.ctx); err != nil {
 			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))
 		}
@@ -177,6 +193,7 @@ func (k *Kernel) Boot() {
 	k.notifyHost("kernel:fully_operational", map[string]interface{}{
 		"threading": k.config.EnableThreading,
 		"workers":   k.config.MaxWorkers,
+		"role":      k.roleConfig.Role.String(),
 	})
 }
 

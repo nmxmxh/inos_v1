@@ -30,14 +30,15 @@ function watchEpoch(sab: SharedArrayBuffer, sabOffset: number, index: number): v
     return;
   }
 
-  let expected = Atomics.load(flags, index);
-
   while (running) {
-    Atomics.wait(flags, index, expected);
-    const current = Atomics.load(flags, index);
-    if (current !== expected) {
-      expected = current;
-      self.postMessage({ type: 'epoch_change', index, value: current });
+    const expected = Atomics.load(flags, index);
+    const result = Atomics.wait(flags, index, expected, 1000);
+
+    if (result !== 'timed-out') {
+      const current = Atomics.load(flags, index);
+      if (current !== expected) {
+        self.postMessage({ type: 'epoch_change', index, value: current });
+      }
     }
   }
 }

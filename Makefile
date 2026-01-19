@@ -120,6 +120,7 @@ proto-ts:
 		capnp compile -I$(CAPNP_PATH) -o ts:frontend/bridge/generated $$schema_file || true; \
 		node scripts/gen-capnp-consts-ts.js $$schema_file || true; \
 	done
+	@node scripts/fix-capnp-imports.js
 	@echo "✅ TypeScript protocol code + constants generated in frontend/bridge/generated"
  
 gen-context:

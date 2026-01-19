@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { initializeKernel, ResourceTier, shutdownKernel } from '../wasm/kernel';
+import { resolveMeshBootstrapConfig } from '../wasm/mesh';
 import { loadAllModules, loadModule } from '../wasm/module-loader';
 import { RegistryReader } from '../wasm/registry';
 import { dispatch } from '../wasm/dispatch';
@@ -37,7 +38,7 @@ export interface SystemStore {
   registerUnit: (unit: UnitState) => void;
   updateStats: (stats: Partial<KernelStats>) => void;
   setError: (error: Error) => void;
-  scanRegistry: (memory: WebAssembly.Memory) => void;
+  scanRegistry: (buffer: ArrayBufferLike) => void;
   signalModule: (name: string) => void;
   setMetric: (name: keyof KernelStats, value: number) => void;
   cleanup: () => void;
@@ -62,9 +63,9 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
   },
   error: null,
 
-  scanRegistry: (memory: WebAssembly.Memory) => {
-    if (!registryReader || (registryReader as any)['memory'] !== memory) {
-      registryReader = new RegistryReader(memory, (window as any).__INOS_SAB_OFFSET__ || 0);
+  scanRegistry: (buffer: ArrayBufferLike) => {
+    if (!registryReader || (registryReader as any)['buffer'] !== buffer) {
+      registryReader = new RegistryReader(buffer, (window as any).__INOS_SAB_OFFSET__ || 0);
     }
 
     const currentUnits = get().units;
@@ -119,32 +120,46 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       console.log(`[System] Initializing INOS (Tier: ${tier})...`);
 
       // 1. Initialize kernel
-      const { memory } = await initializeKernel(tier);
-      if (!memory) throw new Error('Kernel returned no memory');
+      const meshConfig = resolveMeshBootstrapConfig();
+      const { memory, sabBase } = await initializeKernel(tier, meshConfig);
+
+      // Memory might be null on main-thread if kernel is isolated in a worker (Split Memory Mode)
+      // This is expected and should not halt initialization.
+      if (memory) {
+        (window as any).__INOS_MEM__ = memory;
+      }
 
       const currentContext = window.__INOS_CONTEXT_ID__;
-      (window as any).__INOS_MEM__ = memory;
-      console.log(`[System] ✅ Kernel initialized (Context: ${currentContext})`);
+      console.log(
+        `[System] ✅ Kernel initialized (Context: ${currentContext}, Mode: ${memory ? 'Unified' : 'Split'})`
+      );
 
-      // 2. Start registry scanning
+      // 2. Start registry scanning (using SAB if memory is null)
+      const scanBuffer = memory ? memory.buffer : sabBase;
       const scannerId = setInterval(() => {
         if (window.__INOS_CONTEXT_ID__ !== currentContext) {
           console.log(`[System] 💀 Killing stale scanner: ${currentContext}`);
           clearInterval(scannerId);
           return;
         }
-        get().scanRegistry(memory);
+        get().scanRegistry(scanBuffer);
       }, 2000);
 
-      get().scanRegistry(memory);
+      get().scanRegistry(scanBuffer);
 
       // 3. Load modules (diagnostics only - compute is in worker)
-      const loadedModules = await loadAllModules(memory);
-      console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
+      // If we don't have shared system memory, we skip loading on main thread or provide local memory
+      let loadedModules = {};
+      if (memory) {
+        loadedModules = await loadAllModules(memory);
+        console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
+      } else {
+        console.log('[System] ⚠️ Split Memory Mode: Skipping main-thread module loading');
+      }
 
       // 4. Initialize Dispatcher (will route to worker once spawned)
       // We spawn a compute worker that handles all physics/math
-      const sab = (window as any).__INOS_SAB__;
+      const systemSAB = (window as any).__INOS_SAB__ || sabBase;
       const sabOffset = (window as any).__INOS_SAB_OFFSET__ || 0;
 
       // Import and spawn compute worker
@@ -164,9 +179,10 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         worker.onerror = reject;
         worker.postMessage({
           type: 'init',
-          sab,
+          sab: systemSAB,
           sabOffset,
-          sabSize: sab.byteLength,
+          sabSize: systemSAB.byteLength,
+          identity: meshConfig.identity,
         });
       });
 
@@ -174,7 +190,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       (window as any).__INOS_COMPUTE_WORKER__ = worker;
 
       // Initialize dispatcher without local exports - will create worker route
-      dispatch.initialize(null as any, memory);
+      dispatch.initialize(null as any, memory || ({} as any));
 
       // Register the worker route manually
       const dispatchInternal = dispatch.internal();

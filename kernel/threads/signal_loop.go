@@ -54,7 +54,7 @@ func (s *Supervisor) runSignalListener(ctx context.Context) error {
 		if currentSeq == lastSeq {
 			// Use signal-based waiting (Atomics.wait) - yields CPU until signaled
 			bridge.WaitForEpochChange(
-				sab_layout.IDX_OUTBOX_DIRTY,
+				sab_layout.IDX_OUTBOX_KERNEL_DIRTY,
 				int32(lastSeq),
 				100.0, // 100ms timeout for shutdown checks
 			)

@@ -241,6 +241,6 @@ mod tests {
         let bird_buffer = PingPongBuffer::bird_buffer(sab.clone());
         let matrix_buffer = PingPongBuffer::matrix_buffer(sab);
         assert_eq!(bird_buffer.max_items(), 10000);
-        assert_eq!(matrix_buffer.max_items(), 10000);
+        assert_eq!(matrix_buffer.max_items(), 80000); // 10k birds * 8 parts
     }
 }

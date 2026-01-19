@@ -74,17 +74,20 @@ impl SafeSAB {
 
         // PRE-CACHE full-buffer barrier view for zero-copy efficiency
         // We always use a view starting at 0 so that abs_offset indexing is consistent
-        #[cfg(target_arch = "wasm32")]
-        let barrier_view: JsValue =
-            crate::js_interop::create_i32_view(_buffer, 0, (capacity / 4) as u32).into();
         #[cfg(not(target_arch = "wasm32"))]
-        let barrier_view = JsValue::UNDEFINED;
+        let buffer = BufferHandle(0);
+        #[cfg(not(target_arch = "wasm32"))]
+        let barrier_view = JsValue(0);
 
         Self {
             #[cfg(target_arch = "wasm32")]
             buffer: _buffer.clone(),
             #[cfg(not(target_arch = "wasm32"))]
-            buffer: BufferHandle(0),
+            buffer,
+            #[cfg(target_arch = "wasm32")]
+            barrier_view: crate::js_interop::create_i32_view(_buffer, 0, (capacity / 4) as u32)
+                .into(),
+            #[cfg(not(target_arch = "wasm32"))]
             barrier_view,
             base_offset: 0,
             capacity,
@@ -100,17 +103,19 @@ impl SafeSAB {
 
         // PRE-CACHE full-buffer barrier view for zero-copy efficiency
         // Even for shared views, we use a full-buffer view for barriers to simplify indexing
-        #[cfg(target_arch = "wasm32")]
-        let barrier_view: JsValue =
-            crate::js_interop::create_i32_view(_buffer, 0, total_capacity / 4).into();
         #[cfg(not(target_arch = "wasm32"))]
-        let barrier_view = JsValue::UNDEFINED;
+        let buffer = BufferHandle(_buffer.0);
+        #[cfg(not(target_arch = "wasm32"))]
+        let barrier_view = JsValue(_buffer.0);
 
         Self {
             #[cfg(target_arch = "wasm32")]
             buffer: _buffer.clone(),
             #[cfg(not(target_arch = "wasm32"))]
-            buffer: BufferHandle(0),
+            buffer,
+            #[cfg(target_arch = "wasm32")]
+            barrier_view: crate::js_interop::create_i32_view(_buffer, 0, total_capacity / 4).into(),
+            #[cfg(not(target_arch = "wasm32"))]
             barrier_view,
             base_offset: offset as usize,
             capacity: size as usize,
@@ -124,11 +129,17 @@ impl SafeSAB {
             Self::new(&buffer_js)
         }
         #[cfg(not(target_arch = "wasm32"))]
-        Self {
-            buffer: BufferHandle(0),
-            barrier_view: JsValue::UNDEFINED,
-            base_offset: 0,
-            capacity: size,
+        {
+            let data = vec![0u8; size];
+            let handle = crate::js_interop::native_mock::register_buffer(data);
+            let buffer = BufferHandle(handle);
+            let barrier_view = crate::js_interop::JsValue(handle);
+            Self {
+                buffer,
+                base_offset: 0,
+                capacity: size,
+                barrier_view,
+            }
         }
     }
 
@@ -258,14 +269,7 @@ impl SafeSAB {
         #[cfg(target_arch = "wasm32")]
         return &self.buffer;
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            use once_cell::sync::Lazy;
-            struct SyncJsValue(JsValue);
-            unsafe impl Sync for SyncJsValue {}
-            unsafe impl Send for SyncJsValue {}
-            static UNDEFINED: Lazy<SyncJsValue> = Lazy::new(|| SyncJsValue(JsValue::UNDEFINED));
-            &UNDEFINED.0
-        }
+        return &self.barrier_view;
     }
 
     /// Get the barrier view (Int32Array) for atomic operations

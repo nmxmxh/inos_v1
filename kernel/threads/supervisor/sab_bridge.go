@@ -21,11 +21,13 @@ import (
 
 // SABBridge provides non-blocking SAB communication
 type SABBridge struct {
-	sab          unsafe.Pointer // Pointer to SAB
-	sabSize      uint32         // Actual capacity
-	inboxOffset  uint32
-	outboxOffset uint32
-	epochOffset  uint32
+	sab                unsafe.Pointer // Pointer to local replica
+	replica            []byte         // Backing buffer for replica
+	sabSize            uint32         // Actual capacity
+	inboxOffset        uint32
+	outboxHostOffset   uint32
+	outboxKernelOffset uint32
+	epochOffset        uint32
 
 	pollTimeout time.Duration
 	pendingJobs map[string]chan *foundation.Result
@@ -48,13 +50,13 @@ type SABBridge struct {
 	scratchBuf [8]byte
 
 	// Profiling metrics
-	profilingEnabled bool
-	waitAsyncHits    uint64
-	waitAsyncMisses  uint64
-	waitAsyncCalls   uint64
+	profilingEnabled  bool
+	waitAsyncHits     uint64
+	waitAsyncMisses   uint64
+	waitAsyncCalls    uint64
 	waitAsyncTimeouts uint64
-	totalReadTime    int64 // Nanoseconds
-	totalWriteTime   int64 // Nanoseconds
+	totalReadTime     int64 // Nanoseconds
+	totalWriteTime    int64 // Nanoseconds
 
 	// GC Pressure Management: Track wait calls to yield for finalizer cleanup
 	waitCallCount uint64
@@ -73,20 +75,28 @@ type SABBridge struct {
 const defaultViewCacheMax = 64
 
 // NewSABBridge creates a new SAB bridge
-func NewSABBridge(sab unsafe.Pointer, size, inboxOffset, outboxOffset, epochOffset uint32) *SABBridge {
+func NewSABBridge(replica []byte, inboxOffset, outboxHostOffset, outboxKernelOffset, epochOffset uint32) *SABBridge {
+	size := uint32(len(replica))
+	var sab unsafe.Pointer
+	if size > 0 {
+		sab = unsafe.Pointer(&replica[0])
+	}
+
 	bridge := &SABBridge{
-		sab:              sab,
-		sabSize:          size,
-		inboxOffset:      inboxOffset,
-		outboxOffset:     outboxOffset,
-		epochOffset:      epochOffset,
-		pollTimeout:      100 * time.Millisecond,
-		pendingJobs:      make(map[string]chan *foundation.Result),
-		viewCache:        make(map[uint64]js.Value),
-		viewCacheKeys:    make([]uint64, 0, defaultViewCacheMax),
-		viewCacheMax:     defaultViewCacheMax,
-		cleanupThreshold: 100, // Cleanup every 100 epochs of activity
-		epochWaiters:     make(map[uint32]chan int32),
+		sab:                sab,
+		replica:            replica,
+		sabSize:            size,
+		inboxOffset:        inboxOffset,
+		outboxHostOffset:   outboxHostOffset,
+		outboxKernelOffset: outboxKernelOffset,
+		epochOffset:        epochOffset,
+		pollTimeout:        100 * time.Millisecond,
+		pendingJobs:        make(map[string]chan *foundation.Result),
+		viewCache:          make(map[uint64]js.Value),
+		viewCacheKeys:      make([]uint64, 0, defaultViewCacheMax),
+		viewCacheMax:       defaultViewCacheMax,
+		cleanupThreshold:   100, // Cleanup every 100 epochs of activity
+		epochWaiters:       make(map[uint32]chan int32),
 	}
 
 	// Cache JS values once to prevent memory leak
@@ -137,7 +147,8 @@ func (sb *SABBridge) initJSCache() {
 	}
 
 	if view.IsUndefined() && !sab.IsUndefined() {
-		length := int(sab_layout.SIZE_ATOMIC_FLAGS / 4)
+		// Covver the entire SAB for atomic access to any region (Inboxes, Outboxes, etc.)
+		length := int(sb.sabSize / 4)
 		view = js.Global().Get("Int32Array").New(sab, int(currentOffset), length)
 		js.Global().Set("__INOS_SAB_INT32__", view)
 	}
@@ -157,7 +168,17 @@ func (sb *SABBridge) initJSCache() {
 
 	// Cache worker context status
 	sb.isWorker = sb.detectWorkerContext()
+	if sb.isWorker {
+		// Proactively enable epoch watcher in worker context to avoid 50ms polling floor.
+		// kernel.worker.ts starts dedicated JS threads for this.
+		atomic.StoreUint32(&sb.epochWatcherEnabled, 1)
+	}
 	sb.jsInitialized = true
+	if !sb.jsInt32View.IsUndefined() {
+		utils.Info("JS Cache Initialized", utils.Uint64("offset", uint64(sb.jsSabOffset)), utils.Int("len", sb.jsInt32View.Length()))
+	} else {
+		utils.Warn("JS Cache Failure: Int32View is undefined")
+	}
 }
 
 func (sb *SABBridge) startEpochLogger() {
@@ -269,7 +290,7 @@ func (sb *SABBridge) WriteJob(job *foundation.Job) error {
 		return fmt.Errorf("failed to serialize job: %w", err)
 	}
 
-	if err := sb.writeToSAB(sb.inboxOffset, data); err != nil {
+	if err := sb.writeToSAB(sb.inboxOffset, sab_layout.SIZE_INBOX_TOTAL, data); err != nil {
 		return fmt.Errorf("failed to write to inbox: %w", err)
 	}
 
@@ -282,7 +303,7 @@ func (sb *SABBridge) PollCompletion(timeout time.Duration) (bool, error) {
 	timeoutMs := float64(timeout.Milliseconds())
 
 	result := sb.WaitForEpochChange(
-		sab_layout.IDX_OUTBOX_DIRTY,
+		sab_layout.IDX_OUTBOX_HOST_DIRTY,
 		int32(startEpoch),
 		timeoutMs,
 	)
@@ -296,11 +317,12 @@ func (sb *SABBridge) PollCompletion(timeout time.Duration) (bool, error) {
 	return false, nil
 }
 
-// ReadOutboxRaw reads raw bytes from SAB outbox
 func (sb *SABBridge) ReadOutboxRaw() ([]byte, error) {
-	sb.mu.Lock()
-	defer sb.mu.Unlock()
-	return sb.readFromSAB(sb.outboxOffset, 1024*1024)
+	return sb.readFromSAB(sb.outboxKernelOffset, sab_layout.SIZE_OUTBOX_KERNEL_TOTAL)
+}
+
+func (sb *SABBridge) ReadOutboxHostRaw() ([]byte, error) {
+	return sb.readFromSAB(sb.outboxHostOffset, sab_layout.SIZE_OUTBOX_HOST_TOTAL)
 }
 
 // ReadResult reads result from SAB outbox
@@ -317,7 +339,7 @@ func (sb *SABBridge) readEpoch() uint32 {
 }
 
 func (sb *SABBridge) ReadOutboxSequence() uint32 {
-	return sb.atomicLoad(sab_layout.IDX_OUTBOX_DIRTY)
+	return sb.atomicLoad(sab_layout.IDX_OUTBOX_KERNEL_DIRTY)
 }
 
 func (sb *SABBridge) ReadSystemEpoch() uint64 {
@@ -336,17 +358,29 @@ func (sb *SABBridge) ReadAtomicI32(epochIndex uint32) int32 {
 func (sb *SABBridge) WriteInbox(data []byte) error {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
-	return sb.writeToSAB(sb.inboxOffset, data)
+	return sb.writeToSAB(sb.inboxOffset, sab_layout.SIZE_INBOX_TOTAL, data)
 }
 
 func (sb *SABBridge) WriteOutbox(data []byte) error {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 
-	if err := sb.writeToSAB(sb.outboxOffset, data); err != nil {
+	// Default to Host outbox (backwards compat / standard use case)
+	if err := sb.writeToSAB(sb.outboxHostOffset, sab_layout.SIZE_OUTBOX_HOST_TOTAL, data); err != nil {
 		return err
 	}
-	sb.SignalEpoch(sab_layout.IDX_OUTBOX_DIRTY)
+	sb.SignalEpoch(sab_layout.IDX_OUTBOX_HOST_DIRTY)
+	return nil
+}
+
+func (sb *SABBridge) WriteOutboxKernel(data []byte) error {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	if err := sb.writeToSAB(sb.outboxKernelOffset, sab_layout.SIZE_OUTBOX_KERNEL_TOTAL, data); err != nil {
+		return err
+	}
+	sb.SignalEpoch(sab_layout.IDX_OUTBOX_KERNEL_DIRTY)
 	return nil
 }
 
@@ -446,10 +480,10 @@ func (sb *SABBridge) WaitForEpochChange(epochIndex uint32, expectedValue int32, 
 	}
 
 	// Go WASM runs on a single JS thread. Atomics.wait blocks the entire runtime,
-	// starving other goroutines (matchmaker/watcher/adjuster, etc.). Use polling
-	// when JS-driven epoch notifications are unavailable.
-	useBlockingWait := false
-	if !useBlockingWait || !sb.isWorker {
+	// starving other goroutines (matchmaker/watcher/adjuster, etc.).
+	// We only use blocking Atomics.wait if we are in a Worker AND notifications
+	// are not being handled by the epoch-watcher system.
+	if !sb.isWorker {
 		return sb.pollForEpochChange(epochIndex, expectedValue, timeoutMs)
 	}
 
@@ -576,45 +610,134 @@ func (sb *SABBridge) NotifyEpochWaiters(epochIndex uint32) int {
 	return result.Int()
 }
 
-// writeToSAB writes raw data to SAB Inbox
-func (sb *SABBridge) writeToSAB(baseOffset uint32, data []byte) error {
+func (sb *SABBridge) SignalOutboxHost() {
+	sb.SignalEpoch(sab_layout.IDX_OUTBOX_HOST_DIRTY)
+}
+
+func (sb *SABBridge) SignalOutboxKernel() {
+	sb.SignalEpoch(sab_layout.IDX_OUTBOX_KERNEL_DIRTY)
+}
+
+// writeToSAB writes raw data to SAB Inbox/Outbox using MPSC pattern
+func (sb *SABBridge) writeToSAB(baseOffset, regionSize uint32, data []byte) error {
 	const HeaderSize = 8
-	const RegionSize = sab_layout.SIZE_INBOX_TOTAL
-	const DataCapacity = RegionSize - HeaderSize
-
-	headPtr := (*uint32)(unsafe.Add(sb.sab, baseOffset))
-	tailPtr := (*uint32)(unsafe.Add(sb.sab, baseOffset+4))
-
-	head := atomic.LoadUint32(headPtr)
-	tail := atomic.LoadUint32(tailPtr)
-
-	var available uint32
-	if tail >= head {
-		available = DataCapacity - (tail - head) - 1
-	} else {
-		available = (head - tail) - 1
-	}
+	DataCapacity := regionSize - HeaderSize
 
 	msgLen := uint32(len(data))
 	totalLen := 4 + msgLen
 
-	if available < totalLen {
-		return fmt.Errorf("ring buffer full")
+	// 1. Reserve space atomically (MPSC)
+	var reservedTail uint32
+	for {
+		// Atomic operations expect INDICES (uint32 array index), not BYTE OFFSETS.
+		// baseOffset is a byte offset, so we must divide by 4.
+		// Atomic operations expect INDICES (uint32 array index).
+		// We use atomicLoadDirect to avoid flag offsets.
+		head := sb.atomicLoadDirect(baseOffset / 4)
+		tail := sb.atomicLoadDirect((baseOffset + 4) / 4)
+
+		var available uint32
+		if tail >= head {
+			available = DataCapacity - (tail - head) - 1
+		} else {
+			available = (head - tail) - 1
+		}
+
+		if available < totalLen {
+			return fmt.Errorf("ring buffer full")
+		}
+
+		newTail := (tail + totalLen) % DataCapacity
+
+		if baseOffset == sb.outboxHostOffset || baseOffset == sb.outboxKernelOffset {
+			utils.Info("DEBUG: writeToSAB Outbox Attempt",
+				utils.Uint64("base", uint64(baseOffset)),
+				utils.Uint64("tail", uint64(tail)),
+				utils.Uint64("newTail", uint64(newTail)),
+				utils.Int("dataLen", len(data)),
+			)
+		}
+
+		if sb.atomicCASDirect((baseOffset+4)/4, tail, newTail) {
+			reservedTail = tail
+			break
+		}
+		// Retry on contention
 	}
 
+	// 2. Write Data first (skipping the 4-byte length slot)
+	dataStart := (reservedTail + 4) % DataCapacity
+	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, dataStart, data)
+
+	// 3. Commit: Write Length Header LAST
 	lenBytes := sb.scratchBuf[:4]
 	binary.LittleEndian.PutUint32(lenBytes, msgLen)
-	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, lenBytes)
-	tail = (tail + 4) % DataCapacity
+	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, reservedTail, lenBytes)
 
-	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, tail, data)
-	tail = (tail + msgLen) % DataCapacity
+	// 4. Synchronize: Push local write to Global SAB
+	// Crucial: Only push the data region, leave Head/Tail (Metadata) to Atomic management
+	sb.commitToJS(baseOffset+HeaderSize, DataCapacity)
 
-	atomic.StoreUint32(tailPtr, tail)
 	return nil
 }
 
+func (sb *SABBridge) commitToJS(offset, size uint32) {
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsUint8View.IsUndefined() {
+		// Bulk push from Go's local replica to JS's Global SharedArrayBuffer
+		target := sb.jsUint8View.Call("subarray", offset, offset+size)
+		js.CopyBytesToJS(target, sb.replica[offset:offset+size])
+	}
+}
+
+func (sb *SABBridge) pullFromJS(offset, size uint32) {
+	if !sb.jsInitialized || sb.jsUint8View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsUint8View.IsUndefined() {
+		// Bulk pull from Global SAB to Go's local replica
+		src := sb.jsUint8View.Call("subarray", offset, offset+size)
+		js.CopyBytesToGo(sb.replica[offset:offset+size], src)
+	}
+}
+
+func (sb *SABBridge) RefreshRegistry() {
+	sb.pullFromJS(sab_layout.OFFSET_MODULE_REGISTRY, sab_layout.SIZE_MODULE_REGISTRY)
+}
+
+// pullRingRegion selectively pulls a specific region of the ring buffer from JS to Go
+// Handles wrap-around automatically.
+func (sb *SABBridge) pullRingRegion(baseOffset, headerSize, capacity, startIdx, length uint32) {
+	dataBase := baseOffset + headerSize
+	firstChunk := capacity - startIdx
+	if length <= firstChunk {
+		sb.pullFromJS(dataBase+startIdx, length)
+	} else {
+		// Wrap around: pull end first, then start
+		sb.pullFromJS(dataBase+startIdx, firstChunk)
+		sb.pullFromJS(dataBase, length-firstChunk)
+	}
+}
+
+func (sb *SABBridge) RefreshEconomics() {
+	sb.pullFromJS(sab_layout.OFFSET_ECONOMICS, sab_layout.SIZE_ECONOMICS)
+}
+
 func (sb *SABBridge) writeRawRing(baseOffset, headerSize, capacity, writeIdx uint32, data []byte) {
+	// Debug tracing for ring buffer writes
+	if sb.profilingEnabled || ((baseOffset == sb.outboxHostOffset || baseOffset == sb.outboxKernelOffset) && len(data) > 0) {
+		previewLen := 16
+		if len(data) < previewLen {
+			previewLen = len(data)
+		}
+		utils.Debug("writeRawRing",
+			utils.Uint64("base_offset", uint64(baseOffset)),
+			utils.Uint64("write_idx", uint64(writeIdx)),
+			utils.Int("len", len(data)),
+			utils.String("preview", fmt.Sprintf("%x", data[:previewLen])))
+	}
 	dataPtr := unsafe.Add(sb.sab, baseOffset+headerSize)
 	toWrite := uint32(len(data))
 	firstChunk := capacity - writeIdx
@@ -629,49 +752,72 @@ func (sb *SABBridge) writeRawRing(baseOffset, headerSize, capacity, writeIdx uin
 	}
 }
 
-func (sb *SABBridge) readFromSAB(baseOffset uint32, maxSize int) ([]byte, error) {
+func (sb *SABBridge) readFromSAB(baseOffset, regionSize uint32) ([]byte, error) {
 	const HeaderSize = 8
-	const RegionSize = sab_layout.SIZE_INBOX_TOTAL
-	const DataCapacity = RegionSize - HeaderSize
+	DataCapacity := regionSize - HeaderSize
 
-	headPtr := (*uint32)(unsafe.Add(sb.sab, baseOffset))
-	tailPtr := (*uint32)(unsafe.Add(sb.sab, baseOffset+4))
+	// 1. Optimistic CAS Loop to claim the message
+	var head, tail, msgLen, nextHead, dataHead uint32
 
-	head := atomic.LoadUint32(headPtr)
-	tail := atomic.LoadUint32(tailPtr)
+	for {
+		// Read Head/Tail from authoritative Global SAB
+		// Atomic operations expect INDICES (uint32 array index), not BYTE OFFSETS.
+		// Read Head/Tail directly using absolute indices
+		head = sb.atomicLoadDirect(baseOffset / 4)
+		tail = sb.atomicLoadDirect((baseOffset + 4) / 4)
 
-	if head == tail {
-		return nil, nil
+		if head == tail {
+			return nil, nil // Empty
+		}
+
+		// Calculate DataHead
+		dataHead = (head + 4) % DataCapacity
+
+		// PRODUCTION GRADE: Selective Pull (Header Only)
+		// We pull strictly the 4 bytes needed for length, handling wrap-around.
+		sb.pullRingRegion(baseOffset, HeaderSize, DataCapacity, head, 4)
+
+		// Peek length from local replica
+		lenBytes := sb.scratchBuf[:4]
+		sb.readRawRing(baseOffset, HeaderSize, DataCapacity, head, lenBytes)
+		msgLen = binary.LittleEndian.Uint32(lenBytes)
+
+		if msgLen == 0 {
+			// Producer reserved space but hasn't committed length yet.
+			// This is a race with the Producer's Commit phase.
+			// Return nil to back off and retry later.
+			return nil, nil
+		}
+
+		if int(msgLen) > int(regionSize) {
+			return nil, fmt.Errorf("message too large: %d", msgLen)
+		}
+
+		// Calculate NextHead
+		nextHead = (dataHead + msgLen) % DataCapacity
+
+		// ATOMIC CLAIM: Try to advance Head from 'head' to 'nextHead'
+		// This is the Critical Section entry for MPMC consumers.
+		// ATOMIC CLAIM: Try to advance Head directly
+		if sb.atomicCASDirect(baseOffset/4, head, nextHead) {
+			// Success! We claimed this message.
+			break
+		}
+		// Failure: Another consumer advanced Head. Loop and try again with new Head.
 	}
 
-	var available uint32
-	if tail >= head {
-		available = tail - head
-	} else {
-		available = DataCapacity - (head - tail)
-	}
+	// 2. Read Data
+	// Now that we own the message, we selectively pull the payload.
+	sb.pullRingRegion(baseOffset, HeaderSize, DataCapacity, dataHead, msgLen)
 
-	if available < 4 {
-		return nil, nil
-	}
-
-	lenBytes := make([]byte, 4)
-	sb.readRawRing(baseOffset, HeaderSize, DataCapacity, head, lenBytes)
-	msgLen := binary.LittleEndian.Uint32(lenBytes)
-
-	if int(msgLen) > maxSize {
-		return nil, fmt.Errorf("message too large")
-	}
-
-	if available < 4+msgLen {
-		return nil, nil
-	}
-
-	dataHead := (head + 4) % DataCapacity
 	data := make([]byte, msgLen)
 	sb.readRawRing(baseOffset, HeaderSize, DataCapacity, dataHead, data)
 
-	atomic.StoreUint32(headPtr, (dataHead+msgLen)%DataCapacity)
+	// 3. Clear Header in Relay/Replica (Local Hygiene)
+	// We do NOT write this back to Global SAB because we already moved Head.
+	zeroBytes := []byte{0, 0, 0, 0}
+	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, head, zeroBytes)
+
 	return data, nil
 }
 
@@ -862,7 +1008,10 @@ func (sb *SABBridge) atomicLoad(index uint32) uint32 {
 		return uint32(val.Int())
 	}
 	ptr := unsafe.Add(sb.sab, sb.atomicOffset(index))
-	return atomic.LoadUint32((*uint32)(ptr))
+	val := atomic.LoadUint32((*uint32)(ptr))
+	// Log fallback (this is usually a bug if sync is expected)
+	utils.Warn("atomicLoad fallback to local memory", utils.Int("idx", int(index)), utils.Int("val", int(val)))
+	return val
 }
 
 func (sb *SABBridge) atomicAdd(index uint32, delta uint32) uint32 {
@@ -877,11 +1026,45 @@ func (sb *SABBridge) atomicAdd(index uint32, delta uint32) uint32 {
 	return atomic.AddUint32((*uint32)(ptr), delta)
 }
 
+// atomicLoadDirect loads from the SAB at the absolute index (no flag offset)
+func (sb *SABBridge) atomicLoadDirect(index uint32) uint32 {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		val := sb.jsAtomics.Call("load", sb.jsInt32View, index)
+		return uint32(val.Int())
+	}
+	// Fallback uses absolute index stored in sab pointer (assuming sab points to base 0)
+	// But in split memory, sab IS the private heap.
+	// We calculate ptr based on index * 4 (since index is int32 index)
+	byteOffset := index * 4
+	ptr := unsafe.Add(sb.sab, byteOffset)
+	val := atomic.LoadUint32((*uint32)(ptr))
+	return val
+}
+
+// atomicCASDirect performs CAS at the absolute index (no flag offset)
+func (sb *SABBridge) atomicCASDirect(index uint32, old, new uint32) bool {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		val := sb.jsAtomics.Call("compareExchange", sb.jsInt32View, index, int32(old), int32(new))
+		return uint32(val.Int()) == old
+	}
+	// Fallback
+	byteOffset := index * 4
+	ptr := unsafe.Add(sb.sab, byteOffset)
+	return atomic.CompareAndSwapUint32((*uint32)(ptr), old, new)
+}
+
 func shouldSignalSystemEpoch(index uint32) bool {
 	switch index {
 	case sab_layout.IDX_KERNEL_READY,
 		sab_layout.IDX_INBOX_DIRTY,
-		sab_layout.IDX_OUTBOX_DIRTY,
+		sab_layout.IDX_OUTBOX_HOST_DIRTY,
+		sab_layout.IDX_OUTBOX_KERNEL_DIRTY,
 		sab_layout.IDX_PANIC_STATE,
 		sab_layout.IDX_SENSOR_EPOCH,
 		sab_layout.IDX_ACTOR_EPOCH,
@@ -899,11 +1082,22 @@ func shouldSignalSystemEpoch(index uint32) bool {
 		sab_layout.IDX_GLOBAL_METRICS_EPOCH,
 		sab_layout.IDX_DELEGATED_JOB_EPOCH,
 		sab_layout.IDX_USER_JOB_EPOCH,
-		sab_layout.IDX_DELEGATED_CHUNK_EPOCH:
+		sab_layout.IDX_DELEGATED_CHUNK_EPOCH,
+		sab_layout.IDX_MESH_EVENT_EPOCH:
 		return true
 	default:
 		return false
 	}
+}
+
+// AtomicLoad exposes atomic read for custom SAB indices (flags region only).
+func (sb *SABBridge) AtomicLoad(index uint32) uint32 {
+	return sb.atomicLoad(index)
+}
+
+// AtomicAdd exposes atomic add for custom SAB indices (flags region only).
+func (sb *SABBridge) AtomicAdd(index uint32, delta uint32) uint32 {
+	return sb.atomicAdd(index, delta)
 }
 
 // getCachedView returns a cached subarray view for the given range.
@@ -1073,7 +1267,13 @@ func (sb *SABBridge) WriteResult(result *foundation.Result) error {
 	if err != nil {
 		return err
 	}
-	return sb.WriteOutbox(data)
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+	err = sb.writeToSAB(sb.outboxHostOffset, sab_layout.SIZE_OUTBOX_HOST_TOTAL, data)
+	if err == nil {
+		sb.SignalEpoch(sab_layout.IDX_OUTBOX_HOST_DIRTY)
+	}
+	return err
 }
 
 func (sb *SABBridge) DeserializeResult(data []byte) *foundation.Result {

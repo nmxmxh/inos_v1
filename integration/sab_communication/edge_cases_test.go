@@ -26,7 +26,8 @@ func TestSABWriteRead_Success(t *testing.T) {
 		{"Medium", make([]byte, 1024), 0x2000},
 		{"Large", make([]byte, 64*1024), 0x10000},
 		{"AtInbox", []byte("inbox data"), sab.OFFSET_INBOX_BASE},
-		{"AtOutbox", []byte("outbox data"), sab.OFFSET_OUTBOX_BASE},
+		{"AtOutboxHost", []byte("outbox host data"), sab.OFFSET_OUTBOX_HOST_BASE},
+		{"AtOutboxKernel", []byte("outbox kernel data"), sab.OFFSET_OUTBOX_KERNEL_BASE},
 	}
 
 	for _, tc := range testCases {
@@ -58,9 +59,10 @@ func TestEpochIncrement_Success(t *testing.T) {
 		index int
 		count int
 	}{
-		{"SystemEpoch", sab.IDX_SYSTEM_EPOCH, 100},
-		{"InboxDirty", sab.IDX_INBOX_DIRTY, 50},
-		{"OutboxDirty", sab.IDX_OUTBOX_DIRTY, 75},
+		{"SystemEpoch", int(sab.IDX_SYSTEM_EPOCH), 100},
+		{"InboxDirty", int(sab.IDX_INBOX_DIRTY), 50},
+		{"OutboxHostDirty", int(sab.IDX_OUTBOX_HOST_DIRTY), 75},
+		{"OutboxKernelDirty", int(sab.IDX_OUTBOX_KERNEL_DIRTY), 75},
 		{"CustomEpoch", 32, 200}, // Supervisor pool
 	}
 
@@ -95,7 +97,7 @@ func TestModuleRegistration_Success(t *testing.T) {
 
 	for _, mod := range modules {
 		t.Run(mod.id, func(t *testing.T) {
-			offset := sab.OFFSET_MODULE_REGISTRY + uint32(mod.slot*sab.MODULE_ENTRY_SIZE)
+			offset := sab.OFFSET_MODULE_REGISTRY + uint32(mod.slot)*sab.MODULE_ENTRY_SIZE
 
 			// Write module ID (32 bytes)
 			moduleID := make([]byte, 32)
@@ -155,22 +157,22 @@ func TestEpochOverflow_Failure(t *testing.T) {
 	epochSlice := (*[256]int32)(unsafe.Pointer(&data[0]))
 
 	// Set to max int32
-	epochSlice[sab.IDX_SYSTEM_EPOCH] = 2147483647
+	epochSlice[int(sab.IDX_SYSTEM_EPOCH)] = 2147483647
 
 	// Increment (will overflow to negative)
-	epochSlice[sab.IDX_SYSTEM_EPOCH]++
+	epochSlice[int(sab.IDX_SYSTEM_EPOCH)]++
 
 	// Validate overflow occurred
-	assert.Less(t, epochSlice[sab.IDX_SYSTEM_EPOCH], int32(0), "Should overflow to negative")
+	assert.Less(t, epochSlice[int(sab.IDX_SYSTEM_EPOCH)], int32(0), "Should overflow to negative")
 }
 
 // TestModuleRegistryFull_Failure validates registry capacity limits
 func TestModuleRegistryFull_Failure(t *testing.T) {
 	// Validate max modules
-	assert.Equal(t, 64, sab.MAX_MODULES_INLINE, "Should support 64 inline modules")
+	assert.Equal(t, uint32(64), sab.MAX_MODULES_INLINE, "Should support 64 inline modules")
 
 	// Calculate if we can fit MAX_MODULES_INLINE
-	totalSize := sab.MAX_MODULES_INLINE * sab.MODULE_ENTRY_SIZE
+	totalSize := int(sab.MAX_MODULES_INLINE) * int(sab.MODULE_ENTRY_SIZE)
 	assert.LessOrEqual(t, totalSize, int(sab.SIZE_MODULE_REGISTRY), "Registry should fit max modules")
 }
 
@@ -235,8 +237,10 @@ func TestBoundaryWrites_EdgeCase(t *testing.T) {
 	}{
 		{"InboxStart", sab.OFFSET_INBOX_BASE, 1},
 		{"InboxEnd", sab.OFFSET_INBOX_BASE + sab.SIZE_INBOX_TOTAL - 1, 1},
-		{"OutboxStart", sab.OFFSET_OUTBOX_BASE, 1},
-		{"OutboxEnd", sab.OFFSET_OUTBOX_BASE + sab.SIZE_OUTBOX_TOTAL - 1, 1},
+		{"OutboxHostStart", sab.OFFSET_OUTBOX_HOST_BASE, 1},
+		{"OutboxHostEnd", sab.OFFSET_OUTBOX_HOST_BASE + sab.SIZE_OUTBOX_HOST_TOTAL - 1, 1},
+		{"OutboxKernelStart", sab.OFFSET_OUTBOX_KERNEL_BASE, 1},
+		{"OutboxKernelEnd", sab.OFFSET_OUTBOX_KERNEL_BASE + sab.SIZE_OUTBOX_KERNEL_TOTAL - 1, 1},
 		{"ArenaStart", sab.OFFSET_ARENA, 1},
 	}
 
@@ -263,16 +267,16 @@ func TestConcurrentEpochUpdates_EdgeCase(t *testing.T) {
 	// (In real scenario, this would use atomics)
 	iterations := 1000
 	for i := 0; i < iterations; i++ {
-		epochSlice[sab.IDX_SYSTEM_EPOCH]++
+		epochSlice[int(sab.IDX_SYSTEM_EPOCH)]++
 	}
 
-	assert.Equal(t, int32(iterations), epochSlice[sab.IDX_SYSTEM_EPOCH])
+	assert.Equal(t, int32(iterations), epochSlice[int(sab.IDX_SYSTEM_EPOCH)])
 }
 
 // TestMaxSABSize_EdgeCase validates maximum SAB size
 func TestMaxSABSize_EdgeCase(t *testing.T) {
 	// Validate max size constant
-	assert.Equal(t, 64*1024*1024, sab.SAB_SIZE_MAX, "Max SAB should be 64MB")
+	assert.Equal(t, uint32(1024*1024*1024), sab.SAB_SIZE_MAX, "Max SAB should be 1GB")
 
 	// Validate layout fits in max size
 	err := sab.ValidateMemoryLayout(sab.SAB_SIZE_MAX)
@@ -282,7 +286,7 @@ func TestMaxSABSize_EdgeCase(t *testing.T) {
 // TestMinSABSize_EdgeCase validates minimum SAB size
 func TestMinSABSize_EdgeCase(t *testing.T) {
 	// Validate min size constant
-	assert.Equal(t, 4*1024*1024, sab.SAB_SIZE_MIN, "Min SAB should be 4MB")
+	assert.Equal(t, uint32(32*1024*1024), sab.SAB_SIZE_MIN, "Min SAB should be 32MB")
 
 	// Validate layout fits in min size
 	err := sab.ValidateMemoryLayout(sab.SAB_SIZE_MIN)
@@ -382,15 +386,15 @@ func TestFullWorkflow_Integration(t *testing.T) {
 
 	// 3. Simulate Rust processing and writing result
 	result := []byte(`{"status":"success","output":"Hello, world!"}`)
-	copy(sabSlice[sab.OFFSET_OUTBOX_BASE:], result)
-	epochSlice[sab.IDX_OUTBOX_DIRTY]++
+	copy(sabSlice[sab.OFFSET_OUTBOX_HOST_BASE:], result)
+	epochSlice[int(sab.IDX_OUTBOX_HOST_DIRTY)]++
 
 	// 4. Go reads result
-	readResult := sabSlice[sab.OFFSET_OUTBOX_BASE : sab.OFFSET_OUTBOX_BASE+uint32(len(result))]
+	readResult := sabSlice[sab.OFFSET_OUTBOX_HOST_BASE : sab.OFFSET_OUTBOX_HOST_BASE+uint32(len(result))]
 	assert.Equal(t, result, readResult)
 
 	// 5. Validate epoch incremented
-	assert.Equal(t, int32(1), epochSlice[sab.IDX_OUTBOX_DIRTY])
+	assert.Equal(t, int32(1), epochSlice[int(sab.IDX_OUTBOX_HOST_DIRTY)])
 }
 
 // TestMultiModuleRegistration_Integration validates multiple modules
@@ -401,7 +405,7 @@ func TestMultiModuleRegistration_Integration(t *testing.T) {
 	modules := []string{"ml", "compute", "storage", "mining", "science", "drivers"}
 
 	for i, modID := range modules {
-		offset := sab.OFFSET_MODULE_REGISTRY + uint32(i*sab.MODULE_ENTRY_SIZE)
+		offset := sab.OFFSET_MODULE_REGISTRY + uint32(i)*sab.MODULE_ENTRY_SIZE
 
 		// Write module ID
 		moduleID := make([]byte, 32)
@@ -411,7 +415,7 @@ func TestMultiModuleRegistration_Integration(t *testing.T) {
 
 	// Validate all modules registered
 	for i, modID := range modules {
-		offset := sab.OFFSET_MODULE_REGISTRY + uint32(i*sab.MODULE_ENTRY_SIZE)
+		offset := sab.OFFSET_MODULE_REGISTRY + uint32(i)*sab.MODULE_ENTRY_SIZE
 		readID := string(sabSlice[offset : offset+uint32(len(modID))])
 		assert.Equal(t, modID, readID)
 	}

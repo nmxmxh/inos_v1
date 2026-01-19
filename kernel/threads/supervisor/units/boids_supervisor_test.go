@@ -67,6 +67,10 @@ func (m *MockSABBridge) RegisterJob(jobID string) chan *foundation.Result {
 	return make(chan *foundation.Result, 1)
 }
 
+func (m *MockSABBridge) ResolveJob(jobID string, result *foundation.Result) {
+	// No-op for testing
+}
+
 func (m *MockSABBridge) WriteJob(job *foundation.Job) error {
 	return nil
 }
@@ -78,15 +82,16 @@ func (m *MockMeshDelegator) DelegateJob(ctx context.Context, job *foundation.Job
 }
 
 func (m *MockSABBridge) SignalEpoch(index uint32) {
-	// Simple implementation for testing: increment value at offset index*4
-	offset := index * 4
+	// Simple implementation for testing: increment value at correct SAB offset
+	offset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + index*4)
 	current := m.ReadAtomicI32(index)
 	newData := make([]byte, 4)
 	binary.LittleEndian.PutUint32(newData, uint32(current+1))
 	m.data[offset] = newData
 }
 
-func (m *MockSABBridge) ReadAtomicI32(offset uint32) int32 {
+func (m *MockSABBridge) ReadAtomicI32(index uint32) int32 {
+	offset := uint32(sab_layout.OFFSET_ATOMIC_FLAGS + index*4)
 	if data, ok := m.data[offset]; ok && len(data) >= 4 {
 		return int32(binary.LittleEndian.Uint32(data[:4]))
 	}
@@ -100,6 +105,10 @@ func (m *MockSABBridge) IsReady() bool {
 func (m *MockSABBridge) WriteResult(result *foundation.Result) error {
 	// No-op for testing - store if needed for verification
 	return nil
+}
+
+func (m *MockSABBridge) ReadResult() (*foundation.Result, error) {
+	return nil, nil
 }
 
 func TestNewBoidsSupervisor(t *testing.T) {

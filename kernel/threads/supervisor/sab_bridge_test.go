@@ -25,10 +25,10 @@ func createTestSABBridge() (*SABBridge, []byte) {
 	sab := make([]byte, sabSize)
 
 	bridge := NewSABBridge(
-		unsafe.Pointer(&sab[0]),
-		uint32(sabSize),
+		sab,
 		sab_layout.OFFSET_INBOX_BASE,
-		sab_layout.OFFSET_OUTBOX_BASE,
+		sab_layout.OFFSET_OUTBOX_HOST_BASE,
+		sab_layout.OFFSET_OUTBOX_KERNEL_BASE,
 		sab_layout.IDX_SYSTEM_EPOCH,
 	)
 
@@ -37,9 +37,13 @@ func createTestSABBridge() (*SABBridge, []byte) {
 	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_INBOX_BASE:], 0)   // Head
 	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_INBOX_BASE+4:], 0) // Tail
 
-	// Outbox Head/Tail
-	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_BASE:], 0)   // Head
-	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_BASE+4:], 0) // Tail
+	// Outbox Host Head/Tail
+	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_HOST_BASE:], 0)   // Head
+	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_HOST_BASE+4:], 0) // Tail
+
+	// Outbox Kernel Head/Tail
+	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_KERNEL_BASE:], 0)   // Head
+	binary.LittleEndian.PutUint32(sab[sab_layout.OFFSET_OUTBOX_KERNEL_BASE+4:], 0) // Tail
 
 	return bridge, sab
 }
@@ -93,8 +97,8 @@ func TestSABBridge_Signaling(t *testing.T) {
 	assert.Equal(t, uint32(1), binary.LittleEndian.Uint32(sab[flagOffset:]))
 
 	// Test ReadOutboxSequence
-	// Simulate module signaling (Index 2)
-	outboxFlagOffset := sab_layout.OFFSET_ATOMIC_FLAGS + (sab_layout.IDX_OUTBOX_DIRTY * 4)
+	// Simulate module signaling (Index 2 in v1, now 22 for kernel)
+	outboxFlagOffset := sab_layout.OFFSET_ATOMIC_FLAGS + (sab_layout.IDX_OUTBOX_KERNEL_DIRTY * 4)
 	binary.LittleEndian.PutUint32(sab[outboxFlagOffset:], 42)
 
 	seq := bridge.ReadOutboxSequence()
@@ -171,7 +175,7 @@ func TestSABBridge_ReadResult(t *testing.T) {
 		binary.LittleEndian.PutUint32(sab[tailOffset:], newTail)
 	}
 
-	writeRing(sab_layout.OFFSET_OUTBOX_BASE, data)
+	writeRing(sab_layout.OFFSET_OUTBOX_KERNEL_BASE, data)
 
 	// Now ReadResult
 	result, err := bridge.ReadResult()

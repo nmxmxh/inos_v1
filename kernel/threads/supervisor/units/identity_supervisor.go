@@ -274,6 +274,9 @@ func (is *IdentitySupervisor) signalEconomyEpoch() {
 	if is.bridge == nil {
 		return
 	}
+	if bridge, ok := is.bridge.(*supervisor.SABBridge); ok && bridge == nil {
+		return
+	}
 	is.bridge.SignalEpoch(sab_layout.IDX_ECONOMY_EPOCH)
 }
 

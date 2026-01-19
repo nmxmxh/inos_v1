@@ -288,7 +288,7 @@ extern "C" {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-mod native_mock {
+pub(crate) mod native_mock {
     use super::*;
     use once_cell::sync::Lazy;
     use std::sync::Mutex;
@@ -303,15 +303,13 @@ mod native_mock {
         (buffers.len() - 1) as u32
     }
 
-    fn get_buffer_index_raw(_val: &RawJsValue) -> usize {
-        // In native tests, JSValue is just a wrapper for a pointer or hash
-        // For now, we'll just return 0 for simplicity as most tests use a single SAB.
-        0
+    fn get_buffer_index_raw(val: &RawJsValue) -> usize {
+        val.0 as usize
     }
 
-    fn ensure_buffer_initialized() {
+    fn ensure_buffer_exists(index: usize) {
         let mut buffers = BUFFERS.lock().unwrap();
-        if buffers.is_empty() {
+        while buffers.len() <= index {
             buffers.push(vec![0u8; 16 * 1024 * 1024]);
         }
     }
@@ -356,31 +354,34 @@ mod native_mock {
         None
     }
 
-    pub fn get_byte_length(_val: &JsValue) -> u32 {
-        ensure_buffer_initialized();
+    pub fn get_byte_length(val: &JsValue) -> u32 {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let buffers = BUFFERS.lock().unwrap();
-        buffers[0].len() as u32
+        buffers[idx].len() as u32
     }
 
-    pub fn atomic_add(_val: &JsValue, index: u32, value: i32) -> i32 {
-        ensure_buffer_initialized();
+    pub fn atomic_add(val: &JsValue, index: u32, value: i32) -> i32 {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[0];
+        let buf = &mut buffers[idx];
         let byte_idx = (index * 4) as usize;
         if byte_idx + 4 > buf.len() {
             return 0;
         }
 
         let old = i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap());
-        let new = old + value;
+        let new = old.wrapping_add(value);
         buf[byte_idx..byte_idx + 4].copy_from_slice(&new.to_le_bytes());
         old
     }
 
-    pub fn atomic_load(_val: &JsValue, index: u32) -> i32 {
-        ensure_buffer_initialized();
+    pub fn atomic_load(val: &JsValue, index: u32) -> i32 {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[0];
+        let buf = &buffers[idx];
         let byte_idx = (index * 4) as usize;
         if byte_idx + 4 > buf.len() {
             return 0;
@@ -388,10 +389,11 @@ mod native_mock {
         i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap())
     }
 
-    pub fn atomic_store(_val: &JsValue, index: u32, value: i32) -> i32 {
-        ensure_buffer_initialized();
+    pub fn atomic_store(val: &JsValue, index: u32, value: i32) -> i32 {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[0];
+        let buf = &mut buffers[idx];
         let byte_idx = (index * 4) as usize;
         if byte_idx + 4 > buf.len() {
             return 0;
@@ -410,14 +412,15 @@ mod native_mock {
     }
 
     pub fn atomic_compare_exchange(
-        _val: &JsValue,
+        val: &JsValue,
         index: u32,
         expected: i32,
         replacement: i32,
     ) -> i32 {
-        ensure_buffer_initialized();
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[0];
+        let buf = &mut buffers[idx];
         let byte_idx = (index * 4) as usize;
         if byte_idx + 4 > buf.len() {
             return 0;
@@ -434,20 +437,22 @@ mod native_mock {
         0.5
     }
 
-    pub fn copy_to_sab(_val: &JsValue, target_offset: u32, src: &[u8]) {
-        ensure_buffer_initialized();
+    pub fn copy_to_sab(val: &JsValue, target_offset: u32, src: &[u8]) {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[0];
+        let buf = &mut buffers[idx];
         let offset = target_offset as usize;
         if offset + src.len() <= buf.len() {
             buf[offset..offset + src.len()].copy_from_slice(src);
         }
     }
 
-    pub fn copy_from_sab(_val: &JsValue, src_offset: u32, dest: &mut [u8]) {
-        ensure_buffer_initialized();
+    pub fn copy_from_sab(val: &JsValue, src_offset: u32, dest: &mut [u8]) {
+        let idx = get_buffer_index_raw(val);
+        ensure_buffer_exists(idx);
         let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[0];
+        let buf = &buffers[idx];
         let offset = src_offset as usize;
         if offset + dest.len() <= buf.len() {
             dest.copy_from_slice(&buf[offset..offset + dest.len()]);
@@ -455,7 +460,7 @@ mod native_mock {
     }
 
     pub fn sab_read_i32(byte_offset: u32) -> i32 {
-        ensure_buffer_initialized();
+        ensure_buffer_exists(0);
         let buffers = BUFFERS.lock().unwrap();
         let buf = &buffers[0];
         let offset = byte_offset as usize;
@@ -467,7 +472,7 @@ mod native_mock {
     }
 
     pub fn sab_read_u32(byte_offset: u32) -> u32 {
-        ensure_buffer_initialized();
+        ensure_buffer_exists(0);
         let buffers = BUFFERS.lock().unwrap();
         let buf = &buffers[0];
         let offset = byte_offset as usize;
@@ -479,7 +484,7 @@ mod native_mock {
     }
 
     pub fn sab_read_f32(byte_offset: u32) -> f32 {
-        ensure_buffer_initialized();
+        ensure_buffer_exists(0);
         let buffers = BUFFERS.lock().unwrap();
         let buf = &buffers[0];
         let offset = byte_offset as usize;
@@ -678,6 +683,7 @@ pub fn atomic_notify(typed_array: &JsValue, index: u32, count: i32) -> i32 {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(target_arch = "wasm32")]
 pub fn atomic_compare_exchange<T>(
     typed_array: &SendWrap<T>,
     index: u32,
@@ -687,9 +693,12 @@ pub fn atomic_compare_exchange<T>(
 where
     T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
 {
-    unsafe {
-        atomic_compare_exchange_raw(typed_array.0.clone().into(), index, expected, replacement)
+    let raw: RawJsValue = typed_array.clone().0.into();
+    let old = unsafe { atomic_compare_exchange_raw(raw.clone(), index, expected, replacement) };
+    if old == expected {
+        maybe_bump_system_epoch_raw(raw, index);
     }
+    old
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -699,7 +708,11 @@ pub fn atomic_compare_exchange(
     expected: i32,
     replacement: i32,
 ) -> i32 {
-    native_mock::atomic_compare_exchange(typed_array, index, expected, replacement)
+    let old = native_mock::atomic_compare_exchange(typed_array, index, expected, replacement);
+    if old == expected {
+        maybe_bump_system_epoch_native(typed_array, index);
+    }
+    old
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -708,6 +721,10 @@ fn maybe_bump_system_epoch_raw(typed_array: RawJsValue, index: u32) {
         return;
     }
     unsafe {
+        // ALWAYS notify the specific index first so dedicated watchers wake up!
+        atomic_notify_raw(typed_array.clone(), index, i32::MAX);
+
+        // Then bump and notify the system pulse for general listeners
         atomic_add_raw(typed_array.clone(), layout::IDX_SYSTEM_EPOCH, 1);
         atomic_notify_raw(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
     }
@@ -718,6 +735,10 @@ fn maybe_bump_system_epoch_native(typed_array: &JsValue, index: u32) {
     if index == layout::IDX_SYSTEM_EPOCH || !layout::should_signal_system_epoch(index) {
         return;
     }
+    // Specific index notification
+    native_mock::atomic_notify(typed_array, index, i32::MAX);
+
+    // System epoch pulse
     native_mock::atomic_add(typed_array, layout::IDX_SYSTEM_EPOCH, 1);
     native_mock::atomic_notify(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
 }
@@ -776,6 +797,13 @@ pub fn js_to_string(_val: &JsValue) -> Option<String> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     native_mock::js_to_string(_val)
+}
+
+pub fn get_global_string(key: &str) -> Option<String> {
+    let global = get_global();
+    let key_val = create_string(key);
+    let value = reflect_get(&global, &key_val).ok()?;
+    js_to_string(&value)
 }
 
 // =============================================================================

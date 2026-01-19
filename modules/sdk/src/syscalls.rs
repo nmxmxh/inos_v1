@@ -37,6 +37,15 @@ impl SyscallClient {
             // Populate Metadata
             let mut meta = header.init_metadata();
             meta.set_module_id(crate::identity::get_module_id());
+            if let Some(device_id) = crate::identity::get_device_id() {
+                meta.set_device_id(device_id);
+            }
+            if let Some(did) = crate::identity::get_did() {
+                meta.set_user_id(did);
+            } else if let Some(node_id) = crate::identity::get_node_id() {
+                meta.set_user_id(node_id);
+            }
+            meta.set_version(1);
             // Other fields (user_id, device_id, etc.) will be populated when available in context
 
             let body = root.init_body();
@@ -80,6 +89,15 @@ impl SyscallClient {
             // Populate Metadata
             let mut meta = header.init_metadata();
             meta.set_module_id(crate::identity::get_module_id());
+            if let Some(device_id) = crate::identity::get_device_id() {
+                meta.set_device_id(device_id);
+            }
+            if let Some(did) = crate::identity::get_did() {
+                meta.set_user_id(did);
+            } else if let Some(node_id) = crate::identity::get_node_id() {
+                meta.set_user_id(node_id);
+            }
+            meta.set_version(1);
 
             let body = root.init_body();
             let mut store = body.init_store_chunk();
@@ -143,6 +161,15 @@ impl SyscallClient {
             // Populate Metadata
             let mut meta = header.init_metadata();
             meta.set_module_id(crate::identity::get_module_id());
+            if let Some(device_id) = crate::identity::get_device_id() {
+                meta.set_device_id(device_id);
+            }
+            if let Some(did) = crate::identity::get_did() {
+                meta.set_user_id(did);
+            } else if let Some(node_id) = crate::identity::get_node_id() {
+                meta.set_user_id(node_id);
+            }
+            meta.set_version(1);
 
             let body = root.init_body();
             let mut send = body.init_send_message();
@@ -221,9 +248,9 @@ impl SyscallClient {
             return Err(e);
         }
 
-        // Signal Kernel (Consistency: Kernel watches IDX_OUTBOX_DIRTY at index 2)
+        // Signal Kernel (Consistency: Kernel watches IDX_OUTBOX_KERNEL_DIRTY at index 22)
         // See kernel/threads/supervisor/sab_bridge.go: ReadOutboxSequence -> offset 8
-        crate::js_interop::atomic_add(&flags, crate::layout::IDX_OUTBOX_DIRTY, 1);
+        crate::js_interop::atomic_add(&flags, crate::layout::IDX_OUTBOX_KERNEL_DIRTY, 1);
 
         // RELEASE OUTBOX LOCK
         crate::js_interop::atomic_store(&flags, crate::layout::IDX_OUTBOX_MUTEX, 0);

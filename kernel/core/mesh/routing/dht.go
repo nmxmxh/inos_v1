@@ -258,6 +258,30 @@ func (d *DHT) Store(chunkHash string, peerID string, ttlSeconds int64) error {
 	return nil
 }
 
+// RemoveChunkPeer removes a peer from a chunk's advertisement list.
+func (d *DHT) RemoveChunkPeer(chunkHash string, peerID string) error {
+	d.storeMu.Lock()
+	defer d.storeMu.Unlock()
+
+	existing, exists := d.store.Load(chunkHash)
+	if !exists {
+		return nil
+	}
+	peerList := existing.([]string)
+	updated := make([]string, 0, len(peerList))
+	for _, p := range peerList {
+		if p != peerID {
+			updated = append(updated, p)
+		}
+	}
+	if len(updated) == 0 {
+		d.store.Delete(chunkHash)
+		return nil
+	}
+	d.store.Store(chunkHash, updated)
+	return nil
+}
+
 // FindPeers locates nodes that possess the given chunk.
 func (d *DHT) FindPeers(chunkHash string) ([]string, error) {
 	d.storeMu.RLock()
@@ -721,4 +745,21 @@ func (d *DHT) LoadState(store DHTStore) error {
 	}
 
 	return nil
+}
+
+// RemovePeer evicts a peer from routing tables and local cache.
+func (d *DHT) RemovePeer(peerID string) {
+	d.peersMu.Lock()
+	delete(d.peers, peerID)
+	for i := range d.buckets {
+		bucket := d.buckets[i]
+		next := bucket[:0]
+		for _, peer := range bucket {
+			if peer.ID != peerID {
+				next = append(next, peer)
+			}
+		}
+		d.buckets[i] = next
+	}
+	d.peersMu.Unlock()
 }

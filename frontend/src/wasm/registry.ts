@@ -23,17 +23,17 @@ export interface ModuleEntry {
 
 export class RegistryReader {
   private view: DataView;
-  private memory: WebAssembly.Memory;
+  private buffer: ArrayBufferLike;
   private sabOffset: number;
 
-  constructor(memory: WebAssembly.Memory, sabOffset: number = 0) {
-    this.memory = memory;
-    this.view = new DataView(memory.buffer);
+  constructor(buffer: ArrayBufferLike, sabOffset: number = 0) {
+    this.buffer = buffer;
+    this.view = new DataView(buffer);
     this.sabOffset = sabOffset;
   }
 
   private readString(offset: number, length: number): string {
-    const bytes = new Uint8Array(this.memory.buffer, offset, length);
+    const bytes = new Uint8Array(this.buffer, offset, length);
     let end = 0;
     while (end < length && bytes[end] !== 0) end++;
     // SAB decoding fix: must slice to create non-shared copy before decoding
@@ -48,7 +48,7 @@ export class RegistryReader {
 
     if (
       arenaOffset < OFFSET_ARENA ||
-      absoluteOffset + count * CAPABILITY_ENTRY_SIZE > this.memory.buffer.byteLength
+      absoluteOffset + count * CAPABILITY_ENTRY_SIZE > this.buffer.byteLength
     ) {
       return capabilities;
     }

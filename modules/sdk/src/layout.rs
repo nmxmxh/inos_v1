@@ -76,9 +76,9 @@ pub const SIZE_COORDINATION: usize = sab::SIZE_COORDINATION as usize;
 pub const OFFSET_INBOX_OUTBOX: usize = sab::OFFSET_INBOX_OUTBOX as usize;
 pub const SIZE_INBOX_OUTBOX: usize = sab::SIZE_INBOX_OUTBOX as usize;
 pub const SIZE_INBOX: usize = sab::SIZE_INBOX_TOTAL as usize;
-pub const SIZE_OUTBOX: usize = sab::SIZE_OUTBOX_TOTAL as usize;
+pub const SIZE_OUTBOX: usize = sab::SIZE_OUTBOX_KERNEL_TOTAL as usize;
 pub const OFFSET_SAB_INBOX: usize = sab::OFFSET_INBOX_BASE as usize;
-pub const OFFSET_SAB_OUTBOX: usize = sab::OFFSET_OUTBOX_BASE as usize;
+pub const OFFSET_SAB_OUTBOX: usize = sab::OFFSET_OUTBOX_KERNEL_BASE as usize;
 
 // ========== ARENA REGIONS ==========
 
@@ -96,6 +96,12 @@ pub const OFFSET_ARENA_REQUEST_QUEUE: usize = sab::OFFSET_ARENA_REQUEST_QUEUE as
 pub const OFFSET_ARENA_RESPONSE_QUEUE: usize = sab::OFFSET_ARENA_RESPONSE_QUEUE as usize;
 pub const ARENA_QUEUE_ENTRY_SIZE: usize = sab::ARENA_QUEUE_ENTRY_SIZE as usize;
 pub const MAX_ARENA_REQUESTS: usize = sab::MAX_ARENA_REQUESTS as usize;
+
+/// Mesh Event Ring Buffer (Arena metadata)
+pub const OFFSET_MESH_EVENT_QUEUE: usize = sab::OFFSET_MESH_EVENT_QUEUE as usize;
+pub const SIZE_MESH_EVENT_QUEUE: usize = sab::SIZE_MESH_EVENT_QUEUE as usize;
+pub const MESH_EVENT_SLOT_SIZE: usize = sab::MESH_EVENT_SLOT_SIZE as usize;
+pub const MESH_EVENT_SLOT_COUNT: usize = sab::MESH_EVENT_SLOT_COUNT as usize;
 
 /// Bird Animation State (Arena)
 pub const OFFSET_BIRD_STATE: usize = sab::OFFSET_BIRD_STATE as usize;
@@ -123,7 +129,8 @@ pub const MATRIX_STRIDE: usize = sab::MATRIX_STRIDE as usize;
 
 pub const IDX_KERNEL_READY: u32 = sab::IDX_KERNEL_READY;
 pub const IDX_INBOX_DIRTY: u32 = sab::IDX_INBOX_DIRTY;
-pub const IDX_OUTBOX_DIRTY: u32 = sab::IDX_OUTBOX_DIRTY;
+pub const IDX_OUTBOX_HOST_DIRTY: u32 = sab::IDX_OUTBOX_HOST_DIRTY;
+pub const IDX_OUTBOX_KERNEL_DIRTY: u32 = sab::IDX_OUTBOX_KERNEL_DIRTY;
 pub const IDX_PANIC_STATE: u32 = sab::IDX_PANIC_STATE;
 pub const IDX_SENSOR_EPOCH: u32 = sab::IDX_SENSOR_EPOCH;
 pub const IDX_ACTOR_EPOCH: u32 = sab::IDX_ACTOR_EPOCH;
@@ -150,6 +157,10 @@ pub const IDX_GLOBAL_METRICS_EPOCH: u32 = sab::IDX_GLOBAL_METRICS_EPOCH;
 pub const IDX_DELEGATED_JOB_EPOCH: u32 = sab::IDX_DELEGATED_JOB_EPOCH;
 pub const IDX_USER_JOB_EPOCH: u32 = sab::IDX_USER_JOB_EPOCH;
 pub const IDX_DELEGATED_CHUNK_EPOCH: u32 = sab::IDX_DELEGATED_CHUNK_EPOCH;
+pub const IDX_MESH_EVENT_EPOCH: u32 = sab::IDX_MESH_EVENT_EPOCH;
+pub const IDX_MESH_EVENT_HEAD: u32 = sab::IDX_MESH_EVENT_HEAD;
+pub const IDX_MESH_EVENT_TAIL: u32 = sab::IDX_MESH_EVENT_TAIL;
+pub const IDX_MESH_EVENT_DROPPED: u32 = sab::IDX_MESH_EVENT_DROPPED;
 
 pub const IDX_CONTEXT_ID_HASH: u32 = sab::IDX_CONTEXT_ID_HASH;
 
@@ -170,7 +181,8 @@ pub const fn should_signal_system_epoch(index: u32) -> bool {
         index,
         IDX_KERNEL_READY
             | IDX_INBOX_DIRTY
-            | IDX_OUTBOX_DIRTY
+            | IDX_OUTBOX_HOST_DIRTY
+            | IDX_OUTBOX_KERNEL_DIRTY
             | IDX_PANIC_STATE
             | IDX_SENSOR_EPOCH
             | IDX_ACTOR_EPOCH
@@ -189,6 +201,7 @@ pub const fn should_signal_system_epoch(index: u32) -> bool {
             | IDX_DELEGATED_JOB_EPOCH
             | IDX_USER_JOB_EPOCH
             | IDX_DELEGATED_CHUNK_EPOCH
+            | IDX_MESH_EVENT_EPOCH
     )
 }
 

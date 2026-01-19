@@ -45,7 +45,8 @@ type Supervisor struct {
 	stats SupervisorStats
 
 	// Shared State
-	sab       unsafe.Pointer
+	sab       unsafe.Pointer // Pointer to local replica
+	replica   []byte         // Backing buffer for replica
 	sabSize   uint32
 	bridge    *supervisor.SABBridge
 	patterns  *pattern.TieredPatternStorage
@@ -135,7 +136,6 @@ func NewRootSupervisor(ctx context.Context, config SupervisorConfig) *Supervisor
 		matchmakerQueue: make(chan JobMatchRequest, 100),
 		watcherQueue:    make(chan HealthCheckRequest, 100),
 		adjusterQueue:   make(chan ThrottleRequest, 100),
-		sab:             config.SAB,
 	}
 }
 
@@ -201,8 +201,10 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		return nil
 	}
 
-	// Update SAB info
-	s.sab = sab
+	// Allocate local replica for Synchronized Memory Twin
+	// This ensures Go operates on a stable private snapshot
+	s.replica = make([]byte, size)
+	s.sab = unsafe.Pointer(&s.replica[0])
 	s.sabSize = size
 
 	// Registry
@@ -220,12 +222,8 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 	s.logger.Info("Creating KnowledgeGraph")
 	s.knowledge = intelligence.NewKnowledgeGraph(s.sab, s.sabSize, sab_layout.OFFSET_COORDINATION, sab_layout.SIZE_COORDINATION)
 
-	// Load modules from registry
-	s.logger.Info("Loading modules from SAB...")
-	if err := s.registry.LoadFromSAB(); err != nil {
-		s.logger.Warn("Failed to load module registry from SAB", utils.Err(err))
-	}
-	s.logger.Info("Registry loaded")
+	// Load modules from registry happens later in loader.LoadUnits()
+	s.logger.Info("Supervisor regions established")
 
 	// Initialize Core System Supervisors
 	s.credits = supervisor.NewCreditSupervisor(s.sab, s.sabSize, uint32(sab_layout.OFFSET_ECONOMICS))
@@ -275,10 +273,15 @@ func (s *Supervisor) InitializeCompute(sab unsafe.Pointer, size uint32) error {
 		md = d
 	}
 
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
+	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
 	loadedUnits, bridge := loader.LoadUnits()
 	s.bridge = bridge
 	s.units = loadedUnits
+
+	// Synchronize initial system state
+	if s.bridge != nil {
+		s.bridge.RefreshEconomics()
+	}
 
 	// CRITICAL: Release lock BEFORE spawning children to avoid recursive lock
 	// Child spawning acquires its own lock, so we must not hold this one
@@ -311,7 +314,14 @@ func (s *Supervisor) Submit(job *foundation.Job) (<-chan *foundation.Result, err
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("unit not found: %s", job.Type)
+		if job.Type == "compute" {
+			s.mu.RLock()
+			unit, ok = s.units["data"]
+			s.mu.RUnlock()
+		}
+		if !ok {
+			return nil, fmt.Errorf("unit not found: %s", job.Type)
+		}
 	}
 
 	// Most unit supervisors embed UnifiedSupervisor which has Submit()
@@ -347,7 +357,7 @@ func (s *Supervisor) runDiscoveryLoop(ctx context.Context) error {
 	if d, ok := s.config.MeshCoordinator.(foundation.MeshDelegator); ok {
 		md = d
 	}
-	loader := NewUnitLoader(s.sab, s.sabSize, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
+	loader := NewUnitLoader(s.replica, s.patterns, s.knowledge, s.registry, s.credits, s.identity, mp, md)
 	var lastRegistryEpoch int32 = 0
 
 	for {

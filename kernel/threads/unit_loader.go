@@ -16,7 +16,7 @@ import (
 
 // UnitLoader handles the instantiation of unit supervisors
 type UnitLoader struct {
-	sab             unsafe.Pointer
+	replica         []byte
 	patterns        *pattern.TieredPatternStorage
 	knowledge       *intelligence.KnowledgeGraph
 	registry        *registry.ModuleRegistry
@@ -28,10 +28,10 @@ type UnitLoader struct {
 }
 
 // NewUnitLoader creates a new unit loader
-func NewUnitLoader(sab unsafe.Pointer, size uint32, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, identity *units.IdentitySupervisor, metricsProvider units.MetricsProvider, delegator foundation.MeshDelegator) *UnitLoader {
+func NewUnitLoader(replica []byte, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, registry *registry.ModuleRegistry, credits *supervisor.CreditSupervisor, identity *units.IdentitySupervisor, metricsProvider units.MetricsProvider, delegator foundation.MeshDelegator) *UnitLoader {
 	return &UnitLoader{
-		sab:             sab,
-		sabSize:         size,
+		replica:         replica,
+		sabSize:         uint32(len(replica)),
 		patterns:        patterns,
 		knowledge:       knowledge,
 		registry:        registry,
@@ -48,9 +48,12 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 	bridge := ul.GetBridge()
 	loaded := make(map[string]interface{})
 
-	// 1. Refresh registry from SAB (ensure we have latest definitions)
+	// 1. Refresh registry from authoritative Global SAB
+	bridge.RefreshRegistry()
+
+	// 2. Load from local replica
 	if err := ul.registry.LoadFromSAB(); err != nil {
-		// Log error but continue with what we have? Or fail?
+		// Log error but continue with what we have
 	}
 
 	// 2. Discover modules dynamically
@@ -72,12 +75,23 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 		loaded["analytics_supervisor"] = units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	}
 
+	// 5. EXPLICIT: Ensure DataSupervisor exists for generic compute/data tasks
+	if _, exists := loaded["data"]; !exists {
+		loaded["data"] = units.NewDataSupervisor(bridge, ul.patterns, ul.knowledge, nil, ul.delegator)
+	}
+
 	return loaded, bridge
 }
 
 // GetBridge creates or returns a shared bridge
 func (ul *UnitLoader) GetBridge() *supervisor.SABBridge {
-	return supervisor.NewSABBridge(ul.sab, ul.sabSize, sab_layout.OFFSET_INBOX_BASE, sab_layout.OFFSET_OUTBOX_BASE, sab_layout.IDX_SYSTEM_EPOCH)
+	return supervisor.NewSABBridge(
+		ul.replica,
+		sab_layout.OFFSET_INBOX_BASE,
+		sab_layout.OFFSET_OUTBOX_HOST_BASE,
+		sab_layout.OFFSET_OUTBOX_KERNEL_BASE,
+		sab_layout.IDX_SYSTEM_EPOCH,
+	)
 }
 
 // InstantiateUnit creates a specific supervisor for a module
@@ -110,7 +124,7 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 		if ul.identity != nil {
 			return ul.identity
 		}
-		return units.NewIdentitySupervisor(bridge, ul.patterns, ul.knowledge, ul.sab, ul.sabSize, sab_layout.OFFSET_IDENTITY_REGISTRY, ul.credits, nil, ul.delegator)
+		return units.NewIdentitySupervisor(bridge, ul.patterns, ul.knowledge, unsafe.Pointer(&ul.replica[0]), ul.sabSize, sab_layout.OFFSET_IDENTITY_REGISTRY, ul.credits, nil, ul.delegator)
 	case "analytics":
 		return units.NewAnalyticsSupervisor(bridge, ul.patterns, ul.knowledge, ul.metricsProvider, ul.delegator)
 	default:

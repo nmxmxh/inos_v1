@@ -64,7 +64,7 @@ type KnowledgeQueryEngine struct {
 
 const (
 	KNOWLEDGE_MAGIC     = 0x4B4E4F574C444745 // "KNOWLEDG"
-	KNOWLEDGE_NODE_SIZE = 64
+	KNOWLEDGE_NODE_SIZE = 128
 	KNOWLEDGE_MAX_NODES = 1024
 	KNOWLEDGE_MAX_EDGES = 4096
 )
@@ -196,7 +196,7 @@ func (kg *KnowledgeGraph) writeNode(offset uint32, node *KnowledgeNode) error {
 	if err != nil {
 		return err
 	}
-	kn, err := ml.NewModel_KnowledgeNode(seg)
+	kn, err := ml.NewRootModel_KnowledgeNode(seg)
 	if err != nil {
 		return err
 	}
@@ -206,6 +206,9 @@ func (kg *KnowledgeGraph) writeNode(offset uint32, node *KnowledgeNode) error {
 	kn.SetConfidence(node.Confidence)
 	kn.SetTimestamp(int64(node.Timestamp))
 	kn.SetVersion(node.Version)
+	kn.SetMagic(node.Magic)
+	kn.SetDataSize(node.DataSize)
+	kn.SetDataOffset(node.DataOffset)
 
 	data, err := msg.Marshal()
 	if err != nil {
@@ -243,12 +246,18 @@ func (kg *KnowledgeGraph) readNode(offset uint32) (*KnowledgeNode, error) {
 		return nil, err
 	}
 
+	// DEBUG: Print Confidence
+	// fmt.Printf("DEBUG: readNode: ID=%d, Confidence=%f, Magic=%x\n", kn.Id(), kn.Confidence(), kn.Magic())
+
 	node := &KnowledgeNode{
 		ID:         kn.Id(),
 		Type:       uint16(kn.Type()),
 		Confidence: kn.Confidence(),
 		Timestamp:  uint64(kn.Timestamp()),
 		Version:    kn.Version(),
+		Magic:      kn.Magic(),
+		DataSize:   kn.DataSize(),
+		DataOffset: kn.DataOffset(),
 	}
 
 	return node, nil

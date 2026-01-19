@@ -190,6 +190,10 @@ export function MeshMetricsBar() {
       : 0;
 
   const activeNodes = global?.activeNodeCount || displayMetrics.connectedPeers || 1;
+  const totalComputeGFLOPS = global?.totalComputeGFLOPS ?? 0;
+  const avgCapability = global?.avgCapability ?? 0;
+  const sectorId = displayMetrics.sectorId ?? 0;
+  const avgReputation = displayMetrics.avgReputation ?? 0;
 
   // Mesh Health logic
   const successRate = displayMetrics.successRate || 1.0;
@@ -246,11 +250,39 @@ export function MeshMetricsBar() {
       </Style.Metric>
 
       <Style.Metric
+        data-testid="metric-cap"
+        title="Total Compute Power — Combined compute capacity across active nodes"
+      >
+        <Style.Label>Cap</Style.Label>
+        <NumberFormatter value={totalComputeGFLOPS} suffix="G" />
+      </Style.Metric>
+
+      <Style.Metric
+        data-testid="metric-avg"
+        title="Average Capability — Mean compute capacity per active node"
+      >
+        <Style.Label>Avg</Style.Label>
+        <NumberFormatter value={avgCapability} suffix="G" />
+      </Style.Metric>
+
+      <Style.Metric
         data-testid="metric-nodes"
         title="Participating Nodes — Number of independent devices currently collaborating in your regional mesh"
       >
         <Style.Label>Nodes</Style.Label>
         <NumberFormatter value={activeNodes} decimals={0} />
+      </Style.Metric>
+
+      <Style.Metric data-testid="metric-sector" title="Sector ID — Your current mesh partition">
+        <Style.Label>Sector</Style.Label>
+        <NumberFormatter value={sectorId} decimals={0} />
+      </Style.Metric>
+
+      <Style.Metric data-testid="metric-rep" title="Global Trust — Aggregate reliability score">
+        <Style.Label>Trust</Style.Label>
+        <Style.Value>
+          <RollingCounter value={avgReputation} decimals={2} />
+        </Style.Value>
       </Style.Metric>
 
       <Style.Metric

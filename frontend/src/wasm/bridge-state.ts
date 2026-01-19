@@ -7,13 +7,21 @@
  * This eliminates per-hook DataView/TypedArray allocations that cause GC pressure.
  */
 
+import {
+  OFFSET_SYSTEM_BASE,
+  OFFSET_OUTBOX_HOST_BASE,
+  SIZE_OUTBOX_HOST_TOTAL,
+  IDX_OUTBOX_HOST_DIRTY,
+  IDX_OUTBOX_KERNEL_DIRTY,
+} from './layout';
+
 // =============================================================================
 // SINGLETON STATE
 // =============================================================================
 
 let _sab: SharedArrayBuffer | null = null;
 let _memory: WebAssembly.Memory | null = null;
-let _offset: number = 0;
+let _offset: number = OFFSET_SYSTEM_BASE;
 let _size: number = 0;
 
 // Cached views - created once, reused forever
@@ -48,12 +56,16 @@ export function initializeBridge(
   _offset = offset;
   _size = size;
 
+  console.info('[INOSBridge] Initialized:', {
+    offset: _offset,
+    size: _size,
+    flagsByteOffset: _flagsView?.byteOffset,
+  });
+
   // Create master views
-  // CRITICAL: flagsView MUST start at byte 0 to match Rust SafeSAB::barrier_view()
-  // Rust writes epoch flips to absolute Int32 indices (e.g., IDX_MATRIX_EPOCH=13)
-  // If we use _offset here, we'd read from wrong memory location
+  // CRITICAL: All views are now absolute 0-based
   _dataView = new DataView(sab);
-  _flagsView = new Int32Array(sab, 0, 128); // Absolute byte 0, matches Rust
+  _flagsView = new Int32Array(sab, OFFSET_SYSTEM_BASE, sab.byteLength / 4);
   _floatsView = new Float32Array(sab);
 
   // Clear cached region views (they'll be recreated on demand)
@@ -254,6 +266,8 @@ export const INOSBridge = {
   readU64AsNumber,
   readI64AsNumber,
   atomicLoad,
+  IDX_OUTBOX_HOST_DIRTY,
+  IDX_OUTBOX_KERNEL_DIRTY,
   /**
    * Observe an epoch change (polling-friendly version of atomicLoad)
    */
@@ -263,30 +277,46 @@ export const INOSBridge = {
    */
   peekOutbox: (len: number = 4096) => {
     // Data starts after 8-byte header (head, tail)
-    return getRegionDataView(0x0d0008, len);
+    return getRegionDataView(OFFSET_OUTBOX_HOST_BASE + 8, len);
   },
   /**
    * Pop a result from the Outbox ringbuffer.
    * This handles the head/tail pointers and wrap-around.
    */
   popResult: (): Uint8Array | null => {
-    if (!_dataView || !_sab) return null;
+    if (!isReady() || !_dataView || !_sab || !_flagsView) return null;
 
-    const outboxBase = _offset + 0x0d0000;
-    const regionSize = 0x080000; // SIZE_OUTBOX_TOTAL
+    const outboxBase = OFFSET_OUTBOX_HOST_BASE;
+    const regionSize = SIZE_OUTBOX_HOST_TOTAL;
     const headerSize = 8;
     const dataCapacity = regionSize - headerSize;
 
-    // 1. Read metadata
-    const head = _dataView.getUint32(outboxBase, true);
-    const tail = _dataView.getUint32(outboxBase + 4, true);
+    if (Date.now() % 1000 < 50) {
+      console.info('[INOSBridge] popResult checking:', { outboxBase });
+    }
 
+    // 1. Read metadata (Atomic)
+    const outboxInt32 = new Int32Array(_sab!, outboxBase, 2);
+    const head = Atomics.load(outboxInt32, 0); // Head at offset 0
+    const tail = Atomics.load(outboxInt32, 1); // Tail at offset 4
+
+    // Debug logging for concurrent race condition
+    if (Date.now() % 500 < 20) {
+      console.log(`[INOSBridge] popResult State: Head=${head} Tail=${tail} Base=${outboxBase}`);
+    }
+
+    if (head !== tail) {
+      console.info('[INOSBridge] popResult detected data:', {
+        head,
+        tail,
+        outboxBase,
+        // msgLenPreview will be read next
+      });
+    }
     if (head === tail) return null;
 
     // 2. Read message length
     // We need to handle potential wrap-around for the length field itself
-    // but the system ensures message length (4 bytes) is never split if possible,
-    // or we handle it via a helper.
     const readRaw = (idx: number, len: number): Uint8Array => {
       const res = new Uint8Array(len);
       const dataBase = outboxBase + headerSize;
@@ -303,8 +333,16 @@ export const INOSBridge = {
     const lenBytes = readRaw(head, 4);
     const msgLen = new DataView(lenBytes.buffer).getUint32(0, true);
 
-    if (msgLen === 0 || msgLen > dataCapacity) {
-      console.warn('[INOSBridge] Invalid msgLen in outbox:', msgLen);
+    if (msgLen === 0) return null; // Wait for producer to commit
+    if (msgLen > dataCapacity) {
+      console.warn(
+        '[INOSBridge] Invalid msgLen in outbox:',
+        msgLen,
+        'at head:',
+        head,
+        'capacity:',
+        dataCapacity
+      );
       return null;
     }
 
@@ -312,11 +350,36 @@ export const INOSBridge = {
     const dataHead = (head + 4) % dataCapacity;
     const payload = readRaw(dataHead, msgLen);
 
-    // 4. Advance head
+    // 4. Zero out header to prevent stale reads on wrap-around (MPSC Protocol)
+    const zeroOut = (idx: number, len: number) => {
+      const dataBase = outboxBase + headerSize;
+      const firstChunk = dataCapacity - idx;
+      if (len <= firstChunk) {
+        new Uint8Array(_sab!, dataBase + idx, len).fill(0);
+      } else {
+        new Uint8Array(_sab!, dataBase + idx, firstChunk).fill(0);
+        new Uint8Array(_sab!, dataBase, len - firstChunk).fill(0);
+      }
+    };
+    zeroOut(head, 4);
+
+    // 5. Advance head (Atomic)
     const nextHead = (dataHead + msgLen) % dataCapacity;
-    Atomics.store(_flagsView!, 16, 1); // IDX_OUTBOX_MUTEX (Simple lock)
-    _dataView.setUint32(outboxBase, nextHead, true);
-    Atomics.store(_flagsView!, 16, 0);
+    const now = new Date();
+    const ts = `${now.toISOString().split('T')[1].replace('Z', '')}.${now.getMilliseconds()}`;
+
+    console.warn(`[INOSBridge] ${ts} popResult ADVANCING HEAD:`, {
+      from: head,
+      to: nextHead,
+      msgLen,
+      dataHead,
+    });
+    Atomics.store(outboxInt32, 0, nextHead);
+
+    // Clear dirty flag if we've caught up (optional, but good for zero-activity)
+    if (nextHead === tail) {
+      Atomics.store(_flagsView!, IDX_OUTBOX_HOST_DIRTY, 0);
+    }
 
     return payload;
   },

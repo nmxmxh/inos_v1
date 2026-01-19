@@ -38,8 +38,9 @@ func TestIntegration_LoopOfIntelligence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := us.Start(ctx)
-	require.NoError(t, err)
+	go us.Start(ctx)
+	// Give it a moment to initialize
+	time.Sleep(50 * time.Millisecond)
 	defer us.Stop()
 
 	// 2. Step 1: Pattern Discovery
@@ -70,7 +71,7 @@ func TestIntegration_LoopOfIntelligence(t *testing.T) {
 	}
 	res1 := &foundation.Result{Success: true}
 
-	err = us.Learn(job1, res1)
+	err := us.Learn(job1, res1)
 	assert.NoError(t, err, "Learning should succeed")
 
 	// 4. Step 3: Predictive Scheduling

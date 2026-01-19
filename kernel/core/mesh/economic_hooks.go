@@ -108,6 +108,21 @@ func (el *EconomicLedger) RegisterAccount(did string, initialBalance int64) {
 	}
 }
 
+// EnsureAccount registers an account if it does not already exist.
+func (el *EconomicLedger) EnsureAccount(did string, initialBalance int64) {
+	el.mu.Lock()
+	_, exists := el.balances[did]
+	if !exists {
+		el.balances[did] = initialBalance
+	}
+	v := el.vault
+	el.mu.Unlock()
+
+	if !exists && v != nil && initialBalance > 0 {
+		v.GrantBonus(did, initialBalance)
+	}
+}
+
 // GrantEarlyAdopterBonus grants a one-time bonus to a new user
 func (el *EconomicLedger) GrantEarlyAdopterBonus(did string, bonus int64) {
 	el.mu.Lock()

@@ -33,6 +33,12 @@ func NewMockDHTTransport() *MockDHTTransport {
 
 func (m *MockDHTTransport) Start(ctx context.Context) error { return nil }
 func (m *MockDHTTransport) Stop() error                     { return nil }
+func (m *MockDHTTransport) Connect(ctx context.Context, peerID string) error {
+	return nil
+}
+func (m *MockDHTTransport) Disconnect(peerID string) error { return nil }
+func (m *MockDHTTransport) IsConnected(peerID string) bool { return true }
+func (m *MockDHTTransport) GetConnectedPeers() []string    { return nil }
 func (m *MockDHTTransport) Advertise(ctx context.Context, key string, value string) error {
 	m.mu.Lock()
 	m.calls = append(m.calls, fmt.Sprintf("advertise:%s:%s", key, value))

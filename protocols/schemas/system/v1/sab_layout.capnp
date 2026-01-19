@@ -101,8 +101,12 @@ const offsetInboxOutbox      :UInt32 = 0x00050000; # Job request/result communic
 const sizeInboxOutbox        :UInt32 = 0x100000;   # 1MB total
 const offsetInboxBase        :UInt32 = 0x00050000; # Inbox start
 const sizeInboxTotal         :UInt32 = 0x080000;   # 512KB
-const offsetOutboxBase       :UInt32 = 0x000D0000; # Outbox start
-const sizeOutboxTotal        :UInt32 = 0x080000;   # 512KB
+
+# Two Outboxes to prevent Kernel/Host race conditions
+const offsetOutboxHostBase   :UInt32 = 0x000D0000; # Outbox for Kernel -> Host (Results)
+const sizeOutboxHostTotal    :UInt32 = 0x040000;   # 256KB
+const offsetOutboxKernelBase :UInt32 = 0x00110000; # Outbox for Module -> Kernel (Syscalls)
+const sizeOutboxKernelTotal  :UInt32 = 0x040000;   # 256KB
 
 # Arena (0x150000 - end)
 const offsetArena            :UInt32 = 0x00150000; # Dynamic allocation for overflow and large data
@@ -121,6 +125,12 @@ const offsetArenaRequestQueue  :UInt32 = 0x00151000; # Async allocation requests
 const offsetArenaResponseQueue :UInt32 = 0x00152000; # Async allocation responses
 const arenaQueueEntrySize      :UInt32 = 64;
 const maxArenaRequests         :UInt32 = 64;
+
+# Mesh Event Stream (Ring Buffer)
+const offsetMeshEventQueue   :UInt32 = 0x00153000; # Event payload slots
+const sizeMeshEventQueue     :UInt32 = 0x000D000;  # 52KB (52 slots * 1KB)
+const meshEventSlotSize      :UInt32 = 0x000400;  # 1KB per slot
+const meshEventSlotCount     :UInt32 = 52;        # Power-of-two not required (monotonic counters)
 
 # Bird Animation State
 const offsetBirdState        :UInt32 = 0x00160000; # Bird state metadata
@@ -149,7 +159,7 @@ const matrixStride           :UInt32 = 64;
 # Fixed system epochs (0-31 Reserved)
 const idxKernelReady         :UInt32 = 0;  # Kernel boot complete
 const idxInboxDirty          :UInt32 = 1;  # Signal from Kernel to Module
-const idxOutboxDirty         :UInt32 = 2;  # Signal from Module to Kernel
+const idxOutboxHostDirty     :UInt32 = 2;  # Signal from Kernel to Host (Results)
 const idxPanicState          :UInt32 = 3;  # System panic
 const idxSensorEpoch         :UInt32 = 4;  # Sensor updates
 const idxActorEpoch          :UInt32 = 5;  # Actor updates
@@ -158,10 +168,10 @@ const idxSystemEpoch         :UInt32 = 7;  # System updates
 
 # Extended System Epochs
 const idxArenaAllocator      :UInt32 = 8;  # Arena bump pointer (atomic)
-const idxOutboxMutex         :UInt32 = 9;  # Mutex for outbox synchronization
-const idxInboxMutex          :UInt32 = 10; # Mutex for inbox synchronization
+const idxOutboxMutex         :UInt32 = 9;  # Mutex for outbox synchronization (unused)
+const idxInboxMutex          :UInt32 = 10; # Mutex for inbox synchronization (unused)
 const idxMetricsEpoch        :UInt32 = 11; # Metrics updated
-const idxBirdEpoch           :UInt32 = 12; # Bird physics complete (was idxBoidsCount in Go)
+const idxBirdEpoch           :UInt32 = 12; # Bird physics complete
 const idxMatrixEpoch         :UInt32 = 13; # Matrix generation complete
 const idxPingpongActive      :UInt32 = 14; # Active buffer (0=A, 1=B)
 
@@ -174,10 +184,19 @@ const idxEconomyEpoch        :UInt32 = 19; # Credit settlement needed
 const idxBirdCount           :UInt32 = 20; # Active bird count (mutable)
 const idxGlobalMetricsEpoch  :UInt32 = 21; # Global diagnostics complete
 
-# Mesh Delegation Epochs (P2P Coordination)
-const idxDelegatedJobEpoch   :UInt32 = 22; # Remote job delegation complete
-const idxUserJobEpoch        :UInt32 = 23; # Local user job complete
-const idxDelegatedChunkEpoch :UInt32 = 24; # Remote chunk fetch/store complete
+# Outbox Kernel Epoch
+const idxOutboxKernelDirty   :UInt32 = 22; # Signal from Module to Kernel (Syscalls)
+
+# Mesh Delegation Epochs (P2P Coordination) (Shifted to prevent collision)
+const idxDelegatedJobEpoch   :UInt32 = 23; # Remote job delegation complete
+const idxUserJobEpoch        :UInt32 = 24; # Local user job complete
+const idxDelegatedChunkEpoch :UInt32 = 25; # Remote chunk fetch/store complete
+
+# Mesh Event Stream (Atomic Counters + Epoch)
+const idxMeshEventEpoch      :UInt32 = 26; # Mesh event stream updated
+const idxMeshEventHead       :UInt32 = 27; # Consumer head (monotonic)
+const idxMeshEventTail       :UInt32 = 28; # Producer tail (monotonic)
+const idxMeshEventDropped    :UInt32 = 29; # Dropped event counter
 
 # Context Verification (Zero-Copy)
 const idxContextIdHash       :UInt32 = 31; # Hash of initialization context ID

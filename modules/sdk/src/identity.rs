@@ -1,8 +1,12 @@
 use crate::sab::SafeSAB;
+use once_cell::sync::OnceCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Global atomic to store the module ID assigned by the kernel
 static MODULE_ID: AtomicU32 = AtomicU32::new(0);
+static NODE_ID: OnceCell<String> = OnceCell::new();
+static DEVICE_ID: OnceCell<String> = OnceCell::new();
+static DID: OnceCell<String> = OnceCell::new();
 
 const IDENTITY_ENTRY_SIZE: usize = 128;
 
@@ -85,4 +89,40 @@ pub fn set_module_id(id: u32) {
 
 pub fn get_module_id() -> u32 {
     MODULE_ID.load(Ordering::SeqCst)
+}
+
+pub fn set_node_id(id: &str) {
+    let _ = NODE_ID.set(id.to_string());
+}
+
+pub fn set_device_id(id: &str) {
+    let _ = DEVICE_ID.set(id.to_string());
+}
+
+pub fn set_did(id: &str) {
+    let _ = DID.set(id.to_string());
+}
+
+pub fn get_node_id() -> Option<&'static str> {
+    NODE_ID.get().map(String::as_str)
+}
+
+pub fn get_device_id() -> Option<&'static str> {
+    DEVICE_ID.get().map(String::as_str)
+}
+
+pub fn get_did() -> Option<&'static str> {
+    DID.get().map(String::as_str)
+}
+
+pub fn init_identity_from_js() {
+    if let Some(node_id) = crate::js_interop::get_global_string("__INOS_NODE_ID__") {
+        set_node_id(&node_id);
+    }
+    if let Some(device_id) = crate::js_interop::get_global_string("__INOS_DEVICE_ID__") {
+        set_device_id(&device_id);
+    }
+    if let Some(did) = crate::js_interop::get_global_string("__INOS_DID__") {
+        set_did(&did);
+    }
 }

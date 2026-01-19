@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node ../scripts/fix-capnp-imports.js && vite build",
     "preview": "vite preview",
-    "proto": "capnp compile -I../protocols/schemas -o ts:./bridge/generated ../protocols/schemas/**/*.capnp",
+    "proto": "capnp compile -I../protocols/schemas -o ts:./bridge/generated ../protocols/schemas/**/*.capnp && node ../scripts/fix-capnp-imports.js",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
     "prettier": "prettier check \"**/*{js,jsx,json,ts,tsx,yaml}\"",
     "prettier-fix": "prettier --write \"**/*{js,jsx,json,ts,tsx,yaml}\"",

@@ -25,36 +25,30 @@ impl RingBuffer {
     }
 
     /// Write a framed message [Length: u32][Data...]
-    /// Returns true if written, false if not enough space
+    /// Multi-Producer Safe: Uses atomic reservation and commitment.
     pub fn write_message(&self, data: &[u8]) -> Result<bool, String> {
         let msg_len = data.len() as u32;
-        let total_len = 4 + msg_len; // 4 bytes for length header
+        let total_len = 4 + msg_len;
 
-        let head = self.load_head();
-        let tail = self.load_tail();
-
-        let available = if tail >= head {
-            self.data_capacity - (tail - head) - 1
-        } else {
-            head - tail - 1
-        };
-
-        if available < total_len {
-            return Ok(false);
+        // 1. Reserve space atomically
+        let start_tail = self.reserve_space(total_len)?;
+        if start_tail == 0xFFFFFFFF {
+            return Ok(false); // No space
         }
 
-        // Write Length Header (Little Endian)
-        let len_bytes = msg_len.to_le_bytes();
-        self.write_raw(&len_bytes)?;
+        // 2. Write Data first (skipping the 4-byte length header)
+        let data_start = (start_tail + 4) % self.data_capacity;
+        self.write_raw_at(data_start, data)?;
 
-        // Write Data
-        self.write_raw(data)?;
+        // 3. Commit: Write Length Header LAST
+        let len_bytes = msg_len.to_le_bytes();
+        self.write_raw_at(start_tail, &len_bytes)?;
 
         Ok(true)
     }
 
     /// Read next framed message
-    /// Returns Some(Vec<u8>) if message available, None if empty/partial
+    /// Multi-Producer Safe: Only reads if length header is non-zero (committed).
     pub fn read_message(&self) -> Result<Option<Vec<u8>>, String> {
         let head = self.load_head();
         let tail = self.load_tail();
@@ -63,61 +57,30 @@ impl RingBuffer {
             return Ok(None);
         }
 
-        // Check if we have at least 4 bytes for length
-        let available = if tail >= head {
-            tail - head
-        } else {
-            self.data_capacity - (head - tail)
-        };
-
-        if available < 4 {
-            // Should not happen if rights are atomic, but good for safety
-            return Ok(None);
-        }
-
         // Peek length (without moving head)
         let mut len_bytes = [0u8; 4];
-        self.peek_raw(&mut len_bytes)?;
+        self.peek_raw_at(head, &mut len_bytes)?;
         let msg_len = u32::from_le_bytes(len_bytes);
 
-        if available < 4 + msg_len {
-            // Partial message written? Wait for rest.
+        if msg_len == 0 {
+            // Producer reserved space but hasn't committed length header yet.
+            // Wait for producer to finish.
             return Ok(None);
         }
 
-        // Consume Length
-        self.skip_raw(4)?;
-
-        // Consume Data
+        // Consume Length + Data
         let mut msg_data = vec![0u8; msg_len as usize];
-        self.read_raw(&mut msg_data)?;
+        let data_start = (head + 4) % self.data_capacity;
+        self.read_raw_at(data_start, &mut msg_data)?;
+
+        // CLEAR HEADER to 0 to prevent stale reads on wrap-around
+        let zero_bytes = [0u8; 4];
+        self.write_raw_at(head, &zero_bytes)?;
+
+        // Advance Head
+        self.store_head((head + 4 + msg_len) % self.data_capacity);
 
         Ok(Some(msg_data))
-    }
-
-    // Internal raw write (wrapping)
-    fn write_raw(&self, data: &[u8]) -> Result<(), String> {
-        let tail = self.load_tail();
-        let to_write = data.len();
-        let write_idx = (tail as usize) % self.data_capacity as usize;
-
-        let first_chunk = std::cmp::min(to_write, (self.data_capacity as usize) - write_idx);
-        let second_chunk = to_write - first_chunk;
-
-        self.sab.write(
-            (self.base_offset + Self::HEADER_SIZE) as usize + write_idx,
-            &data[0..first_chunk],
-        )?;
-
-        if second_chunk > 0 {
-            self.sab.write(
-                (self.base_offset + Self::HEADER_SIZE) as usize,
-                &data[first_chunk..to_write],
-            )?;
-        }
-
-        self.store_tail((tail + to_write as u32) % self.data_capacity);
-        Ok(())
     }
 
     /// Read raw bytes (stream mode)
@@ -137,33 +100,86 @@ impl RingBuffer {
         };
 
         let to_read = std::cmp::min(available as usize, buf.len());
-
-        let read_idx = (head as usize) % self.data_capacity as usize;
-        let first_chunk = std::cmp::min(to_read, (self.data_capacity as usize) - read_idx);
-        let second_chunk = to_read - first_chunk;
-
-        let chunk1_data = self.sab.read(
-            (self.base_offset + Self::HEADER_SIZE) as usize + read_idx,
-            first_chunk,
-        )?;
-        buf[0..first_chunk].copy_from_slice(&chunk1_data);
-
-        if second_chunk > 0 {
-            let chunk2_data = self.sab.read(
-                (self.base_offset + Self::HEADER_SIZE) as usize,
-                second_chunk,
-            )?;
-            buf[first_chunk..to_read].copy_from_slice(&chunk2_data);
-        }
-
+        self.read_raw_at(head, &mut buf[0..to_read])?;
         self.store_head((head + to_read as u32) % self.data_capacity);
         Ok(to_read)
     }
 
-    fn read_raw(&self, buf: &mut [u8]) -> Result<(), String> {
+    pub fn read_raw(&self, buf: &mut [u8]) -> Result<(), String> {
         let head = self.load_head();
+        self.read_raw_at(head, buf)?;
+        self.store_head((head + buf.len() as u32) % self.data_capacity);
+        Ok(())
+    }
+
+    pub fn peek_raw(&self, buf: &mut [u8]) -> Result<(), String> {
+        let head = self.load_head();
+        self.read_raw_at(head, buf)
+    }
+
+    pub fn skip_raw(&self, amount: u32) -> Result<(), String> {
+        let head = self.load_head();
+        self.store_head((head + amount) % self.data_capacity);
+        Ok(())
+    }
+
+    fn reserve_space(&self, amount: u32) -> Result<u32, String> {
+        loop {
+            let head = self.load_head();
+            let tail = self.load_tail();
+
+            let available = if tail >= head {
+                self.data_capacity - (tail - head) - 1
+            } else {
+                head - tail - 1
+            };
+
+            if available < amount {
+                return Ok(0xFFFFFFFF);
+            }
+
+            let new_tail = (tail + amount) % self.data_capacity;
+            let (view_val, _) = self.get_sab_view();
+            let idx = (self.base_offset + Self::TAIL_OFFSET) / 4;
+
+            let actual_old = crate::js_interop::atomic_compare_exchange(
+                &view_val,
+                idx,
+                tail as i32,
+                new_tail as i32,
+            );
+            if actual_old as u32 == tail {
+                return Ok(tail);
+            }
+            // Retry if tail moved
+        }
+    }
+
+    fn write_raw_at(&self, offset: u32, data: &[u8]) -> Result<(), String> {
+        let to_write = data.len();
+        let write_idx = offset as usize;
+
+        let first_chunk = std::cmp::min(to_write, (self.data_capacity as usize) - write_idx);
+        let second_chunk = to_write - first_chunk;
+
+        self.sab.write(
+            (self.base_offset + Self::HEADER_SIZE) as usize + write_idx,
+            &data[0..first_chunk],
+        )?;
+
+        if second_chunk > 0 {
+            self.sab.write(
+                (self.base_offset + Self::HEADER_SIZE) as usize,
+                &data[first_chunk..to_write],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn read_raw_at(&self, offset: u32, buf: &mut [u8]) -> Result<(), String> {
         let to_read = buf.len();
-        let read_idx = (head as usize) % self.data_capacity as usize;
+        let read_idx = offset as usize;
 
         let first_chunk = std::cmp::min(to_read, (self.data_capacity as usize) - read_idx);
         let second_chunk = to_read - first_chunk;
@@ -182,38 +198,11 @@ impl RingBuffer {
             buf[first_chunk..to_read].copy_from_slice(&chunk2);
         }
 
-        self.store_head((head + to_read as u32) % self.data_capacity);
         Ok(())
     }
 
-    fn peek_raw(&self, buf: &mut [u8]) -> Result<(), String> {
-        let head = self.load_head();
-        let to_read = buf.len();
-        let read_idx = (head as usize) % self.data_capacity as usize;
-
-        let first_chunk = std::cmp::min(to_read, (self.data_capacity as usize) - read_idx);
-        let second_chunk = to_read - first_chunk;
-
-        let chunk1_data = self.sab.read(
-            (self.base_offset + Self::HEADER_SIZE) as usize + read_idx,
-            first_chunk,
-        )?;
-        buf[0..first_chunk].copy_from_slice(&chunk1_data);
-
-        if second_chunk > 0 {
-            let chunk2_data = self.sab.read(
-                (self.base_offset + Self::HEADER_SIZE) as usize,
-                second_chunk,
-            )?;
-            buf[first_chunk..to_read].copy_from_slice(&chunk2_data);
-        }
-        Ok(())
-    }
-
-    fn skip_raw(&self, amount: u32) -> Result<(), String> {
-        let head = self.load_head();
-        self.store_head((head + amount) % self.data_capacity);
-        Ok(())
+    fn peek_raw_at(&self, offset: u32, buf: &mut [u8]) -> Result<(), String> {
+        self.read_raw_at(offset, buf) // Peek in ring buffer is just read without moving head
     }
 
     /// Available bytes to read
@@ -228,11 +217,11 @@ impl RingBuffer {
         }
     }
 
-    fn get_sab_view(&self) -> (Int32Array, u32) {
+    fn get_sab_view(&self) -> (crate::js_interop::Int32Array, u32) {
         let buffer = self.sab.inner();
         let length = crate::js_interop::get_byte_length(buffer);
         let view = crate::js_interop::create_i32_view(buffer, 0, length / 4);
-        (view.into(), length / 4)
+        (view, length / 4)
     }
 
     fn load_head(&self) -> u32 {

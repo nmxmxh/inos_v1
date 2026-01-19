@@ -28,11 +28,11 @@ func TestPerformance_ZeroCopyThroughput(t *testing.T) {
 		start := time.Now()
 		for i := 0; i < iterations; i++ {
 			// Ensure offset stays within bounds
-			offset := sab.OFFSET_ARENA + (i%10)*size
-			if offset+size > sab.SAB_SIZE_DEFAULT {
+			offset := sab.OFFSET_ARENA + uint32((i%10)*size)
+			if offset+uint32(size) > sab.SAB_SIZE_DEFAULT {
 				offset = sab.OFFSET_ARENA
 			}
-			copy(sabSlice[offset:offset+size], testData)
+			copy(sabSlice[offset:offset+uint32(size)], testData)
 		}
 		duration := time.Since(start)
 
@@ -55,7 +55,7 @@ func TestPerformance_EpochLatency(t *testing.T) {
 
 	for i := 0; i < iterations; i++ {
 		start := time.Now()
-		epochSlice[sab.IDX_SYSTEM_EPOCH]++
+		epochSlice[int(sab.IDX_SYSTEM_EPOCH)]++
 		latencies[i] = time.Since(start)
 	}
 
@@ -96,7 +96,7 @@ func TestPerformance_ConcurrentLoad(t *testing.T) {
 
 			testData := make([]byte, 1024)
 			for j := 0; j < operationsPerGoroutine; j++ {
-				offset := sab.OFFSET_ARENA + ((id*operationsPerGoroutine+j)%1000)*1024
+				offset := sab.OFFSET_ARENA + uint32(((id*operationsPerGoroutine+j)%1000)*1024)
 				copy(sabSlice[offset:], testData)
 				successCount.Add(1)
 			}
@@ -147,7 +147,7 @@ func TestPerformance_SustainedThroughput(t *testing.T) {
 				case <-stopChan:
 					return
 				default:
-					offset := sab.OFFSET_ARENA + ((id*10000+int(opsCompleted.Load()%1000))*dataSize)%1000000
+					offset := sab.OFFSET_ARENA + uint32(((id*10000+int(opsCompleted.Load()%1000))*dataSize)%1000000)
 					copy(sabSlice[offset:], testData)
 					opsCompleted.Add(1)
 				}
@@ -195,7 +195,7 @@ func TestPerformance_ComparisonTraditionalVsZeroCopy(t *testing.T) {
 	start = time.Now()
 	for i := 0; i < iterations; i++ {
 		// Zero-copy read (just slice reference)
-		_ = sabSlice[sab.OFFSET_ARENA : sab.OFFSET_ARENA+dataSize]
+		_ = sabSlice[sab.OFFSET_ARENA : sab.OFFSET_ARENA+uint32(dataSize)]
 	}
 	zeroCopyTime := time.Since(start)
 

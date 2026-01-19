@@ -13,6 +13,7 @@ import { Style as ManuscriptStyle } from '../../styles/manuscript';
 import ChapterNav from '../../ui/ChapterNav';
 import ScrollReveal from '../../ui/ScrollReveal';
 import D3Container, { D3RenderFn } from '../../ui/D3Container';
+import { useMeshEvents } from '../../features/metrics/useMeshEvents';
 
 const Style = {
   ...ManuscriptStyle,
@@ -167,6 +168,126 @@ const Style = {
     font-size: 13px;
     line-height: 1.6;
     margin: ${p => p.theme.spacing[4]} 0;
+  `,
+
+  MeshLab: styled.div`
+    background: rgba(11, 15, 30, 0.92);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: ${p => p.theme.spacing[6]};
+    color: #e2e8f0;
+    margin: ${p => p.theme.spacing[6]} 0;
+  `,
+
+  MeshLabHeader: styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[2]};
+    margin-bottom: ${p => p.theme.spacing[5]};
+
+    h4 {
+      margin: 0;
+      font-size: ${p => p.theme.fontSizes.lg};
+      color: #f8fafc;
+    }
+
+    p {
+      margin: 0;
+      font-size: ${p => p.theme.fontSizes.sm};
+      color: #94a3b8;
+    }
+  `,
+
+  MeshLabGrid: styled.div`
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: ${p => p.theme.spacing[6]};
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      grid-template-columns: 1fr;
+    }
+  `,
+
+  MeshStatCard: styled.div`
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    padding: ${p => p.theme.spacing[4]};
+    margin-bottom: ${p => p.theme.spacing[4]};
+
+    h5 {
+      margin: 0 0 ${p => p.theme.spacing[3]} 0;
+      font-size: ${p => p.theme.fontSizes.sm};
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #94a3b8;
+    }
+  `,
+
+  MeshStatGrid: styled.div`
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: ${p => p.theme.spacing[3]};
+  `,
+
+  MeshStat: styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[1]};
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 12px;
+    color: #cbd5f5;
+
+    span {
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #64748b;
+    }
+  `,
+
+  MeshEventStream: styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[2]};
+    max-height: 360px;
+    overflow: auto;
+    padding-right: ${p => p.theme.spacing[2]};
+  `,
+
+  MeshEventRow: styled.div`
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: ${p => p.theme.spacing[3]};
+    padding: ${p => p.theme.spacing[2]} ${p => p.theme.spacing[3]};
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+  `,
+
+  MeshEventBadge: styled.div`
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+  `,
+
+  MeshEventMeta: styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[1]};
+
+    strong {
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    span {
+      font-size: 10px;
+      color: #94a3b8;
+      font-family: ${p => p.theme.fonts.typewriter};
+    }
   `,
 
   DefinitionBox: styled.div`
@@ -1096,6 +1217,8 @@ function GossipDiagram() {
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────────────────────
 export function Mesh() {
+  const { events, stats, identity } = useMeshEvents(32);
+
   return (
     <Style.BlogContainer>
       <Style.SectionTitle>Deep Dive</Style.SectionTitle>
@@ -1459,6 +1582,111 @@ interface P2PMesh {
       </Style.HistoryCard>
 
       <Style.SectionDivider />
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* MESH LAB */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Mesh Lab: Live Network Probe</h3>
+          <p>
+            This panel streams Cap&apos;n Proto mesh events directly from the SAB ring buffer. Use
+            query params like <code>?nodeId=node-a&amp;signaling=ws://localhost:8787/ws</code> to
+            spin up multiple peers in separate tabs and watch the mesh converge in real time.
+          </p>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.MeshLab>
+        <Style.MeshLabHeader>
+          <h4>Mesh Telemetry (Local + Scale)</h4>
+          <p>
+            Events are zero-copy, epoch-signaled, and verified with CRC. Drops indicate backpressure
+            and should stay near zero.
+          </p>
+        </Style.MeshLabHeader>
+
+        <Style.MeshLabGrid>
+          <div>
+            <Style.MeshStatCard>
+              <h5>Identity</h5>
+              <Style.MeshStatGrid>
+                <Style.MeshStat>
+                  <span>Node</span>
+                  {identity?.nodeId || 'unknown'}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>Device</span>
+                  {identity?.deviceId || 'unknown'}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>DID</span>
+                  {identity?.did || 'did:inos:system'}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>Name</span>
+                  {identity?.displayName || 'guest'}
+                </Style.MeshStat>
+              </Style.MeshStatGrid>
+            </Style.MeshStatCard>
+
+            <Style.MeshStatCard>
+              <h5>Event Queue</h5>
+              <Style.MeshStatGrid>
+                <Style.MeshStat>
+                  <span>Epoch</span>
+                  {stats.epoch}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>Depth</span>
+                  {stats.depth}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>Dropped</span>
+                  {stats.dropped}
+                </Style.MeshStat>
+                <Style.MeshStat>
+                  <span>Head/Tail</span>
+                  {stats.head}/{stats.tail}
+                </Style.MeshStat>
+              </Style.MeshStatGrid>
+            </Style.MeshStatCard>
+          </div>
+
+          <div>
+            <Style.MeshStatCard>
+              <h5>Event Stream</h5>
+              <Style.MeshEventStream>
+                {events.length === 0 ? (
+                  <Style.MeshEventRow>
+                    <Style.MeshEventBadge>idle</Style.MeshEventBadge>
+                    <Style.MeshEventMeta>
+                      <strong>No events yet</strong>
+                      <span>Connect another peer or delegate a job to populate the stream.</span>
+                    </Style.MeshEventMeta>
+                  </Style.MeshEventRow>
+                ) : (
+                  events.map(event => {
+                    const timestamp = Number(event.timestamp / BigInt(1_000_000));
+                    return (
+                      <Style.MeshEventRow key={event.id}>
+                        <Style.MeshEventBadge>{event.type}</Style.MeshEventBadge>
+                        <Style.MeshEventMeta>
+                          <strong>{event.summary}</strong>
+                          <span>
+                            {event.payloadType} • {event.size}B •{' '}
+                            {Number.isFinite(timestamp) ? new Date(timestamp).toLocaleTimeString() : '—'}
+                          </span>
+                        </Style.MeshEventMeta>
+                      </Style.MeshEventRow>
+                    );
+                  })
+                )}
+              </Style.MeshEventStream>
+            </Style.MeshStatCard>
+          </div>
+        </Style.MeshLabGrid>
+      </Style.MeshLab>
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* SUMMARY */}

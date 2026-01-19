@@ -1,6 +1,7 @@
 @0xf434190284712409;
 
 using Base = import "/base/v1/base.capnp";
+using Runtime = import "/system/v1/runtime.capnp";
 
 interface P2PMesh {
 
@@ -80,6 +81,10 @@ struct PeerCapability {
   
   region @8 :Text;
   coordinates @9 :GeoCoordinates;
+  
+  # Adaptive Mesh
+  role @10 :Runtime.Runtime.RuntimeRole;
+  runtimeCaps @11 :Runtime.Runtime.RuntimeCapabilities;
 }
 
 struct GeoCoordinates {

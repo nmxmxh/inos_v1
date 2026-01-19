@@ -1,6 +1,7 @@
 @0xf1a2b3c4d5e6f789;
 
 using Base = import "/base/v1/base.capnp";
+using Runtime = import "/system/v1/runtime.capnp";
 
 # P2P Gossip Protocol for state synchronization
 # Wire Format: Base.Envelope
@@ -36,6 +37,10 @@ interface Gossip {
         capabilities @2 :List(Text);
         reputation @3 :Float32;
         lastSeen @4 :Int64;
+        
+        # Adaptive Mesh
+        role @5 :Runtime.Runtime.RuntimeRole;
+        runtimeCaps @6 :Runtime.Runtime.RuntimeCapabilities;
     }
     
     struct ChunkAdvertisement {

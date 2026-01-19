@@ -800,6 +800,15 @@ func (g *GossipManager) antiEntropyLoop() {
 	}
 }
 
+// SetFanout updates the gossip fanout parameter
+func (g *GossipManager) SetFanout(fanout int) {
+	if fanout < 1 {
+		fanout = 1
+	}
+	g.config.Fanout = fanout
+	g.logger.Info("updated gossip fanout", "fanout", fanout)
+}
+
 // performAntiEntropy performs anti-entropy with a random peer
 func (g *GossipManager) performAntiEntropy() {
 	// Get random peer

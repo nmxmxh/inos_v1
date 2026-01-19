@@ -33,23 +33,21 @@ func (k *Kernel) notifyHost(event string, data map[string]interface{}) {
 
 func jsInitializeSharedMemory(this js.Value, args []js.Value) interface{} {
 	if len(args) < 2 {
-		return js.ValueOf(map[string]interface{}{"error": "missing arguments: (ptr, size)"})
+		return js.ValueOf(map[string]interface{}{"error": "missing arguments: (offset, size)"})
 	}
 
 	if kernelInstance == nil {
 		return js.ValueOf(map[string]interface{}{"error": "kernel instance missing"})
 	}
 
-	// Address from JS is absolute offset in linear memory.
-	uptr := uintptr(args[0].Int())
-	ptr := unsafe.Pointer(uptr) //nolint:govet,unsafeptr // intentional: FFI boundary from JS (Foreign Pointer)
+	utils.Info("INOS Kernel Go Bridge Initializing (Synchronized Memory Twin)")
 
-	// Store base pointer for Dynamic Grounding (exposed via getSystemSABAddress)
-	sabBasePtr = uptr
-
+	// In the Twin pattern, we ignore the JS-provided offset (grounding pointer)
+	// and allocate our own local replica of the requested size.
 	size := uint32(args[1].Int())
 	go func() {
-		if err := kernelInstance.InjectSAB(ptr, size); err != nil {
+		// Pass nil for ptr as it's no longer needed for grounding
+		if err := kernelInstance.InjectSAB(nil, size); err != nil {
 			kernelInstance.logger.Error("InjectSAB failed", utils.Err(err))
 		}
 	}()
@@ -125,6 +123,7 @@ func jsGetSharedArrayBuffer(this js.Value, args []js.Value) interface{} {
 	return sabJS
 }
 func jsSubmitJob(this js.Value, args []js.Value) interface{} {
+	println("DEBUG: jsSubmitJob called")
 	if len(args) < 1 {
 		return js.ValueOf(map[string]interface{}{"error": "missing job argument"})
 	}
@@ -168,9 +167,25 @@ func jsSubmitJob(this js.Value, args []js.Value) interface{} {
 	// Routes through supervisor hierarchy (Storage, Crypto, etc.)
 	// Supervisors will decide whether to execute locally (Rust) or delegate to Mesh.
 	utils.Info("JS submitted job", utils.String("job_id", job.ID), utils.String("type", job.Type), utils.String("op", job.Operation))
+	// 2. Submit to supervisor
 	go func() {
 		if kernelInstance != nil && kernelInstance.supervisor != nil {
-			_, _ = kernelInstance.supervisor.Submit(job)
+			resChan, err := kernelInstance.supervisor.Submit(job)
+			if err != nil {
+				utils.Warn("Submit job failed", utils.String("job_id", job.ID), utils.Err(err))
+				// Report failure back to bridge
+				if bridge := kernelInstance.supervisor.GetBridge(); bridge != nil {
+					_ = bridge.WriteResult(&foundation.Result{
+						JobID:   job.ID,
+						Success: false,
+						Error:   err.Error(),
+					})
+				}
+				return
+			}
+
+			// Wait for result (Supervisor already writes to bridge, so we just wait)
+			<-resChan
 		}
 	}()
 
@@ -182,6 +197,7 @@ func jsSubmitJob(this js.Value, args []js.Value) interface{} {
 }
 
 func jsDelegateJob(this js.Value, args []js.Value) interface{} {
+	println("DEBUG: jsDelegateJob called")
 	if len(args) < 1 {
 		return js.ValueOf(map[string]interface{}{"error": "missing job argument"})
 	}
@@ -212,13 +228,20 @@ func jsDelegateJob(this js.Value, args []js.Value) interface{} {
 		}
 
 		if kernelInstance.meshCoordinator != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			result, err := kernelInstance.meshCoordinator.DelegateJob(ctx, job)
+			if err != nil {
+				utils.Warn("Mesh delegation error", utils.String("job_id", job.ID), utils.Err(err))
+			}
 			if err == nil && result != nil {
+				utils.Info("Mesh delegation successful, writing result", utils.String("job_id", job.ID))
 				if kernelInstance.supervisor != nil {
 					if bridge := kernelInstance.supervisor.GetBridge(); bridge != nil {
-						_ = bridge.WriteResult(result)
+						err := bridge.WriteResult(result)
+						if err != nil {
+							utils.Error("Failed to write delegation result", utils.String("job_id", job.ID), utils.Err(err))
+						}
 					}
 				}
 				return
@@ -226,7 +249,23 @@ func jsDelegateJob(this js.Value, args []js.Value) interface{} {
 		}
 
 		if kernelInstance.supervisor != nil {
-			_, _ = kernelInstance.supervisor.Submit(job)
+			utils.Info("Delegated job falling back to local execution", utils.String("job_id", job.ID))
+			resChan, err := kernelInstance.supervisor.Submit(job)
+			if err != nil {
+				utils.Warn("Delegated job fallback failed", utils.String("job_id", job.ID), utils.Err(err))
+				// Report failure
+				if bridge := kernelInstance.supervisor.GetBridge(); bridge != nil {
+					_ = bridge.WriteResult(&foundation.Result{
+						JobID:   job.ID,
+						Success: false,
+						Error:   err.Error(),
+					})
+				}
+				return
+			}
+
+			// Wait for result (Supervisor already writes to bridge)
+			<-resChan
 		}
 	}()
 

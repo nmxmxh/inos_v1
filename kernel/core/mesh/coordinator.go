@@ -18,8 +18,10 @@ import (
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/routing"
+	"github.com/nmxmxh/inos_v1/kernel/core/mesh/transport"
 	"github.com/nmxmxh/inos_v1/kernel/gen/p2p/v1"
 	"github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+	"github.com/nmxmxh/inos_v1/kernel/runtime"
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 	"github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	capnp "zombiezen.com/go/capnproto2"
@@ -32,6 +34,9 @@ type SABWriter interface {
 	SignalEpoch(index uint32)
 	// GetAddress returns the SAB offset of the data if it's backed by the SAB
 	GetAddress(data []byte) (uint32, bool)
+	// Atomic operations (flags region only)
+	AtomicLoad(index uint32) uint32
+	AtomicAdd(index uint32, delta uint32) uint32
 }
 
 // MeshCoordinator orchestrates shared compute and storage across the global mesh.
@@ -39,6 +44,9 @@ type SABWriter interface {
 type MeshCoordinator struct {
 	nodeID string
 	region string
+	did    string
+	device string
+	name   string
 
 	// Core mesh components
 	transport  Transport
@@ -77,6 +85,12 @@ type MeshCoordinator struct {
 	peerMetricsMu sync.RWMutex
 	healthTicker  *time.Ticker
 	shutdown      chan struct{}
+	identityMu    sync.RWMutex
+
+	// Event streaming
+	eventQueue      *MeshEventQueue
+	subscriptions   map[string]*meshSubscription
+	subscriptionsMu sync.RWMutex
 
 	// Configuration
 	config CoordinatorConfig
@@ -90,6 +104,10 @@ type MeshCoordinator struct {
 
 	// Economic layer for delegation settlement
 	ledger *EconomicLedger
+
+	// Load tracking for delegation optimization
+	activeJobs   map[string]int32
+	activeJobsMu sync.RWMutex
 }
 
 // CoordinatorConfig holds mesh coordinator settings
@@ -177,6 +195,9 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 	coord := &MeshCoordinator{
 		nodeID:          nodeID,
 		region:          region,
+		did:             "did:inos:system",
+		device:          "device:unknown",
+		name:            "Guest",
 		transport:       transport,
 		localChunks:     make(map[string]struct{}),
 		circuitBreakers: make(map[string]*CircuitBreaker),
@@ -184,8 +205,10 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 		peerCacheTTL:    config.CacheTTL,
 		peerMetrics:     make(map[string]common.MeshMetrics),
 		shutdown:        make(chan struct{}),
+		subscriptions:   make(map[string]*meshSubscription),
 		config:          config,
 		logger:          logger.With("component", "mesh_coordinator", "node_id", getShortID(nodeID)),
+		activeJobs:      make(map[string]int32),
 	}
 
 	// Initialize subsystems
@@ -229,6 +252,42 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 	return coord
 }
 
+// ReplaceTransport swaps the transport before the mesh starts.
+func (m *MeshCoordinator) ReplaceTransport(tr Transport) {
+	if tr == nil {
+		return
+	}
+	m.transport = tr
+	m.dht = routing.NewDHT(m.nodeID, tr, m.logger)
+	m.reputation = routing.NewReputationManager(3*24*time.Hour, nil, m.logger)
+
+	gossip, err := routing.NewGossipManager(m.nodeID, tr, m.logger)
+	if err == nil {
+		m.gossip = gossip
+		m.registerGossipHandlers()
+		m.registerRPCHandlers()
+	}
+}
+
+// SetIdentity updates mesh identity metadata (DID/device/display name).
+// NodeID is immutable for transport/routing integrity.
+func (m *MeshCoordinator) SetIdentity(did, deviceID, displayName string) {
+	m.identityMu.Lock()
+	defer m.identityMu.Unlock()
+	if did != "" {
+		m.did = did
+		if m.ledger != nil {
+			m.ledger.EnsureAccount(did, 0)
+		}
+	}
+	if deviceID != "" {
+		m.device = deviceID
+	}
+	if displayName != "" {
+		m.name = displayName
+	}
+}
+
 // SetStorage sets the local storage provider
 func (m *MeshCoordinator) SetStorage(storage StorageProvider) {
 	m.storage = storage
@@ -237,6 +296,9 @@ func (m *MeshCoordinator) SetStorage(storage StorageProvider) {
 // SetSABBridge sets the SharedArrayBuffer bridge for metrics reporting
 func (m *MeshCoordinator) SetSABBridge(bridge SABWriter) {
 	m.bridge = bridge
+	if bridge != nil {
+		m.eventQueue = NewMeshEventQueue(bridge)
+	}
 }
 
 // SetMonitor sets the system load provider for the delegation engine
@@ -251,9 +313,35 @@ func (m *MeshCoordinator) SetEconomicVault(vault foundation.EconomicVault) {
 	m.ledger.SetVault(vault)
 }
 
+// ApplyRoleConfig updates mesh behavior based on runtime role
+func (m *MeshCoordinator) ApplyRoleConfig(config runtime.RoleConfig) {
+	m.logger.Info("applying runtime role config",
+		"role", config.Role.String())
+
+	if tr, ok := m.transport.(*transport.WebRTCTransport); ok {
+		tr.ApplyRoleConfig(config)
+	}
+
+	if m.gossip != nil {
+		m.gossip.SetFanout(config.GossipFanout)
+	}
+}
+
 // Start begins mesh coordination
 func (m *MeshCoordinator) Start(ctx context.Context) error {
 	m.logger.Info("starting mesh coordinator")
+
+	if err := m.transport.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start transport: %w", err)
+	}
+
+	m.registerRPCHandlers()
+
+	if hook, ok := m.transport.(interface {
+		SetPeerEventHandler(func(peerID string, connected bool))
+	}); ok {
+		hook.SetPeerEventHandler(m.handleTransportPeerEvent)
+	}
 
 	// Start subsystems
 	if err := m.dht.Start(); err != nil {
@@ -318,11 +406,37 @@ func (m *MeshCoordinator) Stop() error {
 		m.healthTicker.Stop()
 	}
 
+	_ = m.transport.Stop()
 	m.gossip.Stop()
 	m.dht.Stop()
 
 	m.logger.Info("mesh coordinator stopped")
 	return nil
+}
+
+func (m *MeshCoordinator) handleTransportPeerEvent(peerID string, connected bool) {
+	if peerID == "" || peerID == m.nodeID {
+		return
+	}
+
+	if connected {
+		_ = m.dht.AddPeer(PeerInfo{ID: peerID})
+		m.gossip.AddPeer(peerID)
+		m.emitPeerUpdateEvent(&PeerCapability{
+			PeerID:          peerID,
+			ConnectionState: ConnectionStateConnected,
+			LastSeen:        time.Now().UnixNano(),
+		})
+		return
+	}
+
+	m.dht.RemovePeer(peerID)
+	m.gossip.RemovePeer(peerID)
+	m.emitPeerUpdateEvent(&PeerCapability{
+		PeerID:          peerID,
+		ConnectionState: ConnectionStateDisconnected,
+		LastSeen:        time.Now().UnixNano(),
+	})
 }
 
 // GetNodeCount returns the number of active nodes in the mesh (including self)
@@ -337,6 +451,11 @@ func (m *MeshCoordinator) GetNodeCount() int {
 // GetTelemetry returns detailed mesh telemetry
 func (m *MeshCoordinator) GetTelemetry() map[string]interface{} {
 	stats := m.transport.GetStats()
+	m.identityMu.RLock()
+	did := m.did
+	device := m.device
+	name := m.name
+	m.identityMu.RUnlock()
 
 	// Calculate average latency
 	var totalLatency float32
@@ -365,6 +484,10 @@ func (m *MeshCoordinator) GetTelemetry() map[string]interface{} {
 		"messages_sent":     stats["messages_sent"],
 		"messages_received": stats["messages_received"],
 		"region":            m.region,
+		"node_id":           m.nodeID,
+		"did":               did,
+		"device_id":         device,
+		"display_name":      name,
 	}
 }
 
@@ -454,6 +577,7 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 		peerIDs[i] = peer.ID
 	}
 	m.chunkCache.Put(chunkHash, peerIDs, 1.0)
+	m.emitChunkDiscoveredEvent(chunkHash, m.nodeID, p2p.ChunkPriority_high)
 
 	m.logger.Info("chunk distributed",
 		"chunk", getShortID(chunkHash),
@@ -466,6 +590,52 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 	}
 
 	return replicas, nil
+}
+
+func (m *MeshCoordinator) selectBestPeerForJob() (string, float32) {
+	m.peerMetricsMu.RLock()
+	defer m.peerMetricsMu.RUnlock()
+
+	// Lockless read of activeJobs if possible, but keep simple for now
+	m.activeJobsMu.RLock()
+	defer m.activeJobsMu.RUnlock()
+
+	var bestPeer string
+	var bestScore float32 = -1.0
+
+	for peerID, metrics := range m.peerMetrics {
+		// Score = (Reputation * LocationBoost) / (Latency + 0.1)
+		// We "gamify" for best performance - the fastest, most reliable nodes win.
+		// Busy nodes are NOT penalized as long as they stay performant.
+
+		score := metrics.AvgReputation * (1.0 / (metrics.P50LatencyMs + 0.1))
+
+		// Boost if in the same region (priority to location)
+		if metrics.RegionID != 0 && metrics.RegionID == m.metrics.RegionID {
+			score *= 1.5 // 50% boost for same region
+		}
+
+		if score > bestScore {
+			bestScore = score
+			bestPeer = peerID
+		}
+	}
+
+	return bestPeer, bestScore
+}
+
+func (m *MeshCoordinator) incrementActiveJobs(peerID string) {
+	m.activeJobsMu.Lock()
+	defer m.activeJobsMu.Unlock()
+	m.activeJobs[peerID]++
+}
+
+func (m *MeshCoordinator) decrementActiveJobs(peerID string) {
+	m.activeJobsMu.Lock()
+	defer m.activeJobsMu.Unlock()
+	if m.activeJobs[peerID] > 0 {
+		m.activeJobs[peerID]--
+	}
 }
 
 // FetchChunk retrieves a chunk from the mesh for shared compute
@@ -515,6 +685,7 @@ func (m *MeshCoordinator) FetchChunk(ctx context.Context, chunkHash string) ([]b
 				"peer", getShortID(peer.PeerID),
 				"size", len(data),
 				"latency", latency)
+			m.emitChunkDiscoveredEvent(chunkHash, m.nodeID, p2p.ChunkPriority_medium)
 
 			// Signal chunk fetch complete
 			if m.bridge != nil {
@@ -1239,20 +1410,7 @@ func (m *MeshCoordinator) SetDispatcher(d foundation.Dispatcher) {
 // DelegateJob dispatches a job to the most suitable peer in the mesh
 func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) (*foundation.Result, error) {
 	// 1. Find suitable peers (those with required capabilities)
-	m.peerMetricsMu.RLock()
-	var bestPeer string
-	var bestScore float32 = -1.0
-
-	for peerID, metrics := range m.peerMetrics {
-		// Score based on reputation and available capacity
-		// Using reputation as primary multiplier for reliability
-		score := metrics.AvgReputation * (1.0 / (metrics.P50LatencyMs + 0.1))
-		if score > bestScore {
-			bestScore = score
-			bestPeer = peerID
-		}
-	}
-	m.peerMetricsMu.RUnlock()
+	bestPeer, bestScore := m.selectBestPeerForJob()
 
 	if bestPeer == "" {
 		return nil, errors.New("no suitable peers found for delegation (peer metrics empty)")
@@ -1260,7 +1418,11 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 
 	m.logger.Debug("delegating job", "job_id", job.ID, "to_peer", getShortID(bestPeer), "score", bestScore)
 
-	// 2. Dispatch via RPC
+	// 2. Track active job
+	m.incrementActiveJobs(bestPeer)
+	defer m.decrementActiveJobs(bestPeer)
+
+	// 3. Dispatch via RPC
 	var result foundation.Result
 	err := m.transport.SendRPC(ctx, bestPeer, "mesh.ExecuteJob", job, &result)
 	if err != nil {
@@ -1268,10 +1430,10 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 		return nil, fmt.Errorf("mesh delegation failed to peer %s: %w", bestPeer, err)
 	}
 
-	// 3. Signal delegation completion for observers
+	// 4. Signal delegation completion for observers
 	if m.bridge != nil {
 		m.bridge.SignalEpoch(sab.IDX_DELEGATED_JOB_EPOCH)
-		m.bridge.SignalEpoch(sab.IDX_OUTBOX_DIRTY) // Legacy compatibility for E2E tests
+		m.bridge.SignalEpoch(sab.IDX_OUTBOX_HOST_DIRTY) // Results for host
 	}
 
 	return &result, nil
@@ -1280,22 +1442,15 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 // DelegateCompute offloads a compute operation to the mesh with integrity verification
 func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string, inputDigest string, data []byte) ([]byte, error) {
 	// 1. Find suitable peer
-	m.peerMetricsMu.RLock()
-	var bestPeer string
-	var bestScore float32 = -1.0
-
-	for peerID, metrics := range m.peerMetrics {
-		score := metrics.AvgReputation * (1.0 / (metrics.P50LatencyMs + 0.1))
-		if score > bestScore {
-			bestScore = score
-			bestPeer = peerID
-		}
-	}
-	m.peerMetricsMu.RUnlock()
+	bestPeer, _ := m.selectBestPeerForJob()
 
 	if bestPeer == "" {
 		return nil, errors.New("no suitable peers found for compute delegation")
 	}
+
+	// Track active job
+	m.incrementActiveJobs(bestPeer)
+	defer m.decrementActiveJobs(bestPeer)
 
 	// 2. Prepare request
 	req := DelegateRequest{
@@ -1309,6 +1464,7 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 		return nil, fmt.Errorf("failed to pack resource: %w", err)
 	}
 	req.Resource = resBytes
+	m.emitDelegationRequestEvent(operation, req.ID, []byte(inputDigest), uint32(len(data)))
 
 	// 3. Dispatch via RPC
 	var resp DelegationResponse
@@ -1319,10 +1475,12 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 	}
 
 	if resp.Status == "input_missing" {
+		m.emitDelegationResponseEvent(p2p.DelegateResponse_Status_inputMissing, req.ID, []byte(inputDigest), 0, resp.LatencyMs, resp.Error)
 		return nil, errors.New("remote peer missing input chunk")
 	}
 
 	if resp.Status != "success" {
+		m.emitDelegationResponseEvent(p2p.DelegateResponse_Status_failed, req.ID, []byte(inputDigest), 0, resp.LatencyMs, resp.Error)
 		return nil, fmt.Errorf("compute delegation failed: %s", resp.Error)
 	}
 
@@ -1339,6 +1497,8 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 	// Verification (Simplified for now - should re-hash)
 	m.logger.Info("compute delegation successful", "peer", getShortID(bestPeer), "latency", resp.LatencyMs)
 	m.updateCircuitBreaker(bestPeer, true)
+	digest, _ := res.Digest()
+	m.emitDelegationResponseEvent(p2p.DelegateResponse_Status_success, req.ID, digest, res.RawSize(), resp.LatencyMs, "")
 
 	// Return data (inline for now)
 	return res.Inline()
