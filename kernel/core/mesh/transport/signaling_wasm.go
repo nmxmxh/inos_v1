@@ -11,9 +11,13 @@ import (
 )
 
 type wasmSignalingChannel struct {
-	ws       js.Value
-	messages chan []byte
-	closed   chan struct{}
+	ws        js.Value
+	messages  chan []byte
+	closed    chan struct{}
+	onMessage js.Func
+	onClose   js.Func
+	onError   js.Func
+	onOpen    js.Func
 }
 
 func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
@@ -27,7 +31,7 @@ func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 	var errMu sync.Mutex
 	var lastErr error
 
-	onMessage := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	ch.onMessage = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		data := args[0].Get("data").String()
 		select {
 		case ch.messages <- []byte(data):
@@ -37,7 +41,7 @@ func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 		return nil
 	})
 
-	onClose := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	ch.onClose = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		js.Global().Get("console").Call("warn", "[SignalingWS] closed")
 		select {
 		case <-ch.closed:
@@ -47,7 +51,7 @@ func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 		return nil
 	})
 
-	onError := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	ch.onError = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		js.Global().Get("console").Call("error", "[SignalingWS] error", args[0])
 		errMu.Lock()
 		lastErr = errors.New("websocket error: " + args[0].String())
@@ -55,21 +59,12 @@ func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 		return nil
 	})
 
-	ws.Set("onmessage", onMessage)
-	ws.Set("onclose", onClose)
-	ws.Set("onerror", onError)
-
-	// Clean up functions on exit
-	defer func() {
-		if lastErr != nil || ctx.Err() != nil {
-			onMessage.Release()
-			onClose.Release()
-			onError.Release()
-		}
-	}()
+	ws.Set("onmessage", ch.onMessage)
+	ws.Set("onclose", ch.onClose)
+	ws.Set("onerror", ch.onError)
 
 	opened := make(chan bool)
-	onOpen := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+	ch.onOpen = js.FuncOf(func(this js.Value, args []js.Value) interface{} {
 		js.Global().Get("console").Call("info", "[SignalingWS] opened")
 		select {
 		case opened <- true:
@@ -77,22 +72,37 @@ func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 		}
 		return nil
 	})
-	ws.Set("onopen", onOpen)
-	defer onOpen.Release()
+	ws.Set("onopen", ch.onOpen)
+
+	// Single exit point for dial logic
+	cleanup := func() {
+		ws.Set("onopen", js.Null())
+		ws.Set("onmessage", js.Null())
+		ws.Set("onclose", js.Null())
+		ws.Set("onerror", js.Null())
+		ch.onOpen.Release()
+		ch.onMessage.Release()
+		ch.onClose.Release()
+		ch.onError.Release()
+	}
 
 	select {
 	case <-opened:
-		// Successfully opened, the receiver loop will handle closing
+		// Successfully opened. onOpen is no longer needed, but others are.
+		ws.Set("onopen", js.Null())
+		ch.onOpen.Release()
 		return ch, nil
 	case <-ch.closed:
 		errMu.Lock()
 		defer errMu.Unlock()
+		cleanup()
 		if lastErr != nil {
 			return nil, lastErr
 		}
 		return nil, errors.New("websocket closed before opening")
 	case <-ctx.Done():
 		ws.Call("close")
+		cleanup()
 		return nil, ctx.Err()
 	}
 }
@@ -116,6 +126,20 @@ func (w *wasmSignalingChannel) Receive() ([]byte, error) {
 }
 
 func (w *wasmSignalingChannel) Close() error {
+	// 1. Null out callbacks FIRST to prevent "call to released function"
+	w.ws.Set("onmessage", js.Null())
+	w.ws.Set("onclose", js.Null())
+	w.ws.Set("onerror", js.Null())
+	w.ws.Set("onopen", js.Null())
+
+	// 2. Release Go functions
+	w.onMessage.Release()
+	w.onClose.Release()
+	w.onError.Release()
+	// onOpen might have been released already, but double-release is usually a panic in Go WASM
+	// so we check if it was initialized or manage it better.
+	// Actually, in dialSignaling we release it on success.
+
 	w.ws.Call("close")
 	return nil
 }
