@@ -3,6 +3,7 @@
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -53,9 +54,9 @@ func (n *nativeSignalingChannel) IsConnected() bool {
 	return n.conn != nil
 }
 
-func dialSignaling(url string) (SignalingChannel, error) {
+func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
 	dialer := websocket.Dialer{}
-	conn, _, err := dialer.Dial(url, nil)
+	conn, _, err := dialer.DialContext(ctx, url, nil)
 	if err != nil {
 		return nil, err
 	}

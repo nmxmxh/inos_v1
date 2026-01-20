@@ -579,15 +579,19 @@ impl BoidUnit {
                     rot_y += trick_intensity * 0.008 * dt * 60.0;
                 }
 
-                // Base Physics Bank + Spiral Blend
-                let physics_bank = (-vel[0] * 0.15).clamp(-0.25, 0.25);
-                let spiral_bank = 0.6 + (time * 3.0).sin() * 0.1;
+                // --- CINEMATIC ANIMATION: PITCH & BANK ---
+                // Pitch: Lean up/down based on vertical velocity
+                let pitch = (-vel[1] * 0.2).clamp(-0.35, 0.35);
+
+                // Base Physics Bank: Simple approximation based on horizontal velocity
+                let physics_bank = (-vel[0] * 0.2).clamp(-0.4, 0.4);
+                let spiral_bank = 0.8 + (time * 3.5).sin() * 0.15;
                 let bank_z = physics_bank * (1.0 - trick_intensity) + spiral_bank * trick_intensity;
 
-                // --- PROPER QUATERNION CONVERSION ---
-                // We use Heading (Y) and Bank (Z). Pitch is handled by velocity vectors in JS if needed.
+                // --- PROPER QUATERNION CONVERSION (Euler: Pitch, Yaw, Roll) ---
                 use nalgebra::UnitQuaternion;
-                let q = UnitQuaternion::from_euler_angles(0.0, rot_y as f64, bank_z as f64);
+                let q =
+                    UnitQuaternion::from_euler_angles(pitch as f64, rot_y as f64, bank_z as f64);
 
                 // Write 4 components to index 6..9
                 population_data[base + 6] = q.i as f32;

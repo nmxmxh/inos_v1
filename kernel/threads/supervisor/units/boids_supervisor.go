@@ -779,35 +779,11 @@ func (s *BoidsSupervisor) adjustLOD() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Thresholds: 18ms ≈ 55fps, 25ms ≈ 40fps
-	const criticalLatency = 25 * time.Millisecond
-	const targetLatency = 18 * time.Millisecond
-
-	if latency > criticalLatency {
-		// Throttling detected (Efficiency cores / Battery / High Load)
-		// Aggressively drop bird count by 20%
-		newCount := int(float64(s.birdCount) * 0.8)
-		if newCount < 100 {
-			newCount = 100
-		}
-		if newCount != s.birdCount {
-			s.birdCount = newCount
-			s.Logger.Warn("LOD: Critical latency detected, dropping bird count",
-				utils.Duration("latency", latency),
-				utils.Int("new_count", s.birdCount))
-		}
-	} else if latency < targetLatency && s.birdCount < s.role.RecommendedBoids {
-		// Plenty of headroom, slowly scale up towards recommended LOD
-		newCount := int(float64(s.birdCount) * 1.1)
-		if newCount > s.role.RecommendedBoids {
-			newCount = s.role.RecommendedBoids
-		}
-		if newCount != s.birdCount {
-			s.birdCount = newCount
-			s.Logger.Info("LOD: Headroom detected, scaling up bird count",
-				utils.Duration("latency", latency),
-				utils.Int("new_count", s.birdCount))
-		}
+	// Reverting dynamic scaling - keep count at 1000 for stability
+	if s.birdCount != 1000 {
+		s.birdCount = 1000
+		s.Logger.Info("LOD: Resetting bird count to static 1000",
+			utils.Int("new_count", s.birdCount))
 	}
 }
 

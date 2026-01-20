@@ -79,8 +79,9 @@ type WebRTCTransport struct {
 	peerEventHandler func(peerID string, connected bool)
 
 	// Single-flight connection management
-	connWaiters map[string]chan struct{}
-	waiterMu    sync.Mutex
+	connWaiters  map[string]chan struct{}
+	waiterMu     sync.Mutex
+	reconnecting atomic.Bool
 }
 
 // RPCRequest represents a remote procedure call
@@ -1037,8 +1038,11 @@ func (t *WebRTCTransport) connectSignaling() error {
 
 	t.logger.Info("dialing signaling servers", "servers", servers)
 
-	// We want to return as soon as ONE server connects to avoid blocking the kernel,
-	// but we also want to eventually connect to ALL configured servers.
+	// Create a context for this attempt that times out across all server dials
+	ctx, cancel := context.WithTimeout(context.Background(), t.config.ConnectionTimeout)
+	defer cancel()
+
+	// We want to return as soon as ONE server connects to avoid blocking the kernel
 	success := make(chan struct{}, 1)
 	failed := make(chan struct{}, 1)
 	var successCount int32
@@ -1046,8 +1050,10 @@ func (t *WebRTCTransport) connectSignaling() error {
 	var lastErr error
 	var errMu sync.Mutex
 
+	dialWG := sync.WaitGroup{}
+
 	for _, server := range servers {
-		// Check if already connected to this URL to avoid duplicates
+		// Check if already connected to this URL
 		t.signalingMu.RLock()
 		if _, exists := t.signaling[server]; exists {
 			t.signalingMu.RUnlock()
@@ -1057,8 +1063,12 @@ func (t *WebRTCTransport) connectSignaling() error {
 		}
 		t.signalingMu.RUnlock()
 
+		dialWG.Add(1)
 		go func(url string) {
-			conn, err := dialSignaling(url)
+			defer dialWG.Done()
+
+			// Each server gets the shared context
+			conn, err := dialSignaling(ctx, url)
 			if err != nil {
 				errMu.Lock()
 				lastErr = err
@@ -1108,7 +1118,6 @@ func (t *WebRTCTransport) connectSignaling() error {
 	}
 
 	// Wait for first success or total failure
-	// We give it a generous timeout, but success returns immediately.
 	if atomic.LoadInt32(&successCount) > 0 {
 		return nil
 	}
@@ -1118,7 +1127,7 @@ func (t *WebRTCTransport) connectSignaling() error {
 		return nil
 	case <-failed:
 		return fmt.Errorf("failed to connect to any signaling server: %w", lastErr)
-	case <-time.After(t.config.ConnectionTimeout):
+	case <-ctx.Done():
 		// If we timed out, check if at least one succeeded in the meantime
 		if atomic.LoadInt32(&successCount) > 0 {
 			return nil
@@ -1132,19 +1141,52 @@ func (t *WebRTCTransport) connectSignaling() error {
 	}
 }
 
-// reconnectSignaling attempts to reconnect to signaling server
+// reconnectSignaling attempts to reconnect to signaling server with exponential backoff
 func (t *WebRTCTransport) reconnectSignaling() {
+	if t.reconnecting.Swap(true) {
+		return // Already reconnecting
+	}
+	defer t.reconnecting.Store(false)
+
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+
 	for {
 		select {
 		case <-t.shutdown:
 			return
-		case <-time.After(t.config.ReconnectDelay):
+		default:
 			if err := t.connectSignaling(); err == nil {
 				return // Successfully reconnected
 			}
-			t.logger.Warn("signaling reconnect failed, will retry")
+
+			t.logger.Warn("signaling reconnect failed, backoff starting",
+				"delay", backoff,
+			)
+
+			select {
+			case <-t.shutdown:
+				return
+			case <-time.After(t.applyJitter(backoff)):
+				// Exponential increase
+				backoff = time.Duration(float64(backoff) * 1.5)
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
 		}
 	}
+}
+
+// applyJitter adds +/- 20% jitter to a duration
+func (t *WebRTCTransport) applyJitter(d time.Duration) time.Duration {
+	jitter := time.Duration(float64(d) * 0.2)
+	if jitter == 0 {
+		return d
+	}
+	// Simple pseudo-random using unix nano
+	ms := time.Now().UnixNano() % int64(jitter*2)
+	return d - jitter + time.Duration(ms)
 }
 
 // sendSignalingMessage sends a message to signaling server
@@ -1711,8 +1753,10 @@ func (t *WebRTCTransport) healthMonitor() {
 func (t *WebRTCTransport) checkHealth() {
 	// Check signaling connection
 	if t.signalingStatus.Load().(string) != "connected" {
-		t.logger.Warn("signaling connection lost")
-		go t.reconnectSignaling()
+		if !t.reconnecting.Load() {
+			t.logger.Warn("signaling connection lost, triggering reconnect")
+			go t.reconnectSignaling()
+		}
 	}
 
 	// Check connection count
