@@ -13,6 +13,7 @@ import (
 	sab_layout "github.com/nmxmxh/inos_v1/kernel/threads/sab"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor"
 	"github.com/nmxmxh/inos_v1/kernel/threads/supervisor/units"
+	"github.com/nmxmxh/inos_v1/kernel/utils"
 )
 
 // UnitLoader handles the instantiation of unit supervisors
@@ -83,6 +84,12 @@ func (ul *UnitLoader) LoadUnits() (map[string]interface{}, *supervisor.SABBridge
 		loaded["data"] = units.NewDataSupervisor(bridge, ul.patterns, ul.knowledge, nil, ul.delegator)
 	}
 
+	// 6. EXPLICIT: Ensure GPUSupervisor exists for GPU-accelerated tasks
+	// Even if not yet in registry, this allows early submission with default capabilities
+	if _, exists := loaded["gpu"]; !exists {
+		loaded["gpu"] = units.NewGPUSupervisor(bridge, ul.patterns, ul.knowledge, nil, ul.delegator)
+	}
+
 	return loaded, bridge
 }
 
@@ -110,6 +117,8 @@ func (ul *UnitLoader) InstantiateUnit(bridge *supervisor.SABBridge, module *regi
 	case "storage":
 		return units.NewStorageSupervisor(bridge, ul.patterns, ul.knowledge, capabilities, ul.delegator)
 	case "gpu":
+		println("DEBUG: Instantiating GPUSupervisor")
+		utils.Info("Creating specialized GPUSupervisor unit")
 		return units.NewGPUSupervisor(bridge, ul.patterns, ul.knowledge, capabilities, ul.delegator)
 	case "audio":
 		return units.NewAudioSupervisor(bridge, ul.patterns, ul.knowledge, capabilities, ul.delegator)

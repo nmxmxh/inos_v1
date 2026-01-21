@@ -218,6 +218,8 @@ impl GpuUnit {
         );
         prebuilt_shaders.insert("pbr_lighting", include_str!("gpu_shaders/pbr.wgsl"));
         prebuilt_shaders.insert("nbody", include_str!("gpu_shaders/nbody.wgsl"));
+        prebuilt_shaders.insert("matrix_gen", include_str!("gpu_shaders/matrix_gen.wgsl"));
+        prebuilt_shaders.insert("gpu.boids", include_str!("gpu_shaders/boids.wgsl"));
 
         Self {
             config: GpuConfig::default(),
@@ -332,22 +334,80 @@ impl GpuUnit {
             .and_then(|v| v.as_str())
             .unwrap_or("float32");
 
-        let buffers = vec![
-            BufferDesc {
-                id: "input".to_string(),
+        let mut buffers = Vec::new();
+
+        if method == "instance_matrix_gen" {
+            // Binding 0: Birds (Input)
+            buffers.push(BufferDesc {
+                id: "birds".into(),
                 data: general_purpose::STANDARD.encode(input),
                 size: input.len(),
-                usage: "storage".to_string(),
-                type_hint: buffer_type.to_string(),
-            },
-            BufferDesc {
-                id: "output".to_string(),
-                data: String::new(), // Output buffer
-                size: input.len(),   // Same size as input by default
-                usage: "storage".to_string(),
-                type_hint: buffer_type.to_string(),
-            },
-        ];
+                usage: "storage".into(),
+                type_hint: "bird".into(),
+            });
+
+            // Bindings 1-8: Matrices (Outputs)
+            let count = params["count"].as_u64().unwrap_or(0) as usize;
+            let matrix_buffer_size = count * 64; // 16 floats * 4 bytes
+            for i in 1..=8 {
+                buffers.push(BufferDesc {
+                    id: format!("matrix_{}", i),
+                    data: String::new(),
+                    size: matrix_buffer_size,
+                    usage: "storage".into(),
+                    type_hint: "mat4x4".into(),
+                });
+            }
+
+            // Binding 9: Config (Uniform)
+            buffers.push(BufferDesc {
+                id: "config".into(),
+                data: String::new(),
+                size: 16,
+                usage: "uniform".into(),
+                type_hint: "config".into(),
+            });
+        } else if method == "gpu.boids" {
+            // Binding 0: input (Birds)
+            buffers.push(BufferDesc {
+                id: "input".into(),
+                data: general_purpose::STANDARD.encode(input),
+                size: input.len(),
+                usage: "storage".into(),
+                type_hint: "bird".into(),
+            });
+            // Binding 1: output (Updated Birds)
+            buffers.push(BufferDesc {
+                id: "output".into(),
+                data: String::new(),
+                size: input.len(),
+                usage: "storage".into(),
+                type_hint: "bird".into(),
+            });
+            // Binding 2: Config (Uniform)
+            buffers.push(BufferDesc {
+                id: "config".into(),
+                data: String::new(),
+                size: 16,
+                usage: "uniform".into(),
+                type_hint: "config".into(),
+            });
+        } else {
+            buffers.push(BufferDesc {
+                id: "input".into(),
+                data: general_purpose::STANDARD.encode(input),
+                size: input.len(),
+                usage: "storage".into(),
+                type_hint: buffer_type.into(),
+            });
+            buffers.push(BufferDesc {
+                id: "output".into(),
+                data: String::new(),
+                size: input.len(),
+                usage: "storage".into(),
+                type_hint: buffer_type.into(),
+            });
+        }
 
         // Extract workgroup and dispatch
         let workgroup = params
@@ -407,6 +467,7 @@ impl UnitProxy for GpuUnit {
 
     fn actions(&self) -> Vec<&str> {
         vec![
+            "get_capabilities",
             // ===== CATEGORY 1: RENDERING PIPELINE (12) =====
             "transform_vertices",
             "compute_normals",
@@ -478,6 +539,9 @@ impl UnitProxy for GpuUnit {
             "uv_mapping",
             "parallax_mapping",
             "displacement_mapping",
+            // ===== BIRD SIMULATION (2) =====
+            "instance_matrix_gen",
+            "gpu.boids",
             // ===== CUSTOM SHADER (1) =====
             "execute_wgsl",
         ]
@@ -503,6 +567,19 @@ impl UnitProxy for GpuUnit {
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
         match method {
+            "get_capabilities" => {
+                let caps = serde_json::json!({
+                    "has_gpu": true,
+                    "has_webgpu": true,
+                    "can_mine": true,
+                    "can_inference": true,
+                    "max_ops_per_sec": 1000000,
+                });
+                serde_json::to_vec(&caps).map_err(|e| {
+                    ComputeError::ExecutionFailed(format!("Serialization failed: {}", e))
+                })
+            }
+
             // ===== CATEGORY 1: RENDERING PIPELINE (12) =====
             "transform_vertices" => self.create_webgpu_request(method, input, &params),
             "compute_normals" => self.create_webgpu_request(method, input, &params),
@@ -581,7 +658,9 @@ impl UnitProxy for GpuUnit {
             "displacement_mapping" => self.create_webgpu_request(method, input, &params),
 
             // ===== CUSTOM SHADER (1) =====
-            "execute_wgsl" => self.create_webgpu_request(method, input, &params),
+            "execute_wgsl" | "instance_matrix_gen" | "gpu.boids" => {
+                self.create_webgpu_request(method, input, &params)
+            }
 
             _ => Err(ComputeError::UnknownMethod {
                 library: "gpu".to_string(),

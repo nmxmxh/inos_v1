@@ -182,7 +182,7 @@ func (k *Kernel) Boot() {
 		k.meshCoordinator.SetMonitor(k.supervisor)
 
 		// Adaptive Mesh: Apply Role Configuration
-		k.meshCoordinator.ApplyRoleConfig(k.roleConfig)
+		k.meshCoordinator.ApplyRoleConfig(k.roleConfig, caps)
 
 		if err := k.meshCoordinator.Start(k.ctx); err != nil {
 			k.logger.Warn("Failed to start Mesh Coordinator", utils.Err(err))

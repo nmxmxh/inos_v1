@@ -52,9 +52,10 @@ type DelegationEscrow struct {
 
 // EconomicLedger manages credit escrow and settlement for delegated jobs
 type EconomicLedger struct {
-	escrows  map[string]*DelegationEscrow
-	balances map[string]int64 // Account balances (DID -> credits)
-	mu       sync.RWMutex
+	escrows       map[string]*DelegationEscrow
+	sharedEscrows map[string]*SharedEscrow // For parallel delegation
+	balances      map[string]int64         // Account balances (DID -> credits)
+	mu            sync.RWMutex
 
 	// Authority for grounded state (optional)
 	vault foundation.EconomicVault
@@ -209,7 +210,19 @@ func (el *EconomicLedger) AssignProvider(escrowID, providerID string) error {
 	return nil
 }
 
+// Protocol Fee Split Constants
+const (
+	TreasuryDID = "did:inos:treasury"
+	CreatorDID  = "did:inos:nmxmxh"
+)
+
 // ReleaseToProvider settles the escrow to the provider (success case)
+// Implementing 5% Protocol Fee Split:
+// - 95% to Worker
+// - 3.5% to Treasury (did:inos:treasury)
+// - 0.5% to Creator (did:inos:nmxmxh)
+// - 0.5% to Referrer (fallback did:inos:nmxmxh)
+// - 0.5% to Close IDs (fallback did:inos:nmxmxh)
 func (el *EconomicLedger) ReleaseToProvider(escrowID string, verified bool) error {
 	el.mu.Lock()
 	defer el.mu.Unlock()
@@ -231,13 +244,37 @@ func (el *EconomicLedger) ReleaseToProvider(escrowID string, verified bool) erro
 		return errors.New("verification failed, cannot release")
 	}
 
-	// Transfer credits to provider
-	el.balances[escrow.ProviderID] += int64(escrow.Amount)
+	// Calculate splits
+	amount := int64(escrow.Amount)
+	protocolFeeTotal := amount * 50 / 1000 // 5% total protocol fee
+
+	treasuryAmt := amount * 35 / 1000 // 3.5%
+	creatorAmt := amount * 5 / 1000   // 0.5%
+	referrerAmt := amount * 5 / 1000  // 0.5%
+	closeIDsAmt := amount * 5 / 1000  // 0.5%
+
+	// Worker gets the rest (approx 95%)
+	workerAmt := amount - protocolFeeTotal
+
+	// Transfer credits
+	el.balances[escrow.ProviderID] += workerAmt
+	el.balances[TreasuryDID] += treasuryAmt
+	el.balances[CreatorDID] += creatorAmt
+	el.balances[CreatorDID] += referrerAmt // Fallback referrer to creator
+	el.balances[CreatorDID] += closeIDsAmt // Fallback closeIDs to creator
+
 	escrow.Status = EscrowReleased
 	escrow.SettledAt = time.Now()
 
 	el.totalSettled += escrow.Amount
 	el.settlementsCount++
+
+	// Notify vault if present
+	if el.vault != nil {
+		el.vault.GrantBonus(escrow.ProviderID, workerAmt)
+		el.vault.GrantBonus(TreasuryDID, treasuryAmt)
+		el.vault.GrantBonus(CreatorDID, creatorAmt+referrerAmt+closeIDsAmt)
+	}
 
 	return nil
 }
@@ -316,11 +353,13 @@ func (el *EconomicLedger) GetStats() map[string]interface{} {
 func CalculateDelegationCost(operation string, dataSizeBytes uint64, priority int) uint64 {
 	// Base cost per operation type (microcredits)
 	baseCost := map[string]uint64{
-		"hash":     10,
-		"compress": 50,
-		"encrypt":  100,
-		"decrypt":  100,
-		"custom":   200,
+		"hash":        10,
+		"compress":    50,
+		"encrypt":     100,
+		"decrypt":     100,
+		"gpu.compute": 500,
+		"gpu.shader":  1000,
+		"custom":      200,
 	}
 
 	cost, exists := baseCost[operation]
@@ -396,4 +435,197 @@ func (el *EconomicLedger) SettleDelegation(
 
 	result.SettledAt = time.Now()
 	return result, nil
+}
+
+// ========================================================================
+// SHARED ESCROW: Parallel Delegation with Multiple Workers
+// ========================================================================
+
+// WorkerContribution tracks a single worker's contribution to a shared job
+type WorkerContribution struct {
+	PeerID      string
+	ShardIndex  int
+	ShardSize   uint64
+	Verified    bool
+	CompletedAt time.Time
+	LatencyMs   float64
+}
+
+// SharedEscrow manages payment for parallel jobs with multiple workers
+type SharedEscrow struct {
+	ID            string
+	RequesterDID  string
+	TotalAmount   uint64
+	ShardCount    int
+	Contributions []*WorkerContribution
+	Status        EscrowStatus
+
+	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+// CreateSharedEscrow creates an escrow for parallel delegation
+func (el *EconomicLedger) CreateSharedEscrow(
+	escrowID string,
+	requesterDID string,
+	amount uint64,
+	shardCount int,
+	ttl time.Duration,
+) (*SharedEscrow, error) {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+
+	balance := el.balances[requesterDID]
+	if balance < int64(amount) {
+		return nil, fmt.Errorf("insufficient balance: have %d, need %d", balance, amount)
+	}
+
+	el.balances[requesterDID] -= int64(amount)
+
+	escrow := &SharedEscrow{
+		ID:            escrowID,
+		RequesterDID:  requesterDID,
+		TotalAmount:   amount,
+		ShardCount:    shardCount,
+		Contributions: make([]*WorkerContribution, 0),
+		Status:        EscrowLocked,
+
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(ttl),
+	}
+
+	// Store in a separate map (could extend escrows, but separate for clarity)
+	if el.sharedEscrows == nil {
+		el.sharedEscrows = make(map[string]*SharedEscrow)
+	}
+	el.sharedEscrows[escrowID] = escrow
+	el.totalEscrowed += amount
+
+	return escrow, nil
+}
+
+// RegisterWorkerContribution records a worker's completed shard
+func (el *EconomicLedger) RegisterWorkerContribution(
+	escrowID string,
+	peerID string,
+	shardIndex int,
+	shardSize uint64,
+	verified bool,
+	latencyMs float64,
+) error {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+
+	escrow, exists := el.sharedEscrows[escrowID]
+	if !exists {
+		return errors.New("shared escrow not found")
+	}
+
+	if escrow.Status != EscrowLocked {
+		return fmt.Errorf("invalid escrow status: %s", escrow.Status)
+	}
+
+	escrow.Contributions = append(escrow.Contributions, &WorkerContribution{
+		PeerID:      peerID,
+		ShardIndex:  shardIndex,
+		ShardSize:   shardSize,
+		Verified:    verified,
+		CompletedAt: time.Now(),
+		LatencyMs:   latencyMs,
+	})
+
+	return nil
+}
+
+// SettleSharedEscrow distributes payment proportionally to all verified workers
+func (el *EconomicLedger) SettleSharedEscrow(escrowID string) (*SharedSettlementResult, error) {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+
+	escrow, exists := el.sharedEscrows[escrowID]
+	if !exists {
+		return nil, errors.New("shared escrow not found")
+	}
+
+	if escrow.Status != EscrowLocked {
+		return nil, fmt.Errorf("invalid escrow status: %s", escrow.Status)
+	}
+
+	// Calculate total verified size and count
+	var totalVerifiedSize uint64
+	var shardsVerified int
+	for _, w := range escrow.Contributions {
+		if w.Verified {
+			totalVerifiedSize += w.ShardSize
+			shardsVerified++
+		}
+	}
+
+	if totalVerifiedSize == 0 {
+		// No verified workers - refund to requester
+		el.balances[escrow.RequesterDID] += int64(escrow.TotalAmount)
+		escrow.Status = EscrowRefunded
+		return &SharedSettlementResult{
+			EscrowID:       escrowID,
+			WorkerPayouts:  nil,
+			Refunded:       true,
+			ShardsVerified: 0,
+		}, nil
+	}
+
+	// Calculate protocol fee (5%) and worker pool (95%)
+	protocolFee := escrow.TotalAmount * 5 / 100
+	workerPool := escrow.TotalAmount - protocolFee
+
+	// Distribute to verified workers proportionally
+	payouts := make(map[string]int64)
+	for _, w := range escrow.Contributions {
+		if w.Verified {
+			share := (w.ShardSize * workerPool) / totalVerifiedSize
+			el.balances[w.PeerID] += int64(share)
+			payouts[w.PeerID] += int64(share)
+		}
+	}
+
+	// Distribute protocol fee
+	el.distributeProtocolFee(int64(protocolFee))
+
+	escrow.Status = EscrowReleased
+	el.totalSettled += escrow.TotalAmount
+	el.settlementsCount++
+
+	return &SharedSettlementResult{
+		EscrowID:       escrowID,
+		WorkerPayouts:  payouts,
+		ProtocolFee:    protocolFee,
+		Refunded:       false,
+		ShardsVerified: shardsVerified,
+	}, nil
+}
+
+// SharedSettlementResult contains the outcome of a shared escrow settlement
+type SharedSettlementResult struct {
+	EscrowID       string
+	WorkerPayouts  map[string]int64 // PeerID -> Total amount paid
+	ProtocolFee    uint64
+	Refunded       bool
+	ShardsVerified int
+}
+
+// distributeProtocolFee splits the protocol fee to Treasury/Creator/Referrer/CloseIDs
+func (el *EconomicLedger) distributeProtocolFee(fee int64) {
+	treasuryAmt := fee * 70 / 100 // 3.5% of original = 70% of 5%
+	creatorAmt := fee * 10 / 100  // 0.5% = 10% of 5%
+	referrerAmt := fee * 10 / 100 // 0.5% = 10% of 5%
+	closeIDsAmt := fee * 10 / 100 // 0.5% = 10% of 5%
+
+	el.balances[TreasuryDID] += treasuryAmt
+	el.balances[CreatorDID] += creatorAmt
+	el.balances[CreatorDID] += referrerAmt // Fallback to creator
+	el.balances[CreatorDID] += closeIDsAmt // Fallback to creator
+
+	if el.vault != nil {
+		el.vault.GrantBonus(TreasuryDID, treasuryAmt)
+		el.vault.GrantBonus(CreatorDID, creatorAmt+referrerAmt+closeIDsAmt)
+	}
 }
