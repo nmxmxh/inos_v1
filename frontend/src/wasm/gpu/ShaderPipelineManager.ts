@@ -106,7 +106,7 @@ export class ShaderPipelineManager {
    */
   createBindGroup(
     pipeline: GPUComputePipeline,
-    request: WebGpuRequest,
+    bindings: BindingInfo[],
     gpuBuffers: Map<string, GPUBuffer>
   ): GPUBindGroup {
     const entries: GPUBindGroupEntry[] = [];
@@ -114,12 +114,11 @@ export class ShaderPipelineManager {
     // Map bindings to provided buffers
     // In a production system, we'd more strictly match group/binding IDs
     // For now, we assume buffers are ordered or indexed by names
-    const bindings = request.analysis?.bindings || [];
-    bindings.forEach(binding => {
-      const desc = request.buffers[binding.binding];
-      if (!desc) return;
-
-      const buffer = gpuBuffers.get(desc.id);
+    bindings.forEach((binding, index) => {
+      // Find matching buffer - this is a simplified heuristic
+      // In INOS, we'll use a more explicit ID mapping in the manifest
+      const bufferId = index === 0 ? 'input' : 'output';
+      const buffer = gpuBuffers.get(bufferId);
 
       if (buffer) {
         entries.push({

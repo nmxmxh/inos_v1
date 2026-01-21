@@ -61,23 +61,23 @@ We replace traditional "Message Passing" (Queues) with **"Reactive Mutation"** (
 ### **3.5.1 The Paradigm: Mutate ➔ Signal ➔ React**
 In this architecture, components do not "talk" to each other; they update the shared reality and signal others to notice.
 
-*   **Mutate:** A component (e.g., Rust) writes data directly to the SharedArrayBuffer (SAB). Usage of the `Arena` at `0x153000` (updated for v2.0 layout).
+*   **Mutate:** A component (e.g., Rust) writes data directly to the SharedArrayBuffer (SAB). Usage of the `Arena` at `0x0D0000` (updated for v2.0 layout).
 *   **Signal:** The component increments an Atomic Epoch Counter (e.g., `Epoch += 1`).
 *   **React:** The Kernel (watching epochs via `sdk::signal`) detects `Epoch > LastSeenEpoch`, reads the new state, and acts.
 
 > [!IMPORTANT]
-> **Implemented v2.0: Autonomous System Pulse**
-> We have eliminated `requestAnimationFrame` (rAF) as a compute driver. WASM Workers now run **Autonomous Role Loops** that use `memory.atomic.wait32` to "park" until triggered by event-driven signals. This achieves:
-> - **Zero-Jank**: Compute no longer blocks the browser UI thread.
-> - **Zero-CPU Idle**: Workers consume 0% CPU when no activity is detected.
-> - **Latency Efficiency**: Bypasses the JavaScript task queue entirely.
+> **Implemented v2.0: Epoch-Based Signaling**
+> We have fully transitioned from binary flags to epoch counters. This enables:
+> - **Debouncing**: Multiple mutations can be batched into a single epoch.
+> - **Replay**: Historical epochs can be reconstructed for debugging.
+> - **Consistency**: All watchers see the same sequence of state transitions.
+> - **Atomic Wait**: Using `Atomics.wait()` for zero-CPU idling.
 
 ### 3.5.2 Memory Model: Hot vs. Synchronized
 We employ a hybrid memory strategy optimized for each layer's responsibility:
 
 1.  **Rust & JS (Hot Memory / Zero-Copy):**
     *   **Mechanism:** Direct access to SharedArrayBuffer (SAB).
-    *   **Scale:** Atomic flags region expanded to **1KB** (256 x i32) for v2.0 signal orchestration.
     *   **Role:** High-frequency mutation (60Hz+), rendering, and physics. No copies, zero latency.
 2.  **Go Kernel (Synchronized Memory Twin):**
     *   **Mechanism:** Maintains a Local Replica synchronized via explicit bridge.

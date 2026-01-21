@@ -33,26 +33,26 @@ export const SAB_SIZE_HEAVY = 0x8000000 as const;
 /** 256MB */
 export const SAB_SIZE_DEDICATED = 0x10000000 as const;
 
-/** Epoch counters and atomic flags (Expanded to 1KB) */
+/** Epoch counters and atomic flags */
 export const OFFSET_ATOMIC_FLAGS = 0 as const;
 
-/** 1KB (256 x i32) */
-export const SIZE_ATOMIC_FLAGS = 1024 as const;
+/** 128 bytes (32 x i32) */
+export const SIZE_ATOMIC_FLAGS = 128 as const;
 
 /** Dynamic epoch allocation table */
-export const OFFSET_SUPERVISOR_ALLOC = 1024 as const;
+export const OFFSET_SUPERVISOR_ALLOC = 128 as const;
 
-/** 176 bytes */
+/** 176 bytes (Ends at 0x130) */
 export const SIZE_SUPERVISOR_ALLOC = 176 as const;
 
 /** Global mutex for registry operations */
-export const OFFSET_REGISTRY_LOCK = 1200 as const;
+export const OFFSET_REGISTRY_LOCK = 304 as const;
 
 /** 16 bytes */
 export const SIZE_REGISTRY_LOCK = 16 as const;
 
 /** Module metadata and capabilities */
-export const OFFSET_MODULE_REGISTRY = 1280 as const;
+export const OFFSET_MODULE_REGISTRY = 320 as const;
 
 /** 6KB */
 export const SIZE_MODULE_REGISTRY = 0x001800 as const;
@@ -67,64 +67,64 @@ export const MAX_MODULES_INLINE = 64 as const;
 export const MAX_MODULES_TOTAL = 1024 as const;
 
 /** Fast module capability lookup */
-export const OFFSET_BLOOM_FILTER = 0x001D00 as const;
+export const OFFSET_BLOOM_FILTER = 0x001940 as const;
 
 /** 256 bytes */
 export const SIZE_BLOOM_FILTER = 256 as const;
 
-/** Supervisor state headers (Expanded for v2.0) */
+/** Supervisor state headers */
 export const OFFSET_SUPERVISOR_HEADERS = 0x002000 as const;
 
-/** 16KB (Supports 128 x 128b) */
-export const SIZE_SUPERVISOR_HEADERS = 0x004000 as const;
+/** 4KB */
+export const SIZE_SUPERVISOR_HEADERS = 0x001000 as const;
 
-/** supervisorHeaderSize */
+/** Compact 128-byte headers */
 export const SUPERVISOR_HEADER_SIZE = 128 as const;
 
-/** maxSupervisorsInline */
-export const MAX_SUPERVISORS_INLINE = 128 as const;
+/** 32 supervisors inline */
+export const MAX_SUPERVISORS_INLINE = 32 as const;
 
-/** Supports arena overflow */
+/** Total with arena overflow */
 export const MAX_SUPERVISORS_TOTAL = 256 as const;
 
 /** Pending system call metadata */
-export const OFFSET_SYSCALL_TABLE = 0x006000 as const;
+export const OFFSET_SYSCALL_TABLE = 0x003000 as const;
 
 /** 4KB */
 export const SIZE_SYSCALL_TABLE = 0x001000 as const;
 
 /** Mesh network telemetry */
-export const OFFSET_MESH_METRICS = 0x007000 as const;
+export const OFFSET_MESH_METRICS = 0x004000 as const;
 
 /** 256 bytes */
 export const SIZE_MESH_METRICS = 256 as const;
 
 /** Aggregated mesh metrics */
-export const OFFSET_GLOBAL_ANALYTICS = 0x007100 as const;
+export const OFFSET_GLOBAL_ANALYTICS = 0x004100 as const;
 
 /** 256 bytes */
 export const SIZE_GLOBAL_ANALYTICS = 256 as const;
 
 /** Credit accounts and resource metrics */
-export const OFFSET_ECONOMICS = 0x007200 as const;
+export const OFFSET_ECONOMICS = 0x004200 as const;
 
 /** ~15.5KB */
 export const SIZE_ECONOMICS = 0x003E00 as const;
 
 /** DIDs, device binding, TSS metadata */
-export const OFFSET_IDENTITY_REGISTRY = 0x00B000 as const;
+export const OFFSET_IDENTITY_REGISTRY = 0x008000 as const;
 
 /** 16KB */
 export const SIZE_IDENTITY_REGISTRY = 0x004000 as const;
 
 /** Referrals, close IDs, social yield */
-export const OFFSET_SOCIAL_GRAPH = 0x00F000 as const;
+export const OFFSET_SOCIAL_GRAPH = 0x00C000 as const;
 
 /** 16KB */
 export const SIZE_SOCIAL_GRAPH = 0x004000 as const;
 
 /** Learned patterns and optimizations */
-export const OFFSET_PATTERN_EXCHANGE = 0x013000 as const;
+export const OFFSET_PATTERN_EXCHANGE = 0x010000 as const;
 
 /** 64KB */
 export const SIZE_PATTERN_EXCHANGE = 0x010000 as const;
@@ -139,67 +139,67 @@ export const MAX_PATTERNS_INLINE = 1024 as const;
 export const MAX_PATTERNS_TOTAL = 0x004000 as const;
 
 /** Job execution history (circular buffer) */
-export const OFFSET_JOB_HISTORY = 0x023000 as const;
+export const OFFSET_JOB_HISTORY = 0x020000 as const;
 
 /** 128KB */
 export const SIZE_JOB_HISTORY = 0x020000 as const;
 
 /** Cross-unit coordination state */
-export const OFFSET_COORDINATION = 0x043000 as const;
+export const OFFSET_COORDINATION = 0x040000 as const;
 
 /** 64KB */
 export const SIZE_COORDINATION = 0x010000 as const;
 
 /** Job request/result communication */
-export const OFFSET_INBOX_OUTBOX = 0x053000 as const;
+export const OFFSET_INBOX_OUTBOX = 0x050000 as const;
 
 /** 1MB total */
 export const SIZE_INBOX_OUTBOX = 0x100000 as const;
 
 /** Inbox start */
-export const OFFSET_INBOX_BASE = 0x053000 as const;
+export const OFFSET_INBOX_BASE = 0x050000 as const;
 
 /** 512KB */
 export const SIZE_INBOX_TOTAL = 0x080000 as const;
 
 /** Outbox for Kernel -> Host (Results) */
-export const OFFSET_OUTBOX_HOST_BASE = 0x0D3000 as const;
+export const OFFSET_OUTBOX_HOST_BASE = 0x0D0000 as const;
 
 /** 256KB */
 export const SIZE_OUTBOX_HOST_TOTAL = 0x040000 as const;
 
 /** Outbox for Module -> Kernel (Syscalls) */
-export const OFFSET_OUTBOX_KERNEL_BASE = 0x113000 as const;
+export const OFFSET_OUTBOX_KERNEL_BASE = 0x110000 as const;
 
 /** 256KB */
 export const SIZE_OUTBOX_KERNEL_TOTAL = 0x040000 as const;
 
 /** Dynamic allocation for overflow and large data */
-export const OFFSET_ARENA = 0x153000 as const;
+export const OFFSET_ARENA = 0x150000 as const;
 
 /** Arena metadata */
-export const OFFSET_ARENA_METADATA = 0x153000 as const;
+export const OFFSET_ARENA_METADATA = 0x150000 as const;
 
 /** 64KB reserved for metadata */
 export const SIZE_ARENA_METADATA = 0x010000 as const;
 
 /** Diagnostics region */
-export const OFFSET_DIAGNOSTICS = 0x153000 as const;
+export const OFFSET_DIAGNOSTICS = 0x150000 as const;
 
 /** 4KB */
 export const SIZE_DIAGNOSTICS = 0x001000 as const;
 
 /** Performance metrics for SAB bridge */
-export const OFFSET_BRIDGE_METRICS = 0x153800 as const;
+export const OFFSET_BRIDGE_METRICS = 0x150800 as const;
 
 /** 256 bytes */
 export const SIZE_BRIDGE_METRICS = 256 as const;
 
 /** Async allocation requests */
-export const OFFSET_ARENA_REQUEST_QUEUE = 0x154000 as const;
+export const OFFSET_ARENA_REQUEST_QUEUE = 0x151000 as const;
 
 /** Async allocation responses */
-export const OFFSET_ARENA_RESPONSE_QUEUE = 0x155000 as const;
+export const OFFSET_ARENA_RESPONSE_QUEUE = 0x152000 as const;
 
 /** arenaQueueEntrySize */
 export const ARENA_QUEUE_ENTRY_SIZE = 64 as const;
@@ -208,7 +208,7 @@ export const ARENA_QUEUE_ENTRY_SIZE = 64 as const;
 export const MAX_ARENA_REQUESTS = 64 as const;
 
 /** Event payload slots */
-export const OFFSET_MESH_EVENT_QUEUE = 0x156000 as const;
+export const OFFSET_MESH_EVENT_QUEUE = 0x153000 as const;
 
 /** 52KB (52 slots * 1KB) */
 export const SIZE_MESH_EVENT_QUEUE = 0x00D000 as const;
@@ -220,22 +220,22 @@ export const MESH_EVENT_SLOT_SIZE = 1024 as const;
 export const MESH_EVENT_SLOT_COUNT = 52 as const;
 
 /** Bird state metadata */
-export const OFFSET_BIRD_STATE = 0x163000 as const;
+export const OFFSET_BIRD_STATE = 0x160000 as const;
 
 /** 4KB */
 export const SIZE_BIRD_STATE = 0x001000 as const;
 
 /** Ping-pong coordination */
-export const OFFSET_PINGPONG_CONTROL = 0x164000 as const;
+export const OFFSET_PINGPONG_CONTROL = 0x161000 as const;
 
 /** 64 bytes */
 export const SIZE_PINGPONG_CONTROL = 64 as const;
 
 /** offsetBirdBufferA */
-export const OFFSET_BIRD_BUFFER_A = 0x165000 as const;
+export const OFFSET_BIRD_BUFFER_A = 0x162000 as const;
 
 /** offsetBirdBufferB */
-export const OFFSET_BIRD_BUFFER_B = 0x3C5000 as const;
+export const OFFSET_BIRD_BUFFER_B = 0x3C2000 as const;
 
 /** 10000 * 236 */
 export const SIZE_BIRD_BUFFER = 0x2402C0 as const;
@@ -244,10 +244,10 @@ export const SIZE_BIRD_BUFFER = 0x2402C0 as const;
 export const BIRD_STRIDE = 236 as const;
 
 /** offsetMatrixBufferA */
-export const OFFSET_MATRIX_BUFFER_A = 0x625000 as const;
+export const OFFSET_MATRIX_BUFFER_A = 0x622000 as const;
 
 /** offsetMatrixBufferB */
-export const OFFSET_MATRIX_BUFFER_B = 0xB25000 as const;
+export const OFFSET_MATRIX_BUFFER_B = 0xB22000 as const;
 
 /** 10000 * 8 * 64 */
 export const SIZE_MATRIX_BUFFER = 0x4E2000 as const;
@@ -264,125 +264,95 @@ export const IDX_INBOX_DIRTY = 1 as const;
 /** Signal from Kernel to Host (Results) */
 export const IDX_OUTBOX_HOST_DIRTY = 2 as const;
 
-/** Signal from Module to Kernel (Syscalls) */
-export const IDX_OUTBOX_KERNEL_DIRTY = 3 as const;
-
 /** System panic */
-export const IDX_PANIC_STATE = 4 as const;
+export const IDX_PANIC_STATE = 3 as const;
 
 /** Sensor updates */
-export const IDX_SENSOR_EPOCH = 5 as const;
+export const IDX_SENSOR_EPOCH = 4 as const;
 
 /** Actor updates */
-export const IDX_ACTOR_EPOCH = 6 as const;
+export const IDX_ACTOR_EPOCH = 5 as const;
 
 /** Storage updates */
-export const IDX_STORAGE_EPOCH = 7 as const;
+export const IDX_STORAGE_EPOCH = 6 as const;
 
-/** Main thread increments each rAF (Heartbeat) - Optional */
-export const IDX_SYSTEM_PULSE = 8 as const;
+/** System updates */
+export const IDX_SYSTEM_EPOCH = 7 as const;
 
-/** 1=Visible, 0=Hidden/Suspended */
-export const IDX_SYSTEM_VISIBILITY = 9 as const;
+/** Arena bump pointer (atomic) */
+export const IDX_ARENA_ALLOCATOR = 8 as const;
 
-/** Throttle control (HighPerf, Balanced, LowPower) */
-export const IDX_SYSTEM_POWER_STATE = 10 as const;
-
-/** Alias for Visibility (Compatibility) */
+/** Mutex for outbox synchronization (unused) */
 export const IDX_OUTBOX_MUTEX = 9 as const;
 
-/** Alias for PowerState (Compatibility) */
+/** Mutex for inbox synchronization (unused) */
 export const IDX_INBOX_MUTEX = 10 as const;
 
-/** General system state change */
-export const IDX_SYSTEM_EPOCH = 11 as const;
-
-/** idxReservedPulse1 */
-export const IDX_RESERVED_PULSE1 = 12 as const;
-
-/** idxReservedPulse2 */
-export const IDX_RESERVED_PULSE2 = 13 as const;
-
-/** idxReservedPulse3 */
-export const IDX_RESERVED_PULSE3 = 14 as const;
-
-/** idxReservedPulse4 */
-export const IDX_RESERVED_PULSE4 = 15 as const;
-
-/** Credit settlement needed */
-export const IDX_ECONOMY_EPOCH = 16 as const;
-
-/** Local metrics updated */
-export const IDX_METRICS_EPOCH = 17 as const;
-
-/** Health status changed */
-export const IDX_HEALTH_EPOCH = 18 as const;
-
-/** Module registration signal */
-export const IDX_REGISTRY_EPOCH = 19 as const;
-
-/** Mesh-wide diagnostics complete */
-export const IDX_GLOBAL_METRICS_EPOCH = 20 as const;
-
-/** idxReservedRes1 */
-export const IDX_RESERVED_RES1 = 21 as const;
-
-/** idxReservedRes2 */
-export const IDX_RESERVED_RES2 = 22 as const;
-
-/** idxReservedRes3 */
-export const IDX_RESERVED_RES3 = 23 as const;
+/** Metrics updated */
+export const IDX_METRICS_EPOCH = 11 as const;
 
 /** Bird physics complete */
-export const IDX_BIRD_EPOCH = 24 as const;
+export const IDX_BIRD_EPOCH = 12 as const;
 
 /** Matrix generation complete */
-export const IDX_MATRIX_EPOCH = 25 as const;
+export const IDX_MATRIX_EPOCH = 13 as const;
 
 /** Active buffer (0=A, 1=B) */
-export const IDX_PINGPONG_ACTIVE = 26 as const;
+export const IDX_PINGPONG_ACTIVE = 14 as const;
 
-/** Boids evolution cycle complete */
-export const IDX_EVOLUTION_EPOCH = 27 as const;
+/** Module registration signal */
+export const IDX_REGISTRY_EPOCH = 15 as const;
+
+/** Boids evolution complete */
+export const IDX_EVOLUTION_EPOCH = 16 as const;
+
+/** Health metrics updated */
+export const IDX_HEALTH_EPOCH = 17 as const;
 
 /** Pattern learning complete */
-export const IDX_LEARNING_EPOCH = 28 as const;
+export const IDX_LEARNING_EPOCH = 18 as const;
+
+/** Credit settlement needed */
+export const IDX_ECONOMY_EPOCH = 19 as const;
 
 /** Active bird count (mutable) */
-export const IDX_BIRD_COUNT = 29 as const;
+export const IDX_BIRD_COUNT = 20 as const;
+
+/** Global diagnostics complete */
+export const IDX_GLOBAL_METRICS_EPOCH = 21 as const;
+
+/** Signal from Module to Kernel (Syscalls) */
+export const IDX_OUTBOX_KERNEL_DIRTY = 22 as const;
+
+/** Remote job delegation complete */
+export const IDX_DELEGATED_JOB_EPOCH = 23 as const;
+
+/** Local user job complete */
+export const IDX_USER_JOB_EPOCH = 24 as const;
+
+/** Remote chunk fetch/store complete */
+export const IDX_DELEGATED_CHUNK_EPOCH = 25 as const;
+
+/** Mesh event stream updated */
+export const IDX_MESH_EVENT_EPOCH = 26 as const;
+
+/** Consumer head (monotonic) */
+export const IDX_MESH_EVENT_HEAD = 27 as const;
+
+/** Producer tail (monotonic) */
+export const IDX_MESH_EVENT_TAIL = 28 as const;
+
+/** Dropped event counter */
+export const IDX_MESH_EVENT_DROPPED = 29 as const;
 
 /** Hash of initialization context ID */
 export const IDX_CONTEXT_ID_HASH = 31 as const;
 
-/** Remote job delegation complete */
-export const IDX_DELEGATED_JOB_EPOCH = 32 as const;
+/** supervisorPoolBase */
+export const SUPERVISOR_POOL_BASE = 32 as const;
 
-/** Local user job complete */
-export const IDX_USER_JOB_EPOCH = 33 as const;
-
-/** Remote chunk fetch/store complete */
-export const IDX_DELEGATED_CHUNK_EPOCH = 34 as const;
-
-/** Mesh event stream updated */
-export const IDX_MESH_EVENT_EPOCH = 35 as const;
-
-/** Consumer head (monotonic) */
-export const IDX_MESH_EVENT_HEAD = 36 as const;
-
-/** Producer tail (monotonic) */
-export const IDX_MESH_EVENT_TAIL = 37 as const;
-
-/** Dropped event counter */
-export const IDX_MESH_EVENT_DROPPED = 38 as const;
-
-/** Arena bump pointer (atomic) */
-export const IDX_ARENA_ALLOCATOR = 64 as const;
-
-/** Pool for individual worker ACKs/Signals */
-export const SUPERVISOR_POOL_BASE = 65 as const;
-
-/** Supports 128 concurrent supervisor signals */
-export const SUPERVISOR_POOL_SIZE = 128 as const;
+/** Supports 96 supervisors */
+export const SUPERVISOR_POOL_SIZE = 96 as const;
 
 /** reservedPoolBase */
 export const RESERVED_POOL_BASE = 128 as const;
@@ -487,36 +457,26 @@ export const CONSTS = {
   IDX_KERNEL_READY,
   IDX_INBOX_DIRTY,
   IDX_OUTBOX_HOST_DIRTY,
-  IDX_OUTBOX_KERNEL_DIRTY,
   IDX_PANIC_STATE,
   IDX_SENSOR_EPOCH,
   IDX_ACTOR_EPOCH,
   IDX_STORAGE_EPOCH,
-  IDX_SYSTEM_PULSE,
-  IDX_SYSTEM_VISIBILITY,
-  IDX_SYSTEM_POWER_STATE,
+  IDX_SYSTEM_EPOCH,
+  IDX_ARENA_ALLOCATOR,
   IDX_OUTBOX_MUTEX,
   IDX_INBOX_MUTEX,
-  IDX_SYSTEM_EPOCH,
-  IDX_RESERVED_PULSE1,
-  IDX_RESERVED_PULSE2,
-  IDX_RESERVED_PULSE3,
-  IDX_RESERVED_PULSE4,
-  IDX_ECONOMY_EPOCH,
   IDX_METRICS_EPOCH,
-  IDX_HEALTH_EPOCH,
-  IDX_REGISTRY_EPOCH,
-  IDX_GLOBAL_METRICS_EPOCH,
-  IDX_RESERVED_RES1,
-  IDX_RESERVED_RES2,
-  IDX_RESERVED_RES3,
   IDX_BIRD_EPOCH,
   IDX_MATRIX_EPOCH,
   IDX_PINGPONG_ACTIVE,
+  IDX_REGISTRY_EPOCH,
   IDX_EVOLUTION_EPOCH,
+  IDX_HEALTH_EPOCH,
   IDX_LEARNING_EPOCH,
+  IDX_ECONOMY_EPOCH,
   IDX_BIRD_COUNT,
-  IDX_CONTEXT_ID_HASH,
+  IDX_GLOBAL_METRICS_EPOCH,
+  IDX_OUTBOX_KERNEL_DIRTY,
   IDX_DELEGATED_JOB_EPOCH,
   IDX_USER_JOB_EPOCH,
   IDX_DELEGATED_CHUNK_EPOCH,
@@ -524,7 +484,7 @@ export const CONSTS = {
   IDX_MESH_EVENT_HEAD,
   IDX_MESH_EVENT_TAIL,
   IDX_MESH_EVENT_DROPPED,
-  IDX_ARENA_ALLOCATOR,
+  IDX_CONTEXT_ID_HASH,
   SUPERVISOR_POOL_BASE,
   SUPERVISOR_POOL_SIZE,
   RESERVED_POOL_BASE,

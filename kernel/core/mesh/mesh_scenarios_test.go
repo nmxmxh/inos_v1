@@ -362,10 +362,8 @@ func TestEconomics_ProviderEarnings(t *testing.T) {
 		totalEarned += cost
 	}
 
-	expectedEarned := int64(totalEarned) - (int64(totalEarned) * 50 / 1000)
-	assert.Equal(t, expectedEarned, ledger.GetBalance("provider"))
+	assert.Equal(t, int64(totalEarned), ledger.GetBalance("provider"))
 	assert.Equal(t, int64(10000-int(totalEarned)), ledger.GetBalance("requester"))
-
 }
 
 // TestEconomics_BadActorPenalty tests handling of verification failures

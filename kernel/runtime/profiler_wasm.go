@@ -33,16 +33,12 @@ func (p *Profiler) Profile() RuntimeCapabilities {
 		// In a real implementation, this would ping the JS side over WebRTC
 		NetworkLatency: 5 * time.Millisecond,
 		IsHeadless:     p.detectHeadless(),
-		HasGpu:         p.detectGpu(),
-		HasSimd:        p.detectSimd(),
 	}
 
 	utils.Info("Profiler: Analysis complete",
 		utils.Float64("compute_score", caps.ComputeScore),
 		utils.Int64("atomics_ns", caps.AtomicsOverhead.Nanoseconds()),
 		utils.Bool("headless", caps.IsHeadless),
-		utils.Bool("gpu", caps.HasGpu),
-		utils.Bool("simd", caps.HasSimd),
 	)
 
 	return caps
@@ -102,27 +98,4 @@ func (p *Profiler) detectHeadless() bool {
 	webdriver := navigator.Get("webdriver")
 
 	return webdriver.Truthy() || userAgent == ""
-}
-
-func (p *Profiler) detectGpu() bool {
-	navigator := js.Global().Get("navigator")
-	if !navigator.Truthy() {
-		return false
-	}
-	gpu := navigator.Get("gpu")
-	return gpu.Truthy()
-}
-
-func (p *Profiler) detectSimd() bool {
-	// Simple SIMD detection: check if WebAssembly.validate with a SIMD instruction works
-	// Or check the 'features' in the browser if available.
-	// For now, a simple heuristic or checking for a known SIMD global is enough.
-	// Most modern browsers supporting SharedArrayBuffer also support SIMD.
-	wasm := js.Global().Get("WebAssembly")
-	if !wasm.Truthy() {
-		return false
-	}
-	// We'll assume SIMD is present if WebAssembly is present and we're in a modern enough environment
-	// (Actual validation would require a small WASM binary with SIMD opcodes)
-	return true
 }

@@ -20,10 +20,7 @@ type GPUSupervisor struct {
 
 func NewGPUSupervisor(bridge supervisor.SABInterface, patterns *pattern.TieredPatternStorage, knowledge *intelligence.KnowledgeGraph, capabilities []string, delegator foundation.MeshDelegator) *GPUSupervisor {
 	if len(capabilities) == 0 {
-		capabilities = []string{
-			"gpu.compute", "gpu.shader", "gpu.render", "gpu.tensor", "gpu.cuda_proxy",
-			"gpu.boids", "instance_matrix_gen",
-		}
+		capabilities = []string{"gpu.compute", "gpu.shader", "gpu.render", "gpu.tensor", "gpu.cuda_proxy"}
 	}
 	return &GPUSupervisor{
 		UnifiedSupervisor: supervisor.NewUnifiedSupervisor("gpu", capabilities, patterns, knowledge, delegator, bridge, nil),

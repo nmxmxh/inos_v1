@@ -295,40 +295,6 @@ func TestStreamingVerifier_FullFlow(t *testing.T) {
 	assert.Equal(t, VerificationPassed, sv.Status())
 }
 
-// ========== GpuVerifier Tests ==========
-
-func TestGpuVerifier_Boids_Success(t *testing.T) {
-	gv := NewGpuVerifier("gpu.boids", nil)
-	// 236 bytes (1 bird)
-	data := make([]byte, 236)
-	data[0] = 0xFF // Non-zero to pass activity check
-
-	assert.True(t, gv.VerifyCompute(data))
-	assert.Equal(t, VerificationPassed, gv.Status())
-}
-
-func TestGpuVerifier_Boids_InvalidSize(t *testing.T) {
-	gv := NewGpuVerifier("gpu.boids", nil)
-	data := make([]byte, 100) // Not multiple of 236
-
-	assert.False(t, gv.VerifyCompute(data))
-	assert.Equal(t, VerificationCorrupted, gv.Status())
-}
-
-func TestGpuVerifier_Matrix_Success(t *testing.T) {
-	gv := NewGpuVerifier("instance_matrix_gen", nil)
-	data := make([]byte, 64) // 1 matrix
-
-	assert.True(t, gv.VerifyCompute(data))
-	assert.Equal(t, VerificationPassed, gv.Status())
-}
-
-func TestGpuVerifier_EmptyOutput(t *testing.T) {
-	gv := NewGpuVerifier("any", nil)
-	assert.False(t, gv.VerifyCompute([]byte{}))
-	assert.Equal(t, VerificationFailed, gv.Status())
-}
-
 // Helper for error tests
 type errorReader struct {
 	err error

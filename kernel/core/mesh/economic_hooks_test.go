@@ -118,8 +118,6 @@ func TestEconomicLedger_ReleaseToProvider_Success(t *testing.T) {
 	el := NewEconomicLedger()
 	el.RegisterAccount("did:inos:requester", 1000)
 	el.RegisterAccount("did:inos:provider", 0)
-	el.RegisterAccount(TreasuryDID, 0)
-	el.RegisterAccount(CreatorDID, 0)
 
 	el.CreateEscrow("escrow-1", "did:inos:requester", 100, time.Hour, "job")
 	el.AssignProvider("escrow-1", "did:inos:provider")
@@ -127,19 +125,8 @@ func TestEconomicLedger_ReleaseToProvider_Success(t *testing.T) {
 	err := el.ReleaseToProvider("escrow-1", true)
 	require.NoError(t, err)
 
-	// Provider should receive 95% (95 credits = 100 - 5% protocol fee)
-	assert.Equal(t, int64(95), el.GetBalance("did:inos:provider"))
-
-	// Treasury receives 3.5% (3 credits due to integer math)
-	assert.Equal(t, int64(3), el.GetBalance(TreasuryDID))
-
-	// Creator receives 0.5% + referrer (0.5%) + closeIDs (0.5%) = 1.5% (1 credit each = 1)
-	// Due to integer division: 5/1000*100 = 0, but fallbacks accumulate on creator
-	// 0.5% of 100 = 0 each -> Total Creator = 0
-	// However the code uses amount*5/1000 which for 100 gives 0
-	// Let's verify actual balance
-	creatorBalance := el.GetBalance(CreatorDID)
-	assert.GreaterOrEqual(t, creatorBalance, int64(0)) // May be 0 due to integer division
+	// Provider should receive credits
+	assert.Equal(t, int64(100), el.GetBalance("did:inos:provider"))
 
 	// Requester balance should remain reduced
 	assert.Equal(t, int64(900), el.GetBalance("did:inos:requester"))
@@ -215,8 +202,6 @@ func TestEconomicLedger_GetStats(t *testing.T) {
 	el := NewEconomicLedger()
 	el.RegisterAccount("did:inos:a", 500)
 	el.RegisterAccount("did:inos:b", 500)
-	el.RegisterAccount(TreasuryDID, 0)
-	el.RegisterAccount(CreatorDID, 0)
 
 	el.CreateEscrow("e1", "did:inos:a", 100, time.Hour, "j1")
 	el.CreateEscrow("e2", "did:inos:b", 150, time.Hour, "j2")
@@ -225,10 +210,10 @@ func TestEconomicLedger_GetStats(t *testing.T) {
 
 	stats := el.GetStats()
 	assert.Equal(t, uint64(250), stats["total_escrowed"])
-	assert.Equal(t, uint64(100), stats["total_settled"]) // Total settled = escrow amount
+	assert.Equal(t, uint64(100), stats["total_settled"])
 	assert.Equal(t, uint64(1), stats["settlements_count"])
-	// Now we have 4 accounts: a, b, treasury, creator
-	assert.GreaterOrEqual(t, stats["accounts"], 2)
+	assert.Equal(t, 2, stats["active_escrows"])
+	assert.Equal(t, 2, stats["accounts"])
 }
 
 func TestEconomicLedger_ConcurrentAccess(t *testing.T) {
@@ -307,8 +292,6 @@ func TestSettleDelegation_SuccessfulVerification(t *testing.T) {
 	el := NewEconomicLedger()
 	el.RegisterAccount("did:inos:requester", 1000)
 	el.RegisterAccount("did:inos:provider", 0)
-	el.RegisterAccount(TreasuryDID, 0)
-	el.RegisterAccount(CreatorDID, 0)
 
 	el.CreateEscrow("escrow-1", "did:inos:requester", 100, time.Hour, "job")
 	el.AssignProvider("escrow-1", "did:inos:provider")
@@ -322,8 +305,7 @@ func TestSettleDelegation_SuccessfulVerification(t *testing.T) {
 	assert.Equal(t, uint64(100), result.Amount)
 	assert.Equal(t, 50.5, result.LatencyMs)
 
-	// Provider gets 95% (95 credits after 5% protocol fee)
-	assert.Equal(t, int64(95), el.GetBalance("did:inos:provider"))
+	assert.Equal(t, int64(100), el.GetBalance("did:inos:provider"))
 }
 
 func TestSettleDelegation_FailedVerification(t *testing.T) {
@@ -362,8 +344,6 @@ func TestFullDelegationEconomicFlow(t *testing.T) {
 	// 1. Setup accounts
 	el.RegisterAccount("did:inos:alice", 5000)
 	el.RegisterAccount("did:inos:bob", 1000)
-	el.RegisterAccount(TreasuryDID, 0)
-	el.RegisterAccount(CreatorDID, 0)
 
 	// 2. Alice requests delegation - calculate cost
 	cost := CalculateDelegationCost("compress", 5*1024*1024, 50)
@@ -385,51 +365,12 @@ func TestFullDelegationEconomicFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Success)
 
-	// 6. Final balances - Bob gets 95% of cost due to Protocol Fee Split
-	// Implementation uses amount - (amount * 50 / 1000)
-	expectedBobPay := int64(cost) - (int64(cost) * 50 / 1000)
+	// 6. Final balances
 	assert.Equal(t, aliceBalanceAfterEscrow, el.GetBalance("did:inos:alice"))
-	assert.Equal(t, int64(1000)+expectedBobPay, el.GetBalance("did:inos:bob"))
+	assert.Equal(t, int64(1000)+int64(cost), el.GetBalance("did:inos:bob"))
 
 	// 7. Stats updated
 	stats := el.GetStats()
 	assert.Equal(t, escrow.Amount, stats["total_settled"])
 	assert.Equal(t, uint64(1), stats["settlements_count"])
-}
-
-func TestSharedEscrow_ProportionalPayout(t *testing.T) {
-	el := NewEconomicLedger()
-
-	// 1. Setup accounts
-	el.RegisterAccount("did:inos:requester", 1000)
-	el.RegisterAccount("worker-1", 0)
-	el.RegisterAccount("worker-2", 0)
-	el.RegisterAccount(TreasuryDID, 0)
-	el.RegisterAccount(CreatorDID, 0)
-
-	// 2. Create Shared Escrow for 100 credits, 2 shards
-	_, err := el.CreateSharedEscrow("shared-1", "did:inos:requester", 100, 2, time.Hour)
-	require.NoError(t, err)
-
-	// 3. Register contributions: worker-1 (25% shard), worker-2 (75% shard)
-	err = el.RegisterWorkerContribution("shared-1", "worker-1", 0, 256, true, 10.0)
-	require.NoError(t, err)
-	err = el.RegisterWorkerContribution("shared-1", "worker-2", 1, 768, true, 15.0)
-	require.NoError(t, err)
-
-	// 4. Settle
-	result, err := el.SettleSharedEscrow("shared-1")
-	require.NoError(t, err)
-	require.False(t, result.Refunded)
-	require.Equal(t, uint64(5), result.ProtocolFee)
-
-	// 5. Verify Payouts (95 credits to distribute)
-	// worker-1 should get 25% of 95 = 23.75 -> 23
-	// worker-2 should get 75% of 95 = 71.25 -> 71
-	// (Note: integer math floor means some dust may remain in escrow bucket logic or supply)
-	assert.Equal(t, int64(23), el.GetBalance("worker-1"))
-	assert.Equal(t, int64(71), el.GetBalance("worker-2"))
-
-	// 6. Verify Protocol Fee Recipients
-	assert.Equal(t, int64(3), el.GetBalance(TreasuryDID)) // 3.5% of 100
 }

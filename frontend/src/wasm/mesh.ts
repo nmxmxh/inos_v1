@@ -26,8 +26,6 @@ export interface MeshIdentity {
   deviceId: string;
   nodeId: string;
   displayName?: string;
-  hasGpu?: boolean;
-  hasWebGpu?: boolean;
 }
 
 export interface MeshTransportConfig {
@@ -428,8 +426,6 @@ export function resolveMeshBootstrapConfig(storageKey = 'inos.mesh.identity'): M
   const mergedIdentity: MeshIdentity = {
     ...identity,
     ...overrides,
-    hasGpu: !!(typeof navigator !== 'undefined' && (navigator as any).gpu),
-    hasWebGpu: !!(typeof navigator !== 'undefined' && (navigator as any).gpu),
   };
 
   if (typeof localStorage !== 'undefined' && Object.keys(overrides).length === 0) {

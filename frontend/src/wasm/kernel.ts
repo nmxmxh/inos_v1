@@ -8,7 +8,6 @@ import {
   type MeshBootstrapConfig,
 } from './kernel.shared';
 import { createMeshClient } from './mesh';
-import { pulseManager } from './pulse-manager';
 
 // Vite worker import syntax
 import KernelWorkerUrl from './kernel.worker?worker&url';
@@ -62,7 +61,6 @@ function terminateKernelWorker(): void {
     window.__INOS_KERNEL_WORKER__.terminate();
     window.__INOS_KERNEL_WORKER__ = undefined;
   }
-  pulseManager.shutdown();
 }
 
 declare global {
@@ -205,11 +203,7 @@ export async function initializeKernel(
     }
   };
 
-  window.__INOS_INIT_PROMISE__ = init().then(result => {
-    // 2. Initialize the Pulse Manager (Dedicated heartbeat worker)
-    pulseManager.initialize(result.sabBase);
-    return result;
-  });
+  window.__INOS_INIT_PROMISE__ = init();
   return window.__INOS_INIT_PROMISE__;
 }
 

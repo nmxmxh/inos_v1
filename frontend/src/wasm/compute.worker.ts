@@ -19,14 +19,11 @@ declare const self: DedicatedWorkerGlobalScope;
 import { WasmHeap } from './heap';
 import { createBaseEnv, createPlaceholders } from './bridge';
 import { INOSBridge } from './bridge-state';
-import { IDX_SYSTEM_PULSE } from './layout';
 
 // Worker-scoped state
 let _memory: WebAssembly.Memory | null = null;
 let _modules: Record<string, ModuleExports> = {};
 let _dispatcher: WorkerDispatcher | null = null;
-let _isLooping = false;
-let _loopParams: any = {};
 
 interface ModuleExports {
   exports: WebAssembly.Exports;
@@ -368,25 +365,7 @@ self.onmessage = async (event: MessageEvent<any>) => {
         break;
       }
 
-      case 'start_role_loop': {
-        if (!_dispatcher) throw new Error('Dispatcher not initialized');
-        const { params } = event.data;
-        _loopParams = params || {};
-
-        if (!_isLooping) {
-          _isLooping = true;
-          runAutonomousLoop();
-        }
-        break;
-      }
-
-      case 'stop_role_loop': {
-        _isLooping = false;
-        break;
-      }
-
       case 'shutdown': {
-        _isLooping = false;
         _modules = {};
         _dispatcher = null;
         _memory = null;
@@ -405,38 +384,5 @@ self.onmessage = async (event: MessageEvent<any>) => {
     });
   }
 };
-
-async function runAutonomousLoop() {
-  const flags = (self as any).__INOS_SAB_INT32__ as Int32Array;
-  if (!flags || !_dispatcher || !_isLooping) return;
-
-  const library = _loopParams.library || 'compute';
-  const method = _loopParams.method || 'step_physics';
-
-  console.log(`[ComputeWorker] Starting autonomous loop for ${library}:${method}`);
-
-  while (_isLooping) {
-    // 1. Get current pulse
-    const lastPulse = Atomics.load(flags, IDX_SYSTEM_PULSE);
-
-    // 2. Execute the unit logic
-    // The dispatcher handles SAB mutation and epoch flipping
-    try {
-      _dispatcher.execute(library, method, _loopParams);
-    } catch (e) {
-      console.error(`[ComputeWorker] Loop error in ${library}:${method}:`, e);
-      _isLooping = false;
-      break;
-    }
-
-    // 3. PARK until the next pulse (Zero-CPU idling)
-    // Atomics.wait blocks the thread, which is fine for a dedicated background worker.
-    // We wait for the pulse to change from lastPulse.
-    // If the pulse worker is throttled, THIS wait will naturally take longer.
-    Atomics.wait(flags, IDX_SYSTEM_PULSE, lastPulse);
-  }
-
-  console.log(`[ComputeWorker] Autonomous loop stopped`);
-}
 
 export {};

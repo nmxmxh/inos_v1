@@ -165,12 +165,11 @@ const (
 	IDX_SYSTEM_EPOCH      = system.IdxSystemEpoch
 
 	// Phase 16: Extended System Epochs
-	IDX_SYSTEM_PULSE    = system.IdxSystemPulse
 	IDX_ARENA_ALLOCATOR = system.IdxArenaAllocator
 	IDX_OUTBOX_MUTEX    = system.IdxOutboxMutex
 	IDX_INBOX_MUTEX     = system.IdxInboxMutex
 	IDX_METRICS_EPOCH   = system.IdxMetricsEpoch
-	IDX_BIRD_EPOCH      = system.IdxBirdEpoch
+	IDX_BIRD_EPOCH      = system.IdxBirdEpoch // Index 12: Physics epoch (incremented by Rust every physics step)
 	IDX_MATRIX_EPOCH    = system.IdxMatrixEpoch
 	IDX_PINGPONG_ACTIVE = system.IdxPingpongActive
 
@@ -233,8 +232,8 @@ func GetAllRegions(sabSize uint32) []MemoryRegion {
 			Size:      SIZE_ATOMIC_FLAGS,
 			Purpose:   "Epoch counters and atomic flags",
 			CanExpand: false,
-			MaxInline: 256, // 256 i32 flags in 1KB
-			MaxTotal:  256,
+			MaxInline: 16, // 16 i32 flags
+			MaxTotal:  16,
 		},
 		{
 			Name:      "SupervisorAlloc",

@@ -37,14 +37,12 @@ To eliminate polling overhead entirely:
 **Key Epoch Indices (from `protocols/schemas/system/v1/sab_layout.capnp`):**
 | Index | Name | Purpose |
 |-------|------|---------|
-| 8 | `IDX_SYSTEM_PULSE` | System-wide heartbeat (fallback) |
-| 9 | `IDX_SYSTEM_VISIBILITY` | 1=Visible, 0=Hidden/Suspended |
-| 24 | `IDX_BIRD_EPOCH` | Bird physics complete |
-| 25 | `IDX_MATRIX_EPOCH` | Matrix generation complete |
-| 26 | `IDX_PINGPONG_ACTIVE` | Active buffer selector |
-| 19 | `IDX_REGISTRY_EPOCH` | Module registration signal |
-| 27 | `IDX_EVOLUTION_EPOCH` | Boids evolution complete |
-| 16 | `IDX_ECONOMY_EPOCH` | Credit settlement needed |
+| 12 | `IDX_BIRD_EPOCH` | Bird physics complete |
+| 13 | `IDX_MATRIX_EPOCH` | Matrix generation complete |
+| 14 | `IDX_PINGPONG_ACTIVE` | Active buffer selector |
+| 15 | `IDX_REGISTRY_EPOCH` | Module registration signal |
+| 16 | `IDX_EVOLUTION_EPOCH` | Boids evolution complete |
+| 19 | `IDX_ECONOMY_EPOCH` | Credit settlement needed |
 
 ### 3. Ping-Pong Buffers (Zero Contention)
 To prevent read/write conflicts between layers:
@@ -71,10 +69,10 @@ To prevent read/write conflicts between layers:
 **Buffer Layout (Absolute Addressing):**
 | Buffer | Offset | Size | Purpose |
 |--------|--------|------|---------|
-| Bird A | `0x00165000` | 2.36MB | Population state (10k × 236B) |
-| Bird B | `0x003C5000` | 2.36MB | Population state |
-| Matrix A | `0x00625000` | 5.12MB | Instance matrices (100k × 64B) |
-| Matrix B | `0x00B25000` | 5.12MB | Instance matrices |
+| Bird A | `0x01162000` | 2.36MB | Population state (10k × 236B) |
+| Bird B | `0x013C2000` | 2.36MB | Population state |
+| Matrix A | `0x01622000` | 5.12MB | Instance matrices (10k × 8 × 64B) |
+| Matrix B | `0x01B22000` | 5.12MB | Instance matrices |
 
 ### 4. Persistent Scratch Buffers (Zero Allocation)
 To prevent GC pressure and frame stutters:

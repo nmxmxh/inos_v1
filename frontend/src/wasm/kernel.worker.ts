@@ -21,7 +21,6 @@ self.addEventListener('error', (e: ErrorEvent) => {
 
 declare const self: DedicatedWorkerGlobalScope;
 import { INOSBridge } from './bridge-state';
-import { WebGpuFulfiller } from './gpu/WebGpuFulfiller';
 import {
   checkSharedMemoryCapability,
   exposeBrowserApis,
@@ -45,7 +44,6 @@ let _sab: SharedArrayBuffer | null = null;
 let _memory: WebAssembly.Memory | null = null;
 let _go: any = null;
 let _epochWatchers: Worker[] = [];
-const _fulfiller = new WebGpuFulfiller();
 
 interface KernelWorkerMessage {
   type: 'init' | 'shutdown' | 'inject_sab' | 'kernel_call' | 'mesh_call';
@@ -380,53 +378,43 @@ self.onmessage = async (event: MessageEvent<KernelWorkerMessage>) => {
         break;
       }
 
-      case 'kernel_call':
-      case 'mesh_call': {
-        const { type, method, args, requestId } = event.data;
-        const target = type === 'kernel_call' ? (self as any).kernel : (self as any).mesh;
-
-        if (!target || !target[method!]) {
+      case 'kernel_call': {
+        const { method, args, requestId } = event.data;
+        const kernel = (self as any).kernel;
+        if (!kernel || !kernel[method!]) {
           self.postMessage({
             type: 'error',
-            error: `${type === 'kernel_call' ? 'Kernel' : 'Mesh'} method ${method} not available`,
+            error: `Kernel method ${method} not available`,
             requestId,
           });
           return;
         }
-
         try {
-          let result = await target[method!](...(args || []));
-
-          // PHASE 17 & 18: Fulfillment for WebGpuRequests
-          // This applies to direct calls or results from mesh delegation
-          if (result && result.data) {
-            console.log(`[KernelWorker] 🔍 Checking for fulfillment (${method}):`, {
-              hasData: !!result.data,
-              isUint8Array: result.data instanceof Uint8Array,
-              dataType: typeof result.data,
-              constructor: result.data?.constructor?.name,
-              len: result.data?.length,
-            });
-
-            if (result.data instanceof Uint8Array) {
-              const preview = new TextDecoder().decode(result.data.slice(0, 100));
-              console.log(`[KernelWorker] 🔍 Data Preview:`, preview);
-            }
-
-            if (result.data instanceof Uint8Array && _fulfiller.isWebGpuRequest(result.data)) {
-              console.log(`[KernelWorker] ⚡ Fulfillment Triggered (${method})`);
-              const gpuData = await _fulfiller.fulfill(result.data, _sab || undefined);
-              if (gpuData) {
-                result.data = gpuData;
-              }
-            }
-          }
-
+          const result = kernel[method!](...(args || []));
+          self.postMessage({ type: 'kernel_response', result, requestId });
+        } catch (err) {
           self.postMessage({
-            type: type === 'kernel_call' ? 'kernel_response' : 'mesh_response',
-            result,
+            type: 'error',
+            error: err instanceof Error ? err.message : String(err),
             requestId,
           });
+        }
+        break;
+      }
+
+      case 'mesh_call': {
+        const mesh = (self as any).mesh;
+        if (!mesh || !mesh[method!]) {
+          self.postMessage({
+            type: 'error',
+            error: `Mesh method ${method} not available`,
+            requestId,
+          });
+          return;
+        }
+        try {
+          const result = mesh[method!](...(args || []));
+          self.postMessage({ type: 'mesh_response', result, requestId });
         } catch (err) {
           self.postMessage({
             type: 'error',

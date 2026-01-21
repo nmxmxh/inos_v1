@@ -212,7 +212,7 @@ func TestReputation_Metrics(t *testing.T) {
 	mgr := NewReputationManager(24*time.Hour, nil, nil)
 
 	mgr.Report("peer1", true, 1.0)
-	mgr.Report("peer2", true, 500.0) // Slower peer
+	mgr.Report("peer2", true, 0.5)
 
 	// Test GetAverageScore
 	avg := mgr.GetAverageScore()
