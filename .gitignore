@@ -1,0 +1,373 @@
+# ============================================================================
+# INOS Project .gitignore
+# ============================================================================
+
+# Generic Build Artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# ============================================================================
+# Operating System Files
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# IDEs and Editors
+# ============================================================================
+
+# VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+.history/
+
+# JetBrains (IntelliJ, GoLand, WebStorm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+tags
+[._]*.un~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# ============================================================================
+# Go
+# ============================================================================
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+/kernel/bin/
+/kernel/pkg/
+/kernel/*.wasm
+!/frontend/public/kernel.wasm
+!/frontend/public/kernel.threads.wasm
+
+# Vendor
+/kernel/vendor/
+
+# Go coverage
+*.coverprofile
+coverage.txt
+coverage.html
+
+# ============================================================================
+# Rust
+# ============================================================================
+
+# Compiled files
+/modules/*/target/
+/modules/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo
+Cargo.lock
+!modules/Cargo.lock
+
+# WASM artifacts
+# Unignored for Vercel deployment
+/modules/**/*.wasm
+!/frontend/public/modules/*.wasm
+
+# ============================================================================
+# JavaScript / TypeScript / Node
+# ============================================================================
+
+# Dependencies
+node_modules/
+jspm_packages/
+bower_components/
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+dist-ssr/
+build/
+out/
+.next/
+.nuxt/
+.cache/
+.parcel-cache/
+.vite/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+.nyc_output/
+lib-cov/
+*.lcov
+.grunt/
+.lock-wscript
+
+# TypeScript
+*.tsbuildinfo
+.tscache/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# Misc
+.eslintcache
+.stylelintcache
+.cache/
+.temp/
+.tmp/
+
+# ============================================================================
+# Frontend Specific
+# ============================================================================
+
+# Vite
+/frontend/dist/
+/frontend/dist-ssr/
+/frontend/.vite/
+
+# Generated files
+# Required for Vercel builds since capnp compiler is not available in build environment
+!/frontend/bridge/generated/**/*
+
+# Public build artifacts
+# Unignored for Vercel deployment
+!/frontend/public/*.wasm
+!/frontend/public/*.wasm.br
+!/frontend/public/*.wasm.gz
+!/frontend/public/wasm_exec.js
+
+# ============================================================================
+# Cap'n Proto
+# ============================================================================
+
+# Generated protocol files
+/protocols/gen/
+/kernel/protocols/gen/
+/modules/protocols/gen/
+
+# Compiled schemas
+*.capnp.c++
+*.capnp.h
+
+# ============================================================================
+# Database
+# ============================================================================
+
+# ClickHouse
+/storage/clickhouse/data/
+/storage/clickhouse/logs/
+
+# CockroachDB
+/storage/cockroach/data/
+/storage/cockroach/logs/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+# Docker volumes
+/deployment/volumes/
+/deployment/data/
+
+# Docker Compose override
+docker-compose.override.yml
+
+# ============================================================================
+# Build Artifacts
+# ============================================================================
+
+# Optimized WASM
+
+# Optimized WASM
+*.wasm.opt
+*.wasm.min
+
+# ============================================================================
+# Logs and Debugging
+# ============================================================================
+
+# Application logs
+/logs/
+*.log
+
+# Debug files
+debug/
+*.dmp
+*.stackdump
+
+# Profiling
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+trace.out
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+
+# Temp directories
+tmp/
+temp/
+.tmp/
+.temp/
+!.agent/
+.tmp_capnp/
+.vscode/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*.swp
+*.swo
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+
+# Brain/artifacts (Gemini AI)
+.gemini/
+
+# Local configuration
+.local/
+local.config.*
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.cert
+*.crt
+*.p12
+*.pfx
+
+# Test data
+/test-data/
+/testdata/
+
+# Benchmarks
+/benchmarks/results/
+
+# Documentation builds
+/docs/_build/
+/docs/.doctrees/
+
+# ============================================================================
+# Keep These Files
+# ============================================================================
+
+# Keep empty directories
+!.gitkeep
+
+# Keep example configs
+!*.example
+!*.sample
+!*.template

@@ -1,0 +1,13 @@
+# Rust Clippy Configuration
+msrv = "1.75"
+
+# Allow certain patterns common in WASM/FFI
+[[disallowed-methods]]
+path = "std::env::var"
+reason = "WASM environment variables are not standard"
+
+# Configure complexity checks
+cognitive-complexity-threshold = 25
+
+# Enum size threshold (increasing slightly for Error types)
+enum-variant-size-threshold = 256

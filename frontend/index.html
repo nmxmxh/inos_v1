@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>INOS - The Big Bang</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background: #f4f1ea;
+        color: #fff;
+        overflow: hidden;
+      }
+
+      #root {
+        width: 100vw;
+        height: 100%;
+      }
+    </style>
+    <link rel="stylesheet" href="/app/styles/minimal.css" />
+    <link
+      rel="preload"
+      href="/fonts/InterDisplay-Regular.ttf"
+      as="font"
+      type="font/ttf"
+      crossorigin
+    />
+    <link rel="preload" href="/fonts/InterDisplay-Bold.ttf" as="font" type="font/ttf" crossorigin />
+    <script type="module" src="/app/main.tsx"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

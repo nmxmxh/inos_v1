@@ -1,0 +1,17 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sdk = { path = "../modules/sdk" }
+wasm-bindgen = "0.2"
+wasm-bindgen-test = "0.3"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["SharedArrayBuffer"] }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

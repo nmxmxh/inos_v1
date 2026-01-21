@@ -1,0 +1,5 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "link-arg=--export-table",
+  "-C", "target-feature=+atomics,+bulk-memory,+mutable-globals",
+]

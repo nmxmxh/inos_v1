@@ -1,0 +1,996 @@
+use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
+use async_trait::async_trait;
+use sdk::pingpong::PingPongBuffer;
+use sdk::sab::SafeSAB;
+use serde_json::Value as JsonValue;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Mutex;
+
+/// Boid learning simulation - skeletal birds with full flocking physics
+///
+/// SAB Layout (offset 0x400000, 64KB reserved):
+/// Per-bird state (59 floats = 236 bytes):
+///   [0-2]   position (x, y, z)
+///   [3-5]   velocity (vx, vy, vz)
+///   [6-9]   rotation quaternion (x, y, z, w)
+///   [10]    angular_velocity
+///   [11-13] wing_angles (left, right, tail)
+///   [14]    fitness
+///   [15-58] neural_weights (44 floats: 8x4 + 4x3 = 44)
+///
+/// Epoch signaling: Written to SAB offset 0x0000
+
+/// Global epoch counter for signaling state changes
+static EPOCH_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+// ============= FLOCKING PARAMETERS =============
+// Based on actual model dimensions from ArchitecturalBoids.tsx:
+// - Body length: ~0.45, Beak: ~0.22, Total length: ~0.67
+// - Wingspan: ~0.9 (0.45 per wing)
+// - Height: ~0.12
+
+/// Desired separation distance (prevents visual overlap)
+const DESIRED_SEPARATION: f32 = 3.0; // ~3x wingspan for comfortable spacing
+
+/// Visual perception radius for flocking
+const PERCEPTION_RADIUS: f32 = 10.0;
+
+/// Spatial hash cell size (should be >= PERCEPTION_RADIUS)
+const CELL_SIZE: f32 = 10.0;
+
+/// Force weights for flocking behavior
+/// NOTE: These are per-frame forces, NOT accelerations (no dt multiplication)
+const SEPARATION_WEIGHT: f32 = 1.5; // Strong - prevent collisions
+const ALIGNMENT_WEIGHT: f32 = 0.05; // Subtle heading matching
+const COHESION_WEIGHT: f32 = 0.02; // Very weak - prevents tight clustering
+const BOUNDARY_WEIGHT: f32 = 0.5; // Moderate boundary push
+
+/// Speed limits
+const MAX_SPEED: f32 = 6.0;
+const MIN_SPEED: f32 = 2.0;
+
+/// World boundaries
+// ============= WORLD DIMENSIONS =============
+// Derived from Spatial Grid: GRID * CELL_SIZE = Total Span
+const WORLD_HALF_X: f32 = (GRID_X as f32 * CELL_SIZE) / 2.0; // 40.0
+const WORLD_HALF_Y: f32 = (GRID_Y as f32 * CELL_SIZE) / 2.0; // 30.0
+const WORLD_HALF_Z: f32 = (GRID_Z as f32 * CELL_SIZE) / 2.0; // 40.0
+
+/// World boundaries for physics clamping
+const BOUND_X: f32 = WORLD_HALF_X - 2.0; // 38.0
+const BOUND_Y: f32 = WORLD_HALF_Y - 2.0; // 28.0
+const BOUND_Z: f32 = WORLD_HALF_Z - 2.0; // 38.0
+
+// ============= SPATIAL HASHING 2.0 =============
+// Fixed-size grid to eliminate HashMap overhead and fragmentation
+
+const GRID_X: usize = 8; // ±40 units
+const GRID_Y: usize = 6; // ±30 units
+const GRID_Z: usize = 8; // ±40 units
+const GRID_TOTAL: usize = GRID_X * GRID_Y * GRID_Z;
+
+#[inline]
+fn spatial_hash(x: f32, y: f32, z: f32) -> usize {
+    // Map -WORLD_HALF to +WORLD_HALF into 0..GRID_DIM
+    let ix = (((x + WORLD_HALF_X) / CELL_SIZE).max(0.0) as usize).min(GRID_X - 1);
+    let iy = (((y + WORLD_HALF_Y) / CELL_SIZE).max(0.0) as usize).min(GRID_Y - 1);
+    let iz = (((z + WORLD_HALF_Z) / CELL_SIZE).max(0.0) as usize).min(GRID_Z - 1);
+    (ix * GRID_Y * GRID_Z) + (iy * GRID_Z) + iz
+}
+
+// ============= FLOCKING FORCES =============
+
+/// Calculate boundary avoidance force - smooth return to bounds
+fn boundary_force(pos: &[f32; 3]) -> [f32; 3] {
+    let mut force = [0.0f32; 3];
+
+    // X boundary
+    if pos[0] > BOUND_X {
+        force[0] = -(pos[0] - BOUND_X);
+    } else if pos[0] < -BOUND_X {
+        force[0] = -BOUND_X - pos[0];
+    }
+
+    // Y boundary
+    if pos[1] > BOUND_Y {
+        force[1] = -(pos[1] - BOUND_Y);
+    } else if pos[1] < -BOUND_Y {
+        force[1] = -BOUND_Y - pos[1];
+    }
+
+    // Z boundary
+    if pos[2] > BOUND_Z {
+        force[2] = -(pos[2] - BOUND_Z);
+    } else if pos[2] < -BOUND_Z {
+        force[2] = -BOUND_Z - pos[2];
+    }
+
+    force
+}
+
+/// Normalize a vector and return its length
+#[inline]
+fn normalize(v: &mut [f32; 3]) -> f32 {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 0.0001 {
+        let inv = 1.0 / len;
+        v[0] *= inv;
+        v[1] *= inv;
+        v[2] *= inv;
+    }
+    len
+}
+
+#[derive(Default)]
+struct PersistentScratch {
+    population_data: Vec<f32>,  // Aligned buffer matching SAB layout
+    grid: Vec<Vec<usize>>,      // Spatial Grid 2.0
+    neighbor_cache: Vec<usize>, // Reusable neighbor list
+    intensities: Vec<f32>,      // Persistent trick intensities (local-only, not in SAB)
+    last_evolution_epoch: u32,  // Track external updates
+    last_bird_count: u32,       // Track resizing
+}
+
+pub struct BoidUnit {
+    _config: BoidConfig,
+    scratch: Mutex<PersistentScratch>,
+}
+
+#[derive(Clone)]
+struct BoidConfig {
+    _max_birds: u32,
+    _bird_count: u32,
+    _learning_rate: f32,
+    _mutation_rate: f32,
+    _bird_offset: usize,
+}
+
+impl Default for BoidConfig {
+    fn default() -> Self {
+        Self {
+            _max_birds: 10000,
+            _bird_count: 1000,
+            _learning_rate: 0.01,
+            _mutation_rate: 0.1,
+            _bird_offset: 0x400000, // 4MB offset
+        }
+    }
+}
+
+impl BoidUnit {
+    pub fn new() -> Self {
+        Self {
+            _config: BoidConfig::default(),
+            scratch: Mutex::new(PersistentScratch::default()),
+        }
+    }
+
+    /// Step boids physics in SAB with full flocking behavior using Ping-Pong Buffers
+    /// Memory flow: Read from active buffer → compute in linear memory → write to inactive buffer → flip
+    pub fn step_physics_sab(&self, sab: &SafeSAB, bird_count: u32, dt: f32) -> Result<u32, String> {
+        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, OFFSET_ATOMIC_FLAGS};
+        const IDX_EVOLUTION_EPOCH: usize = 16;
+
+        // Ensure logging is initialized (idempotent)
+        sdk::init_logging();
+
+        // Lock scratch buffers
+        let mut scratch_guard = self
+            .scratch
+            .lock()
+            .map_err(|_| "Failed to lock scratch buffers")?;
+
+        let PersistentScratch {
+            ref mut population_data,
+            ref mut grid,
+            ref mut neighbor_cache,
+            ref mut intensities,
+            ref mut last_evolution_epoch,
+            ref mut last_bird_count,
+        } = *scratch_guard;
+
+        // Create ping-pong buffer accessor
+        let ping_pong = PingPongBuffer::bird_buffer(sab.clone());
+        let read_info = ping_pong.read_buffer_info();
+        let write_info = ping_pong.write_buffer_info();
+
+        // Increment local counter for diagnostics
+        let epoch = EPOCH_COUNTER.fetch_add(1, Ordering::SeqCst);
+
+        // Diagnostic log every 100 steps
+        if epoch % 100 == 0 {
+            log::info!(
+                "[Boids] Step {} | Count: {} | DT: {:.4} | Read: 0x{:X} | Write: 0x{:X}",
+                epoch,
+                bird_count,
+                dt,
+                read_info.offset,
+                write_info.offset
+            );
+        }
+
+        static mut GLOBAL_TIME: f32 = 0.0;
+        unsafe {
+            GLOBAL_TIME += dt;
+        }
+        let time = unsafe { GLOBAL_TIME };
+
+        // --- STEP 1: Check External State (Evolution / Resize) ---
+        let mut force_read = false;
+        let total_floats = bird_count as usize * (BIRD_STRIDE / 4);
+        let n = bird_count as usize;
+
+        // Check Evolution Epoch (Atomic Read)
+        let evolution_bytes = sab
+            .read(OFFSET_ATOMIC_FLAGS + IDX_EVOLUTION_EPOCH * 4, 4)
+            .unwrap_or(vec![0, 0, 0, 0]);
+        let evolution_epoch = u32::from_le_bytes([
+            evolution_bytes[0],
+            evolution_bytes[1],
+            evolution_bytes[2],
+            evolution_bytes[3],
+        ]);
+
+        if evolution_epoch > *last_evolution_epoch {
+            force_read = true;
+            *last_evolution_epoch = evolution_epoch;
+        }
+
+        if bird_count != *last_bird_count {
+            force_read = true;
+            *last_bird_count = bird_count;
+            // Resize logic
+            if population_data.len() < total_floats {
+                population_data.resize(total_floats, 0.0);
+            }
+            if intensities.len() < n {
+                intensities.resize(n, 0.0);
+            }
+        }
+
+        // Initial load check
+        if population_data.is_empty() {
+            force_read = true;
+            population_data.resize(total_floats, 0.0);
+        }
+
+        // --- STEP 2: Read from SAB ---
+        // OPTIMIZATION: "Write-Forwarding"
+        // We only read from SAB if external state changed (Evolution/Resize) or first run.
+        // Otherwise, PersistentScratch holds the authoritative simulation state.
+        if force_read {
+            // Cast aligned f32 buffer to u8 slice for reading
+            let byte_slice = unsafe {
+                std::slice::from_raw_parts_mut(
+                    population_data.as_mut_ptr() as *mut u8,
+                    total_floats * 4,
+                )
+            };
+            sab.read_raw(read_info.offset, byte_slice)?;
+
+            // log::info!("[Boids] Sync: Read from SAB (Epoch: {})", evolution_epoch);
+        } else {
+            // Zero-Copy! We skip the read entirely and use resident memory.
+        }
+
+        // Note: We NO LONGER copy to positions/velocities vectors.
+        // We operate directly on population_data.
+
+        // --- STEP 3: Build spatial hash 2.0 ---
+        // Pre-allocate grid cells if empty
+        if grid.is_empty() {
+            grid.resize_with(GRID_TOTAL, || Vec::with_capacity(32));
+        }
+
+        // Clear each cell without dropping capacity
+        for cell in grid.iter_mut() {
+            cell.clear();
+        }
+
+        for i in 0..n {
+            let base = i * (BIRD_STRIDE / 4);
+            // DIRECT READ from population_data
+            let px = population_data[base + 0];
+            let py = population_data[base + 1];
+            let pz = population_data[base + 2];
+
+            let cell_idx = spatial_hash(px, py, pz);
+            grid[cell_idx].push(i);
+        }
+
+        // Periodic maintenance: Reclaim memory from dense clusters that have dispersed
+        if epoch % 500 == 0 {
+            for cell in grid.iter_mut() {
+                if cell.capacity() > cell.len() * 2 && cell.capacity() > 64 {
+                    cell.shrink_to_fit();
+                }
+            }
+        }
+
+        // --- STEP 4: Process boids behavior ---
+
+        for i in 0..n {
+            let base = i * (BIRD_STRIDE / 4); // Float index
+
+            // DIRECT COPY: Read pos/vel from buffer into local registers
+            let pos = [
+                population_data[base + 0],
+                population_data[base + 1],
+                population_data[base + 2],
+            ];
+            let mut vel = [
+                population_data[base + 3],
+                population_data[base + 4],
+                population_data[base + 5],
+            ];
+
+            // Extract evolutionary weights... (rest is same, but careful about neighbors)
+            // ...
+
+            // Re-fetch weights to ensure variables are defined
+            let w_sep = population_data[base + 15];
+            let w_ali = population_data[base + 16];
+            let w_coh = population_data[base + 17];
+            let w_trick = population_data[base + 18];
+
+            // Debug log logic... (omitted for brevity in replacement if unchanged)
+
+            // Get neighbors via Spatial Grid 2.0
+            neighbor_cache.clear();
+            let center_idx = spatial_hash(pos[0], pos[1], pos[2]);
+
+            // Recompute neighboring cell indices
+            let iz = center_idx % GRID_Z;
+            let iy = (center_idx / GRID_Z) % GRID_Y;
+            let ix = center_idx / (GRID_Y * GRID_Z);
+
+            for dx in -1..=1 {
+                let nx = ix as i32 + dx;
+                if nx < 0 || nx >= GRID_X as i32 {
+                    continue;
+                }
+                for dy in -1..=1 {
+                    let ny = iy as i32 + dy;
+                    if ny < 0 || ny >= GRID_Y as i32 {
+                        continue;
+                    }
+                    for dz in -1..=1 {
+                        let nz = iz as i32 + dz;
+                        if nz < 0 || nz >= GRID_Z as i32 {
+                            continue;
+                        }
+
+                        let nc_idx =
+                            (nx as usize * GRID_Y * GRID_Z) + (ny as usize * GRID_Z) + nz as usize;
+
+                        // NEIGHBOR LOOKUP: Read directly from population_data
+                        for &other_idx in &grid[nc_idx] {
+                            if other_idx != i {
+                                let other_base = other_idx * (BIRD_STRIDE / 4);
+                                let other_pos_x = population_data[other_base + 0];
+                                let other_pos_y = population_data[other_base + 1];
+                                let other_pos_z = population_data[other_base + 2];
+
+                                let dist_sq = (pos[0] - other_pos_x).powi(2)
+                                    + (pos[1] - other_pos_y).powi(2)
+                                    + (pos[2] - other_pos_z).powi(2);
+                                if dist_sq < PERCEPTION_RADIUS * PERCEPTION_RADIUS {
+                                    neighbor_cache.push(other_idx);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ========== CLASSIC BOID FORCES ==========
+            let mut sep = [0.0f32; 3];
+            let mut ali = [0.0f32; 3];
+            let mut coh = [0.0f32; 3];
+
+            if !neighbor_cache.is_empty() {
+                let mut avg_vel = [0.0f32; 3];
+                let mut center = [0.0f32; 3];
+                let inv_neighbors = 1.0 / neighbor_cache.len() as f32;
+
+                for &ni in neighbor_cache.iter() {
+                    let other_base = ni * (BIRD_STRIDE / 4);
+                    // READ NEIGHBOR DIRECTLY
+                    let other_pos = [
+                        population_data[other_base + 0],
+                        population_data[other_base + 1],
+                        population_data[other_base + 2],
+                    ];
+                    let other_vel = [
+                        population_data[other_base + 3],
+                        population_data[other_base + 4],
+                        population_data[other_base + 5],
+                    ];
+
+                    // Separation
+                    let dx = pos[0] - other_pos[0];
+                    let dy = pos[1] - other_pos[1];
+                    let dz = pos[2] - other_pos[2];
+
+                    let d_sq = (dx * dx + dy * dy + dz * dz).max(0.01);
+                    let d = d_sq.sqrt();
+                    if d < DESIRED_SEPARATION {
+                        let strength = (DESIRED_SEPARATION - d) / d_sq;
+                        sep[0] += dx * strength;
+                        sep[1] += dy * strength;
+                        sep[2] += dz * strength;
+                    }
+
+                    // Alignment & Cohesion accumulators
+                    avg_vel[0] += other_vel[0];
+                    avg_vel[1] += other_vel[1];
+                    avg_vel[2] += other_vel[2];
+                    center[0] += other_pos[0];
+                    center[1] += other_pos[1];
+                    center[2] += other_pos[2];
+                }
+
+                ali[0] = (avg_vel[0] * inv_neighbors) - vel[0];
+                ali[1] = (avg_vel[1] * inv_neighbors) - vel[1];
+                ali[2] = (avg_vel[2] * inv_neighbors) - vel[2];
+                coh[0] = (center[0] * inv_neighbors) - pos[0];
+                coh[1] = (center[1] * inv_neighbors) - pos[1];
+                coh[2] = (center[2] * inv_neighbors) - pos[2];
+            }
+
+            let bnd = boundary_force(&pos);
+
+            // ========== APPLY FORCES ==========
+            // ========== APPLY FORCES with Evolutionary Multipliers & Autonomous Pulses ==========
+            // Add "Breathing" pulses (0.6 Hz and 2.0 Hz) moved from Kernel to Rust for fluidity
+            let sep_pulse = (time * 0.6).sin() as f32 * 2.0;
+            let coh_pulse = (time * 0.6).cos() as f32 * 2.0;
+            let ali_pulse = (time * 2.0).sin() as f32 * 0.5;
+
+            let mod_sep = SEPARATION_WEIGHT * (1.0 + w_sep + sep_pulse).max(0.01);
+            let mod_ali = ALIGNMENT_WEIGHT * (1.0 + w_ali + ali_pulse).max(0.01);
+            let mod_coh = COHESION_WEIGHT * (1.0 + w_coh + coh_pulse).max(0.01);
+            let mod_bnd = BOUNDARY_WEIGHT;
+
+            let accel_scale = dt * 60.0;
+            vel[0] += (sep[0] * mod_sep + ali[0] * mod_ali + coh[0] * mod_coh + bnd[0] * mod_bnd)
+                * accel_scale;
+            vel[1] += (sep[1] * mod_sep + ali[1] * mod_ali + coh[1] * mod_coh + bnd[1] * mod_bnd)
+                * accel_scale;
+            vel[2] += (sep[2] * mod_sep + ali[2] * mod_ali + coh[2] * mod_coh + bnd[2] * mod_bnd)
+                * accel_scale;
+
+            // ========== ENERGY SYSTEM: Flap-Glide Cycles ==========
+            // Energy stored at Offset 10 (float index)
+            let mut energy = population_data[base + 10];
+
+            // Initialize energy if zero (first frame)
+            if energy <= 0.0 || energy > 1.0 {
+                energy = 0.85 + (i as f32 % 10.0) * 0.01; // Higher starting energy
+            }
+
+            // Energy dynamics: climbing ALWAYS costs energy (can't glide upward)
+            let is_climbing = vel[1] > 0.3;
+            let current_speed = (vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]).sqrt();
+
+            if is_climbing {
+                // Climbing always costs energy - birds can't glide upward
+                energy -= dt * 0.12;
+            } else if current_speed > 5.0 {
+                // Very fast = some energy cost
+                energy -= dt * 0.05;
+            } else {
+                // Cruising/gliding recovers energy fast
+                energy += dt * 0.25;
+            }
+            energy = energy.clamp(0.4, 1.0); // Higher minimum = always active
+
+            // ========== TRICK SYSTEM: STATE SMOOTHING & SCREW MOTION ==========
+            // Autonomous Trick Trigger: 5% of birds perform tricks based on time windows
+            let bird_trick_seed = (i as f32 * 0.13 + (time / 10.0).floor()) % 1.0;
+            let is_performing_autonomous = bird_trick_seed < 0.05;
+
+            // Combine evolved trick weight with autonomous trigger
+            let effective_trick_w = if is_performing_autonomous {
+                if i % 2 == 0 {
+                    -5.0
+                } else {
+                    5.0
+                }
+            } else {
+                w_trick
+            };
+
+            let mut trick_intensity = intensities[i];
+            let is_barrel_roll = effective_trick_w < -2.0;
+            let target_intensity = if is_barrel_roll { 1.0 } else { 0.0 };
+
+            // Lerp intensity for SMOOTH transitions (slower = more comfortable)
+            let lerp_speed = 1.0; // Reduced from 3.0 for gradual easing
+            trick_intensity += (target_intensity - trick_intensity) * dt * lerp_speed;
+
+            // Hover Mode (> 2.0) - kept simple
+            if effective_trick_w > 2.0 {
+                vel[0] *= 0.90;
+                vel[1] *= 0.90;
+                vel[2] *= 0.90;
+                let t = (epoch as f32) * 0.1;
+                vel[1] += t.sin() * 0.05;
+            }
+
+            // Screw Motion Physics (Barrel Roll)
+            // Apply tangential force if intensity is significant
+            if trick_intensity > 0.01 {
+                // Gentle speed boost (reduced from 0.05 to 0.02)
+                vel[0] *= 1.0 + (0.02 * trick_intensity);
+                vel[2] *= 1.0 + (0.02 * trick_intensity);
+                vel[1] += 0.02 * trick_intensity; // Gentle surge up
+
+                // Tangential "Screw" Force: gentler spiral (0.08 vs 0.2)
+                let screw_strength = 0.08 * trick_intensity;
+                let old_x = vel[0];
+                vel[0] += vel[2] * screw_strength;
+                vel[2] -= old_x * screw_strength;
+            }
+
+            // Artistic Sweeps
+            let swirl_strength = 3.0;
+            vel[0] += -pos[2] * swirl_strength * dt;
+            vel[2] += pos[0] * swirl_strength * dt;
+
+            let phase = i as f32 * 0.73;
+            let noise_scale = dt * 60.0;
+            vel[0] += ((time * 0.5 + phase).sin() * 0.4) * noise_scale;
+            vel[1] += ((time * 0.8 + phase * 1.5).cos() * 0.25) * noise_scale;
+            vel[2] += ((time * 0.3 + phase * 0.9).sin() * 0.4) * noise_scale;
+
+            let damping = 0.97_f32.powf(dt * 60.0);
+            vel[0] *= damping;
+            vel[1] *= damping;
+            vel[2] *= damping;
+
+            let speed = normalize(&mut vel);
+            let clamped_speed = speed.clamp(MIN_SPEED, MAX_SPEED);
+            vel[0] *= clamped_speed;
+            vel[1] *= clamped_speed;
+            vel[2] *= clamped_speed;
+
+            let mut new_pos = pos;
+            new_pos[0] += vel[0] * dt;
+            new_pos[1] += vel[1] * dt;
+            new_pos[2] += vel[2] * dt;
+
+            // Update scratch
+            population_data[base + 0] = new_pos[0];
+            population_data[base + 1] = new_pos[1];
+            population_data[base + 2] = new_pos[2];
+            population_data[base + 3] = vel[0];
+            population_data[base + 4] = vel[1];
+            population_data[base + 5] = vel[2];
+
+            // Save local intensity state
+            intensities[i] = trick_intensity;
+
+            if clamped_speed > 0.005 {
+                let mut rot_y = vel[0].atan2(vel[2]);
+
+                // HEADING TURN: Gentle direction change during trick
+                if trick_intensity > 0.01 {
+                    rot_y += trick_intensity * 0.008 * dt * 60.0;
+                }
+
+                // --- CINEMATIC ANIMATION: PITCH & BANK ---
+                // Pitch: Lean up/down based on vertical velocity
+                let pitch = (-vel[1] * 0.2).clamp(-0.35, 0.35);
+
+                // Base Physics Bank: Simple approximation based on horizontal velocity
+                let physics_bank = (-vel[0] * 0.2).clamp(-0.4, 0.4);
+                let spiral_bank = 0.8 + (time * 3.5).sin() * 0.15;
+                let bank_z = physics_bank * (1.0 - trick_intensity) + spiral_bank * trick_intensity;
+
+                // --- PROPER QUATERNION CONVERSION (Euler: Pitch, Yaw, Roll) ---
+                use nalgebra::UnitQuaternion;
+                let q =
+                    UnitQuaternion::from_euler_angles(pitch as f64, rot_y as f64, bank_z as f64);
+
+                // Write 4 components to index 6..9
+                population_data[base + 6] = q.i as f32;
+                population_data[base + 7] = q.j as f32;
+                population_data[base + 8] = q.k as f32;
+                population_data[base + 9] = q.w as f32;
+            }
+
+            // ========== ENERGY-BASED FLIGHT MODES ==========
+            // Flight intensity depends on energy level
+            // Low energy = Gliding (minimal flapping)
+            // High energy = Active flapping
+
+            let flight_intensity = if energy < 0.5 {
+                // CRUISING MODE: Active flapping at lower energy
+                0.6 + (energy - 0.4) * 0.4
+            } else if energy < 0.75 {
+                // NORMAL MODE: Good flapping
+                0.7 + (energy - 0.5) * 0.6
+            } else {
+                // POWER MODE: Vigorous flapping
+                0.85 + (energy - 0.75) * 0.6
+            };
+
+            // Base flap with per-bird phase variation
+            let base_flap = 5.0 + (i % 8) as f32;
+            let flap_amplitude = 0.6 * flight_intensity * (1.0 + trick_intensity * 0.3);
+            let flap = (time * base_flap + i as f32 * 2.1).sin() * flap_amplitude;
+
+            // Asymmetric wings during tricks (differential lift)
+            let left_wing = -flap + trick_intensity * 0.4;
+            let right_wing = flap - trick_intensity * 0.4;
+
+            // Offsets 11, 12, 13 (wings left, right, tail)
+            population_data[base + 11] = left_wing;
+            population_data[base + 12] = right_wing;
+
+            // Write tail_yaw at offset 13
+            let tail_yaw = (-vel[0] * 0.1).clamp(-0.15, 0.15);
+            population_data[base + 13] = tail_yaw;
+
+            // ========== COMPETITIVE FITNESS FUNCTION ==========
+            // Creates REAL selection pressure with penalties
+
+            let fitness_base = 0.1; // Lower base for more variance
+
+            // NEIGHBOR SCORE: Optimal 3-7, penalize isolation AND overcrowding
+            let neighbor_count = neighbor_cache.len();
+            let neighbor_score = if neighbor_count == 0 {
+                0.0 // Complete isolation = bad
+            } else if neighbor_count <= 2 {
+                0.1 // Very isolated
+            } else if neighbor_count <= 7 {
+                0.35 // Sweet spot
+            } else if neighbor_count <= 15 {
+                0.15 // Somewhat crowded
+            } else {
+                0.0 // Overcrowded = bad
+            };
+
+            // SPEED SCORE: Penalize extremes
+            let speed_score = if clamped_speed < 1.5 {
+                0.0 // Too slow
+            } else if clamped_speed <= 4.0 {
+                0.3 // Optimal range
+            } else if clamped_speed <= 5.5 {
+                0.15 // Somewhat fast
+            } else {
+                0.0 // Too fast
+            };
+
+            // ENERGY EFFICIENCY: Reward birds that conserve energy
+            let energy_score = if energy > 0.5 { 0.25 } else { energy * 0.4 };
+
+            let fitness = fitness_base + neighbor_score + speed_score + energy_score;
+            population_data[base + 14] = fitness;
+
+            // Save energy state at offset 10 (re-written)
+            population_data[base + 10] = energy;
+        }
+
+        // --- STEP 5: Write Scratch → SAB ---
+        let byte_slice = unsafe {
+            std::slice::from_raw_parts(population_data.as_ptr() as *const u8, total_floats * 4)
+        };
+        sab.write_raw(write_info.offset, byte_slice)?;
+
+        // Write bird count to Atomic Flags (Index 20 - IDX_BIRD_COUNT)
+        // Use absolute offset (OFFSET_ATOMIC_FLAGS + Index * 4)
+        sab.write(
+            OFFSET_ATOMIC_FLAGS + IDX_BIRD_COUNT as usize * 4,
+            &bird_count.to_le_bytes(),
+        )
+        .map_err(|e| format!("Failed to write bird count to SAB: {}", e))?;
+
+        // --- STEP 6: Flip buffers ---
+        // ping_pong.flip() atomically increments the epoch and notifies waiters
+        let new_epoch = ping_pong.flip();
+
+        Ok(new_epoch as u32)
+    }
+
+    /// Initialize population in SAB using Ping-Pong Buffer architecture
+    /// Writes initial state to BOTH buffers A and B so first physics step works correctly
+    pub fn init_population_sab(sab: &SafeSAB, bird_count: u32) -> Result<(), String> {
+        use sdk::layout::{BIRD_STRIDE, IDX_BIRD_COUNT, OFFSET_ATOMIC_FLAGS};
+
+        sdk::init_logging();
+
+        // Create ping-pong buffer accessor
+        let ping_pong = PingPongBuffer::bird_buffer(sab.clone());
+        let read_info = ping_pong.read_buffer_info();
+        let write_info = ping_pong.write_buffer_info();
+
+        log::info!(
+            "[Boids] Initializing population: {} birds | Buffer A: 0x{:X} | Buffer B: 0x{:X}",
+            bird_count,
+            read_info.offset,
+            write_info.offset
+        );
+
+        // Write bird count to Atomic Flags (Index 20 - IDX_BIRD_COUNT)
+        // Use absolute offset (OFFSET_ATOMIC_FLAGS + Index * 4)
+        sab.write(
+            OFFSET_ATOMIC_FLAGS + IDX_BIRD_COUNT as usize * 4,
+            &bird_count.to_le_bytes(),
+        )
+        .map_err(|e| format!("Failed to write bird count to SAB: {}", e))?;
+
+        let total_bytes = bird_count as usize * BIRD_STRIDE;
+        let mut population_data = vec![0u8; total_bytes];
+
+        for i in 0..bird_count as usize {
+            let base = i * BIRD_STRIDE;
+            // Use golden ratio spiral for initial distribution (painterly)
+            let r = (i as f32).sqrt() * 1.5;
+            let theta = i as f32 * 2.39996; // Golden angle
+
+            let pos = [
+                r * theta.cos(),
+                (i as f32 * 0.1).sin() * 3.0,
+                r * theta.sin(),
+            ];
+            let vel: [f32; 3] = [0.1, 0.0, 0.1];
+
+            // Position
+            for j in 0..3 {
+                population_data[base + j * 4..base + j * 4 + 4]
+                    .copy_from_slice(&pos[j].to_le_bytes());
+            }
+            // Velocity
+            for j in 0..3 {
+                population_data[base + 12 + j * 4..base + 12 + j * 4 + 4]
+                    .copy_from_slice(&vel[j].to_le_bytes());
+            }
+
+            // Initialize neural weights (offsets 60-232)
+            for w in 0..44 {
+                let weight = ((i * 137 + w * 997) % 1000) as f32 * 0.002 - 0.001;
+                population_data[base + 60 + w * 4..base + 60 + w * 4 + 4]
+                    .copy_from_slice(&weight.to_le_bytes());
+            }
+        }
+
+        // Write to BOTH buffers so first physics step can read from either
+        sab.write_raw(read_info.offset, &population_data)
+            .map_err(|e| format!("SAB write to buffer A failed: {}", e))?;
+        sab.write_raw(write_info.offset, &population_data)
+            .map_err(|e| format!("SAB write to buffer B failed: {}", e))?;
+
+        log::info!("[Boids] Population initialization complete (both ping-pong buffers)");
+        Ok(())
+    }
+
+    fn init_population_impl(&self, params: &JsonValue) -> Result<JsonValue, ComputeError> {
+        let bird_count = params
+            .get("bird_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000) as u32;
+
+        let sab = crate::get_cached_sab().ok_or_else(|| {
+            ComputeError::ExecutionFailed("SAB not available for initialization".to_string())
+        })?;
+
+        Self::init_population_sab(&sab, bird_count)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Failed to init boids: {}", e)))?;
+
+        Ok(serde_json::json!({
+            "action": "init_population",
+            "bird_count": bird_count,
+            "status": "initialized"
+        }))
+    }
+
+    fn step_physics_impl(&self, params: &JsonValue) -> Result<JsonValue, ComputeError> {
+        let bird_count = params
+            .get("bird_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1000) as u32;
+        let dt = params.get("dt").and_then(|v| v.as_f64()).unwrap_or(0.016) as f32;
+
+        let sab = crate::get_cached_sab().ok_or_else(|| {
+            ComputeError::ExecutionFailed("SAB not available for physics step".to_string())
+        })?;
+
+        let epoch = self
+            .step_physics_sab(&sab, bird_count, dt)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Boids step failed: {}", e)))?;
+
+        Ok(serde_json::json!({
+            "action": "step_physics",
+            "epoch": epoch,
+            "status": "success"
+        }))
+    }
+}
+
+#[async_trait]
+impl UnitProxy for BoidUnit {
+    fn service_name(&self) -> &str {
+        "boids"
+    }
+    fn actions(&self) -> Vec<&str> {
+        vec!["init_population", "step_physics", "evolve_batch"]
+    }
+    fn resource_limits(&self) -> ResourceLimits {
+        ResourceLimits::default()
+    }
+    async fn execute(
+        &self,
+        method: &str,
+        _input: &[u8],
+        params: &[u8],
+    ) -> Result<Vec<u8>, ComputeError> {
+        let res = match method {
+            "init_population" => {
+                let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
+                self.init_population_impl(&params)?
+            }
+            "step_physics" => {
+                let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
+                self.step_physics_impl(&params)?
+            }
+            "evolve_batch" => return self.evolve_batch_impl(params),
+            _ => {
+                return Err(ComputeError::UnknownMethod {
+                    library: "boids".to_string(),
+                    method: method.to_string(),
+                })
+            }
+        };
+        Ok(serde_json::to_vec(&res).unwrap())
+    }
+}
+
+impl BoidUnit {
+    fn evolve_batch_impl(&self, resource_data: &[u8]) -> Result<Vec<u8>, ComputeError> {
+        use sdk::protocols::resource::resource;
+
+        // 1. Decode Resource Wrapper
+        let mut reader = std::io::Cursor::new(resource_data);
+        let message_reader =
+            capnp::serialize::read_message(&mut reader, capnp::message::ReaderOptions::new())
+                .map_err(|e| ComputeError::ExecutionFailed(format!("Capnp read error: {}", e)))?;
+
+        let res_reader = message_reader
+            .get_root::<resource::Reader>()
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Capnp root error: {}", e)))?;
+
+        // 2. Extract Inline Data (Packed Parents)
+        let inline_data = match res_reader.which() {
+            Ok(resource::Which::Inline(data)) => {
+                data.map_err(|_| ComputeError::ExecutionFailed("Invalid inline data".into()))?
+            }
+            _ => {
+                return Err(ComputeError::ExecutionFailed(
+                    "Expected inline resource data".into(),
+                ))
+            }
+        };
+
+        let parents = deserialize_genes_binary(inline_data);
+        if parents.is_empty() {
+            return Err(ComputeError::ExecutionFailed(
+                "No parents provided for evolution".into(),
+            ));
+        }
+
+        // 3. Simple Evolution Parameters (Hardcoded for now, can be in metadata/parameters)
+        let offspring_count = parents.len(); // Default to 1:1 for simplicity in this shard
+
+        let mut offspring = Vec::with_capacity(offspring_count);
+        let mut rng = rand::thread_rng();
+
+        for _i in 0..offspring_count {
+            let p1 = tournament_select(&parents, &mut rng);
+            let p2 = tournament_select(&parents, &mut rng);
+            let mut child = crossover(&p1, &p2, &mut rng);
+            mutate(&mut child, &mut rng);
+            // BirdID will be reassigned by the supervisor in Go
+            offspring.push(child);
+        }
+
+        // 4. Wrap Response in Resource
+        let packed_offspring = serialize_genes_binary(&offspring);
+
+        let mut out_message = capnp::message::Builder::new_default();
+        {
+            let mut out_res = out_message.init_root::<resource::Builder>();
+            out_res.set_id("boids-evolve-res");
+            out_res.set_inline(&packed_offspring);
+        }
+
+        let mut output_bytes = Vec::new();
+        capnp::serialize::write_message(&mut output_bytes, &out_message)
+            .map_err(|e| ComputeError::ExecutionFailed(format!("Serialize error: {}", e)))?;
+
+        Ok(output_bytes)
+    }
+}
+
+// ============= GENETIC ALGORITHM HELPERS (RUST SIDE) =============
+
+#[derive(Clone, Debug)]
+struct RustBirdGenes {
+    bird_id: u32,
+    fitness: f64,
+    weights: [f32; 44],
+}
+
+fn tournament_select(population: &[RustBirdGenes], rng: &mut impl rand::Rng) -> RustBirdGenes {
+    let mut best = &population[rng.gen_range(0..population.len())];
+    for _ in 1..3 {
+        let candidate = &population[rng.gen_range(0..population.len())];
+        if candidate.fitness > best.fitness {
+            best = candidate;
+        }
+    }
+    best.clone()
+}
+
+fn crossover(p1: &RustBirdGenes, p2: &RustBirdGenes, rng: &mut impl rand::Rng) -> RustBirdGenes {
+    let mut weights = [0.0f32; 44];
+    for i in 0..44 {
+        weights[i] = if rng.gen_bool(0.5) {
+            p1.weights[i]
+        } else {
+            p2.weights[i]
+        };
+    }
+    RustBirdGenes {
+        bird_id: 0,
+        fitness: 0.0,
+        weights,
+    }
+}
+
+fn mutate(genes: &mut RustBirdGenes, rng: &mut impl rand::Rng) {
+    for i in 0..44 {
+        if rng.gen_bool(0.1) {
+            genes.weights[i] += rng.gen_range(-0.5..0.5);
+            genes.weights[i] = genes.weights[i].clamp(-10.0, 10.0);
+        }
+    }
+}
+
+fn serialize_genes_binary(genes: &[RustBirdGenes]) -> Vec<u8> {
+    const STRIDE: usize = 188;
+    let mut buf = vec![0u8; genes.len() * STRIDE];
+    for (i, g) in genes.iter().enumerate() {
+        let offset = i * STRIDE;
+        buf[offset..offset + 4].copy_from_slice(&g.bird_id.to_le_bytes());
+        buf[offset + 4..offset + 12].copy_from_slice(&g.fitness.to_le_bytes());
+        for w in 0..44 {
+            let wo = offset + 12 + w * 4;
+            buf[wo..wo + 4].copy_from_slice(&g.weights[w].to_le_bytes());
+        }
+    }
+    buf
+}
+
+fn deserialize_genes_binary(data: &[u8]) -> Vec<RustBirdGenes> {
+    const STRIDE: usize = 188;
+    let count = data.len() / STRIDE;
+    let mut genes = Vec::with_capacity(count);
+    for i in 0..count {
+        let offset = i * STRIDE;
+        let bird_id = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
+        let fitness = f64::from_le_bytes(data[offset + 4..offset + 12].try_into().unwrap());
+        let mut weights = [0.0f32; 44];
+        for w in 0..44 {
+            let wo = offset + 12 + w * 4;
+            weights[w] = f32::from_le_bytes(data[wo..wo + 4].try_into().unwrap());
+        }
+        genes.push(RustBirdGenes {
+            bird_id,
+            fitness,
+            weights,
+        });
+    }
+    genes
+}

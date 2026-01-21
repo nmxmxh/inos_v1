@@ -1,0 +1,1262 @@
+/**
+ * INOS Technical Codex — Deep Dive: The Persistence Paradox
+ *
+ * A deep exploration of the INOS storage backbone.
+ * Focusing on 1MB Hashing, Double Compression, and Tiered Persistence.
+ */
+
+import { useCallback } from 'react';
+import styled, { useTheme } from 'styled-components';
+import * as d3 from 'd3';
+import { Style as ManuscriptStyle } from '../../styles/manuscript';
+import ChapterNav from '../../ui/ChapterNav';
+import ScrollReveal from '../../ui/ScrollReveal';
+import D3Container, { D3RenderFn } from '../../ui/D3Container';
+
+const Style = {
+  ...ManuscriptStyle,
+
+  ContentCard: styled.div`
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[6]};
+    margin: ${p => p.theme.spacing[6]} 0;
+
+    h3 {
+      margin-top: 0;
+      margin-bottom: ${p => p.theme.spacing[4]};
+      font-family: ${p => p.theme.fonts.main};
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p {
+      line-height: 1.75;
+      margin-bottom: ${p => p.theme.spacing[4]};
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    ul,
+    ol {
+      margin: ${p => p.theme.spacing[4]} 0;
+      padding-left: ${p => p.theme.spacing[6]};
+    }
+
+    li {
+      margin-bottom: ${p => p.theme.spacing[3]};
+      line-height: 1.6;
+    }
+  `,
+
+  SectionDivider: styled.div`
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      ${p => p.theme.colors.borderSubtle},
+      transparent
+    );
+    margin: ${p => p.theme.spacing[10]} 0;
+  `,
+
+  IllustrationContainer: styled.div`
+    width: 100%;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    margin: ${p => p.theme.spacing[6]} 0;
+    overflow: hidden;
+  `,
+
+  IllustrationHeader: styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: ${p => p.theme.spacing[3]} ${p => p.theme.spacing[4]};
+    border-bottom: 1px solid ${p => p.theme.colors.borderSubtle};
+    background: rgba(0, 0, 0, 0.02);
+  `,
+
+  IllustrationTitle: styled.span`
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    font-weight: 600;
+    color: ${p => p.theme.colors.inkDark};
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  `,
+
+  IllustrationCaption: styled.p`
+    font-family: ${p => p.theme.fonts.typewriter};
+    font-size: 10px;
+    color: ${p => p.theme.colors.inkMedium};
+    text-align: center;
+    padding: ${p => p.theme.spacing[3]};
+    margin: 0;
+    border-top: 1px solid ${p => p.theme.colors.borderSubtle};
+  `,
+
+  HistoryCard: styled.div`
+    background: rgba(139, 92, 246, 0.08);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    border-left: 3px solid #8b5cf6;
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[5]};
+    margin: ${p => p.theme.spacing[6]} 0;
+
+    h4 {
+      margin: 0 0 ${p => p.theme.spacing[3]} 0;
+      color: #8b5cf6;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p {
+      margin: 0 0 ${p => p.theme.spacing[3]} 0;
+      line-height: 1.6;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+  `,
+
+  ComparisonGrid: styled.div`
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: ${p => p.theme.spacing[4]};
+    margin: ${p => p.theme.spacing[5]} 0;
+
+    @media (max-width: ${p => p.theme.breakpoints.md}) {
+      grid-template-columns: 1fr;
+    }
+  `,
+
+  ComparisonCard: styled.div<{ $type: 'bad' | 'good' }>`
+    background: ${p => (p.$type === 'bad' ? 'rgba(220, 38, 38, 0.06)' : 'rgba(22, 163, 74, 0.06)')};
+    backdrop-filter: blur(12px);
+    border: 1px solid
+      ${p => (p.$type === 'bad' ? 'rgba(220, 38, 38, 0.2)' : 'rgba(22, 163, 74, 0.2)')};
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[5]};
+
+    h4 {
+      margin: 0 0 ${p => p.theme.spacing[3]} 0;
+      color: ${p => (p.$type === 'bad' ? '#dc2626' : '#16a34a')};
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.6;
+      font-size: ${p => p.theme.fontSizes.sm};
+    }
+  `,
+
+  DefinitionBox: styled.div`
+    background: rgba(16, 185, 129, 0.08); /* Green tint for database */
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 8px;
+    padding: ${p => p.theme.spacing[5]};
+    margin: ${p => p.theme.spacing[6]} 0;
+
+    h4 {
+      margin: 0 0 ${p => p.theme.spacing[2]} 0;
+      color: #059669;
+      font-size: ${p => p.theme.fontSizes.lg};
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.7;
+    }
+
+    code {
+      background: rgba(16, 185, 129, 0.1);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
+    }
+  `,
+
+  CodeBlock: styled.pre`
+    background: #1a1a2e;
+    color: #e2e8f0;
+    padding: ${p => p.theme.spacing[5]};
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: ${p => p.theme.spacing[4]} 0;
+  `,
+
+  Timeline: styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: ${p => p.theme.spacing[5]};
+    margin: ${p => p.theme.spacing[6]} 0;
+    padding: ${p => p.theme.spacing[5]};
+    padding-left: ${p => p.theme.spacing[8]};
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid ${p => p.theme.colors.borderSubtle};
+    border-radius: 8px;
+    border-left: 3px solid ${p => p.theme.colors.accent};
+  `,
+
+  TimelineItem: styled.div`
+    position: relative;
+    line-height: 1.6;
+    color: ${p => p.theme.colors.inkDark};
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -${p => p.theme.spacing[6]};
+      top: 8px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: ${p => p.theme.colors.accent};
+      border: 2px solid white;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+  `,
+
+  TimelineYear: styled.span`
+    display: inline-block;
+    font-weight: 700;
+    font-size: ${p => p.theme.fontSizes.lg};
+    color: ${p => p.theme.colors.accent};
+    margin-right: ${p => p.theme.spacing[3]};
+    min-width: 50px;
+  `,
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATIONS
+// ────────────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATIONS (D3Container Patterns)
+// ────────────────────────────────────────────────────────────────────────────
+
+function SabMemoryMap() {
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
+    svg.selectAll('*').remove();
+
+    const height = 240;
+    const scale = Math.min(1, width / 700);
+    const margin = { top: 40, right: 40, bottom: 40, left: 40 };
+
+    const g = svg.append('g');
+
+    // Draw SAB Container
+    const containerW = (700 - margin.left - margin.right) * scale;
+    const containerH = height - margin.top - margin.bottom;
+    const startX = (width - containerW) / 2;
+
+    g.append('rect')
+      .attr('x', startX)
+      .attr('y', margin.top)
+      .attr('width', containerW)
+      .attr('height', containerH)
+      .attr('rx', 12)
+      .attr('fill', '#f8fafc')
+      .attr('stroke', '#cbd5e1')
+      .attr('stroke-width', 2);
+    g.append('text')
+      .attr('x', width / 2)
+      .attr('y', 25)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 10 * scale + 2 * (1 - scale))
+      .attr('font-weight', 800)
+      .attr('fill', '#64748b')
+      .text('SHARED ARRAY BUFFER (HOT CACHE — 1024 SLOTS)');
+
+    // Draw grid of slots
+    const rows = 4;
+    const cols = 16;
+    const slotW = 32 * scale;
+    const slotH = 20;
+    const gap = 6 * scale;
+
+    const gridW = cols * slotW + (cols - 1) * gap;
+    const gridH = rows * slotH + (rows - 1) * gap;
+    const gridStartX = startX + (containerW - gridW) / 2;
+    const gridStartY = margin.top + (containerH - gridH) / 2;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = gridStartX + c * (slotW + gap);
+        const y = gridStartY + r * (slotH + gap);
+        const isHot = Math.random() > 0.7;
+
+        const slot = g
+          .append('rect')
+          .attr('x', x)
+          .attr('y', y)
+          .attr('width', slotW)
+          .attr('height', slotH)
+          .attr('rx', 2)
+          .attr('fill', isHot ? '#ef4444' : '#e2e8f0')
+          .attr('opacity', isHot ? 0.6 : 0.3);
+
+        if (isHot) {
+          function pulse() {
+            slot
+              .transition()
+              .duration(1000 + Math.random() * 1000)
+              .attr('opacity', 1)
+              .transition()
+              .duration(1000)
+              .attr('opacity', 0.6)
+              .on('end', pulse);
+          }
+          pulse();
+        }
+      }
+    }
+
+    // Legend
+    const legendY = 215;
+    svg
+      .append('circle')
+      .attr('cx', width - 150 * scale)
+      .attr('cy', legendY)
+      .attr('r', 4)
+      .attr('fill', '#ef4444');
+    svg
+      .append('text')
+      .attr('x', width - 140 * scale)
+      .attr('y', legendY + 4)
+      .attr('font-size', 9 * scale)
+      .attr('fill', '#64748b')
+      .text('Active Pattern Slot');
+    svg
+      .append('circle')
+      .attr('cx', width - 270 * scale)
+      .attr('cy', legendY)
+      .attr('r', 4)
+      .attr('fill', '#e2e8f0');
+    svg
+      .append('text')
+      .attr('x', width - 260 * scale)
+      .attr('y', legendY + 4)
+      .attr('font-size', 9 * scale)
+      .attr('fill', '#64748b')
+      .text('Free/Stale Memory');
+  }, []);
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 240"
+      height={240}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: BLAKE3 HASHING (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
+function Blake3HashingDiagram() {
+  const theme = useTheme();
+
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').interrupt();
+      svg.selectAll('*').remove();
+      const scale = Math.min(1, width / 700);
+
+      // Draw Merkle Tree for BLAKE3
+      const levels = 3;
+      const nodesAtLevel = [4, 2, 1];
+      const nodeRadius = 16 * scale;
+      const startY = 240;
+      const gapY = 70;
+
+      const treeG = svg.append('g').attr('transform', 'translate(0, 20)');
+
+      // Nodes and Lines
+      const nodePositions: { x: number; y: number }[][] = [];
+
+      for (let l = 0; l < levels; l++) {
+        const levelNodes: { x: number; y: number }[] = [];
+        const count = nodesAtLevel[l];
+        const gapX = width / (count + 1);
+
+        for (let i = 0; i < count; i++) {
+          const x = gapX * (i + 1);
+          const y = startY - l * gapY;
+          levelNodes.push({ x, y });
+
+          if (l > 0) {
+            const child1 = nodePositions[l - 1][i * 2];
+            const child2 = nodePositions[l - 1][i * 2 + 1];
+
+            treeG
+              .append('line')
+              .attr('x1', x)
+              .attr('y1', y)
+              .attr('x2', child1.x)
+              .attr('y2', child1.y)
+              .attr('stroke', theme.colors.borderSubtle)
+              .attr('stroke-width', 2);
+            treeG
+              .append('line')
+              .attr('x1', x)
+              .attr('y1', y)
+              .attr('x2', child2.x)
+              .attr('y2', child2.y)
+              .attr('stroke', theme.colors.borderSubtle)
+              .attr('stroke-width', 2);
+          }
+
+          const color = l === 2 ? '#10b981' : l === 1 ? '#3b82f6' : theme.colors.borderSubtle;
+          treeG
+            .append('circle')
+            .attr('cx', x)
+            .attr('cy', y)
+            .attr('r', nodeRadius)
+            .attr('fill', 'white')
+            .attr('stroke', color)
+            .attr('stroke-width', 2);
+          treeG
+            .append('text')
+            .attr('x', x)
+            .attr('y', y + 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 8 * scale)
+            .attr('font-family', 'JetBrains Mono')
+            .attr('font-weight', 800)
+            .attr('fill', color)
+            .text(l === 2 ? 'ROOT' : 'HASH');
+        }
+        nodePositions.push(levelNodes);
+      }
+
+      // Input Chunks (1MB Pulses)
+      const dataChunks = ['Pulse A', 'Pulse B', 'Pulse C', 'Pulse D'];
+      nodePositions[0].forEach((pos, i) => {
+        const g = treeG.append('g');
+        g.append('rect')
+          .attr('x', pos.x - 25 * scale)
+          .attr('y', pos.y + 30)
+          .attr('width', 50 * scale)
+          .attr('height', 20)
+          .attr('rx', 4)
+          .attr('fill', '#f1f5f9')
+          .attr('stroke', theme.colors.borderSubtle);
+        g.append('text')
+          .attr('x', pos.x)
+          .attr('y', pos.y + 43)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 8 * scale)
+          .attr('fill', theme.colors.inkMedium)
+          .text(dataChunks[i]);
+
+        // Pulse animation
+        const pulse = g
+          .append('circle')
+          .attr('cx', pos.x)
+          .attr('cy', pos.y + 40)
+          .attr('r', 2 * scale)
+          .attr('fill', '#ef4444')
+          .attr('opacity', 0);
+
+        function tick() {
+          pulse
+            .transition()
+            .duration(1000)
+            .delay(i * 500)
+            .attr('opacity', 1)
+            .transition()
+            .duration(1000)
+            .attr('opacity', 0)
+            .on('end', tick);
+        }
+        tick();
+      });
+
+      svg
+        .append('text')
+        .attr('x', width / 2)
+        .attr('y', 20)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10 * scale + 2 * (1 - scale))
+        .attr('font-weight', 800)
+        .attr('fill', theme.colors.inkMedium)
+        .text('1MB HASHING HEARTBEAT (BLAKE3 MERKLE TREE)');
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 320"
+      height={320}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: SYNC ACCESS PIPELINE (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
+function SyncAccessPipeline() {
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
+    svg.selectAll('*').remove();
+    const scale = Math.min(1, width / 700);
+
+    // Main Thread (Blocked Area)
+    svg
+      .append('rect')
+      .attr('x', 50 * scale)
+      .attr('y', 50)
+      .attr('width', 150 * scale)
+      .attr('height', 160)
+      .attr('rx', 8)
+      .attr('fill', '#f1f5f9')
+      .attr('stroke', '#cbd5e1');
+    svg
+      .append('text')
+      .attr('x', 125 * scale)
+      .attr('y', 40)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 10 * scale)
+      .attr('font-weight', 800)
+      .attr('fill', '#64748b')
+      .text('MAIN THREAD (UI)');
+
+    // Web Worker (Active Area)
+    svg
+      .append('rect')
+      .attr('x', 250 * scale)
+      .attr('y', 50)
+      .attr('width', 200 * scale)
+      .attr('height', 160)
+      .attr('rx', 8)
+      .attr('fill', '#ecfdf5')
+      .attr('stroke', '#10b981');
+    svg
+      .append('text')
+      .attr('x', 350 * scale)
+      .attr('y', 40)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 10 * scale)
+      .attr('font-weight', 800)
+      .attr('fill', '#059669')
+      .text('DEDICATED WORKER (STORAGE)');
+
+    // OPFS (Storage Area)
+    const opfsX = 520 * scale;
+    svg
+      .append('rect')
+      .attr('x', opfsX)
+      .attr('y', 50)
+      .attr('width', 130 * scale)
+      .attr('height', 160)
+      .attr('rx', 8)
+      .attr('fill', '#eff6ff')
+      .attr('stroke', '#3b82f6');
+    svg
+      .append('text')
+      .attr('x', opfsX + 65 * scale)
+      .attr('y', 40)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 10 * scale)
+      .attr('font-weight', 800)
+      .attr('fill', '#1d4ed8')
+      .text('OPFS (DISK)');
+
+    // Worker Script
+    svg
+      .append('rect')
+      .attr('x', 265 * scale)
+      .attr('y', 80)
+      .attr('width', 170 * scale)
+      .attr('height', 100)
+      .attr('rx', 4)
+      .attr('fill', '#059669')
+      .attr('opacity', 0.1);
+    svg
+      .append('text')
+      .attr('x', 350 * scale)
+      .attr('y', 110)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 12 * scale)
+      .attr('font-weight', 700)
+      .attr('fill', '#059669')
+      .text('SQLite WASM');
+
+    // Visualizing the "Blockage" (Main thread is busy with UI)
+    const blockG = svg.append('g');
+    for (let i = 0; i < 5; i++) {
+      const line = blockG
+        .append('rect')
+        .attr('x', 70 * scale)
+        .attr('y', 70 + i * 25)
+        .attr('width', 110 * scale)
+        .attr('height', 15)
+        .attr('rx', 2)
+        .attr('fill', '#e2e8f0');
+
+      function jitter() {
+        line
+          .transition()
+          .duration(500 + i * 200)
+          .attr('opacity', 0.6)
+          .transition()
+          .duration(500 + i * 200)
+          .attr('opacity', 1)
+          .on('end', jitter);
+      }
+      jitter();
+    }
+
+    // Direct Sync Pipe
+    svg
+      .append('path')
+      .attr('d', `M${450 * scale},130 L${520 * scale},130`)
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 4)
+      .attr('stroke-dasharray', '8,4');
+    svg
+      .append('text')
+      .attr('x', 485 * scale)
+      .attr('y', 120)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', 8 * scale)
+      .attr('font-weight', 800)
+      .attr('fill', '#3b82f6')
+      .text('SYNC');
+
+    // Animated Bytes
+    const packetCount = 4;
+    for (let i = 0; i < packetCount; i++) {
+      const circle = svg
+        .append('circle')
+        .attr('r', 4 * scale)
+        .attr('fill', '#3b82f6')
+        .attr('opacity', 0);
+
+      function flow() {
+        circle
+          .attr('cx', 450 * scale)
+          .attr('cy', 130)
+          .attr('opacity', 0)
+          .transition()
+          .duration(100)
+          .attr('opacity', 1)
+          .transition()
+          .duration(1000)
+          .delay(i * 300)
+          .attr('cx', 520 * scale)
+          .transition()
+          .duration(100)
+          .attr('opacity', 0)
+          .on('end', flow);
+      }
+      flow();
+    }
+  }, []);
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 240"
+      height={240}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: DHT MESH MAP (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
+function DhtMeshMap() {
+  const renderDiagram: D3RenderFn = useCallback((svg, width) => {
+    svg.selectAll('*').interrupt();
+    svg.selectAll('*').remove();
+    const height = 300;
+    const designWidth = 700;
+    const scale = Math.min(1, width / designWidth);
+    const centerX = designWidth / 2;
+    const centerY = height / 2;
+    const radius = 100 * scale;
+
+    // Draw Hash Space Circle
+    svg
+      .append('circle')
+      .attr('cx', centerX)
+      .attr('cy', centerY)
+      .attr('r', radius)
+      .attr('fill', 'none')
+      .attr('stroke', '#cbd5e1')
+      .attr('stroke-width', 1)
+      .attr('stroke-dasharray', '4,4');
+
+    // Draw Peers
+    const peerCount = 8;
+    const peers = d3.range(peerCount).map(i => {
+      const angle = (i / peerCount) * 2 * Math.PI;
+      return {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
+        id: Math.floor(Math.random() * 255),
+      };
+    });
+
+    peers.forEach((p1, i) => {
+      peers.forEach((p2, j) => {
+        if (i < j && (j === i + 1 || j === i + 2 || (i === 0 && j === peerCount - 1))) {
+          svg
+            .append('line')
+            .attr('x1', p1.x)
+            .attr('y1', p1.y)
+            .attr('x2', p2.x)
+            .attr('y2', p2.y)
+            .attr('stroke', '#3b82f6')
+            .attr('stroke-width', 1)
+            .attr('opacity', 0.3);
+        }
+      });
+    });
+
+    peers.forEach(p => {
+      const g = svg.append('g');
+      g.append('circle')
+        .attr('cx', p.x)
+        .attr('cy', p.y)
+        .attr('r', 6 * scale)
+        .attr('fill', '#3b82f6');
+      g.append('text')
+        .attr('x', p.x)
+        .attr('y', p.y - 12 * scale)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 8 * scale)
+        .attr('font-family', 'JetBrains Mono')
+        .attr('fill', '#1e40af')
+        .text(`Node ${p.id}`);
+    });
+
+    function animateChunk() {
+      const p1 = peers[Math.floor(Math.random() * peerCount)];
+      const p2 = peers[Math.floor(Math.random() * peerCount)];
+      if (p1 === p2) return animateChunk();
+
+      svg
+        .append('circle')
+        .attr('r', 3 * scale)
+        .attr('fill', '#10b981')
+        .attr('opacity', 0)
+        .attr('cx', p1.x)
+        .attr('cy', p1.y)
+        .transition()
+        .duration(1500)
+        .attr('cx', p2.x)
+        .attr('cy', p2.y)
+        .style('opacity', 1)
+        .transition()
+        .duration(500)
+        .style('opacity', 0)
+        .on('end', function () {
+          d3.select(this).remove();
+        });
+
+      svg.transition().duration(2000).on('end', animateChunk);
+    }
+    animateChunk();
+  }, []);
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 700 300"
+      height={300}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// D3 ILLUSTRATION: TIERED CONVERGENCE (D3Container)
+// ────────────────────────────────────────────────────────────────────────────
+function TieredConvergenceMap() {
+  const theme = useTheme();
+
+  const renderDiagram: D3RenderFn = useCallback(
+    (svg, width) => {
+      svg.selectAll('*').remove();
+      const designWidth = 740;
+      const scale = Math.min(1, width / designWidth);
+      const centerX = designWidth / 2;
+
+      const tiers = [
+        {
+          id: 'sab',
+          label: 'HOT: SAB',
+          color: '#ef4444',
+          x: centerX - 320 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'Pattern Cache',
+        },
+        {
+          id: 'ram',
+          label: 'WARM: ARENA',
+          color: '#f59e0b',
+          x: centerX - 150 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'LRU Heap',
+        },
+        {
+          id: 'opfs',
+          label: 'COLD: OPFS',
+          color: '#3b82f6',
+          x: centerX + 30 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'SQLite Blocks',
+        },
+        {
+          id: 'mesh',
+          label: 'ARCHIVE: MESH',
+          color: '#10b981',
+          x: centerX + 200 * scale,
+          y: 120,
+          w: 120 * scale,
+          h: 60,
+          desc: 'P2P Chunks',
+        },
+      ];
+
+      svg
+        .append('rect')
+        .attr('x', centerX - 125 * scale)
+        .attr('y', 20)
+        .attr('width', 250 * scale)
+        .attr('height', 50)
+        .attr('rx', 25)
+        .attr('fill', '#00add810')
+        .attr('stroke', '#00add8')
+        .attr('stroke-width', 2);
+      svg
+        .append('text')
+        .attr('x', centerX)
+        .attr('y', 50)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 12 * scale + 2 * (1 - scale))
+        .attr('font-weight', 800)
+        .attr('fill', '#00add8')
+        .text('STORAGE SUPERVISOR (GO)');
+
+      tiers.forEach(t => {
+        const g = svg.append('g');
+        g.append('rect')
+          .attr('x', t.x)
+          .attr('y', t.y)
+          .attr('width', t.w)
+          .attr('height', t.h)
+          .attr('rx', 8)
+          .attr('fill', t.color + '08')
+          .attr('stroke', t.color)
+          .attr('stroke-width', 2);
+        g.append('text')
+          .attr('x', t.x + t.w / 2)
+          .attr('y', t.y + 25)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11 * scale)
+          .attr('font-weight', 800)
+          .attr('fill', t.color)
+          .text(t.label);
+        g.append('text')
+          .attr('x', t.x + t.w / 2)
+          .attr('y', t.y + 45)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 9 * scale)
+          .attr('fill', theme.colors.inkMedium)
+          .text(t.desc);
+        svg
+          .append('path')
+          .attr('d', `M${centerX},70 L${t.x + t.w / 2},${t.y}`)
+          .attr('stroke', theme.colors.borderSubtle)
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,4');
+      });
+
+      svg
+        .append('path')
+        .attr(
+          'd',
+          `M${designWidth - 60 * scale},150 Q${designWidth - 10 * scale},150 ${designWidth - 10 * scale},225 Q${designWidth - 10 * scale},300 ${centerX},300 Q${10 * scale},300 ${10 * scale},225 Q${10 * scale},150 ${50 * scale},150`
+        )
+        .attr('fill', 'none')
+        .attr('stroke', '#10b98120')
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', '8,4');
+    },
+    [theme]
+  );
+
+  return (
+    <D3Container
+      render={renderDiagram}
+      dependencies={[renderDiagram]}
+      viewBox="0 0 740 310"
+      height={310}
+    />
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MAIN PAGE COMPONENT
+// ────────────────────────────────────────────────────────────────────────────
+
+export function Database() {
+  return (
+    <Style.BlogContainer>
+      <Style.SectionTitle>Chapter 09 // Persistence Paradox</Style.SectionTitle>
+      <Style.PageTitle>Cellular Memory: Tiered Convergence</Style.PageTitle>
+      <Style.LeadParagraph>
+        Human memory is layered: the immediate flash of awareness, the short-term working space, and
+        the deep, stable storage of the cell. INOS solves the <strong>Persistence Paradox</strong>
+        through a tiered biological model, ensuring data is instant, immutable, and permanent.
+      </Style.LeadParagraph>
+
+      <Style.SectionDivider />
+
+      {/* Prologue */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Prologue: A Decade of Ghost Writes</h3>
+          <p>
+            For ten years, the web was a graveyard of storage expectations. LocalStorage was too
+            small (5MB). WebSQL was deprecated almost as soon as it arrived. IndexedDB, while
+            powerful, became known for its "Promise Tax"—an asynchronous overhead that made
+            nanosecond concurrency impossible.
+          </p>
+
+          <Style.HistoryCard>
+            <h4>The Storage Lineage</h4>
+            <p>
+              Before the modern era, web apps relied on a chaotic mix of technologies.
+              <strong> LocalStorage</strong> (2009) was first, but synchronized poorly.
+              <strong> WebSQL</strong> (2010) was an attempt to put SQLite in the browser, but it
+              was eventually abandoned. <strong> IndexedDB</strong> (2011) was the savior that
+              turned into a labyrinth of callbacks.
+            </p>
+          </Style.HistoryCard>
+
+          <p>
+            INOS rejects the choice between "Synchronous but Volatile" and "Persistent but Slow." It
+            builds a bridge using SharedArrayBuffer (SAB) for the hot tier and the Origin Private
+            File System (OPFS) for the cold tier.
+          </p>
+
+          <Style.ComparisonGrid>
+            <Style.ComparisonCard $type="bad">
+              <h4>The Copy Tax</h4>
+              <p>
+                Traditional apps copy data from the DB to the Worker, then to the Main Thread. Each
+                hop burns CPU and duplicates memory.
+              </p>
+            </Style.ComparisonCard>
+            <Style.ComparisonCard $type="good">
+              <h4>Zero-Copy Persistence</h4>
+              <p>
+                INOS writes once to a shared memory region. All modules read from the same bytes.
+                Persistence is an asynchronous heartbeat, not a blocker. SAB represents volatile
+                truth; durability is guaranteed once a heartbeat commits to OPFS.
+              </p>
+            </Style.ComparisonCard>
+          </Style.ComparisonGrid>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 1: Tier 1 - The Circulatory System</h3>
+          <p>
+            The fastest storage is the one that never waits. In INOS, the <strong>Hot Tier</strong>{' '}
+            is a region of the SharedArrayBuffer called the <strong>Pattern Exchange</strong>.
+          </p>
+          <p>
+            Whenever the Kernel (Go) or a Muscle (Rust) discovers a data pattern, it is stored
+            directly in one of the 1024 shared slots. No mutexes or blocking locks—only atomic
+            coordination.
+          </p>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>Internal Registry // Tier 1</Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <SabMemoryMap />
+            <Style.IllustrationCaption>
+              Nanosecond access to the shared pattern cache. Slots are updated via Atomics.store.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+
+          <Style.DefinitionBox>
+            <h4>HotPatternCache</h4>
+            <p>
+              Implemented in <code>storage.go</code>, this cache allows the system to recall
+              frequently used data without ever touching the disk. It is the "circulatory system" of
+              INOS, pumping bits at 100ns latency.
+            </p>
+          </Style.DefinitionBox>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      {/* Lesson 2 */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 2: Tier 2 & 3 - Long-Term Memory</h3>
+          <p>
+            While SAB is the circulatory system, <strong>OPFS (Origin Private File System)</strong>
+            is the system's long-term memory. Unlike IndexedDB, which is asynchronous and uses an
+            object-store model, OPFS provides a real filesystem interface with
+            <strong> Synchronous Access Handles</strong>.
+          </p>
+          <p>
+            By running the storage engine in a <strong>Web Worker</strong>, we can perform
+            synchronous reads and writes that bypass the main thread's Event Loop. This is where
+            <strong> SQLite WASM</strong> lives, utilizing the OPFS VFS (Virtual File System) to
+            achieve near-native I/O performance. Where synchronous OPFS handles are unavailable
+            (non-Chromium browsers), INOS degrades to async persistence without breaking
+            correctness.
+          </p>
+
+          <Style.ComparisonGrid>
+            <Style.ComparisonCard $type="bad">
+              <h4>IndexedDB Latency</h4>
+              <p>
+                Every read/write requires a Promise. In a heavy compute loop, the often 1–2ms or
+                more delay per call adds up to an insurmountable bottleneck.
+              </p>
+            </Style.ComparisonCard>
+            <Style.ComparisonCard $type="good">
+              <h4>OPFS Sync Handles</h4>
+              <p>
+                A dedicated worker opens a direct binary stream to the disk. I/O is blocked for
+                microseconds, not milliseconds. Native-grade persistence.
+              </p>
+            </Style.ComparisonCard>
+          </Style.ComparisonGrid>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>
+                Synchronous I/O Pipeline // Tier 2 & 3
+              </Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <SyncAccessPipeline />
+            <Style.IllustrationCaption>
+              Direct, synchronous communication between the SQLite WASM worker and the OPFS disk.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      {/* Lesson 3 */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 3: The 1MB Hashing Heartbeat</h3>
+          <p>
+            In a distributed world, filenames are irrelevant. INOS treats data as a stream of
+            <strong> 1MB pulses</strong>. Each pulse is hashed using BLAKE3, creating a
+            cryptographic fingerprint that serves as its unique address in the universe.
+          </p>
+          <p>
+            This <strong>1MB Chunking</strong> is the heart of the system. It allows for perfect
+            granularity: if 1 byte changes in a 1GB file, only one 1MB pulse needs to be re-verified
+            and re-synchronized.
+          </p>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>
+                BLAKE3 Merkle Hashing // Content-Addressability
+              </Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <Blake3HashingDiagram />
+            <Style.IllustrationCaption>
+              Data blocks are pulsed at 1MB intervals, hashed, and combined into a Merkle root.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+
+          <Style.DefinitionBox>
+            <h4>Global Deduplication</h4>
+            <p>
+              Because the hash is the address, if two users save the same 1MB block, the mesh
+              identifies them as identical. INOS only stores it once, saving petabytes of redundant
+              data across the network.
+            </p>
+          </Style.DefinitionBox>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      {/* Lesson 4 */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 4: Double Compression Alchemy</h3>
+          <p>
+            Storage is a trade-off between speed and density. INOS employs a two-pass compression
+            strategy known as <strong>Double Compression</strong>.
+          </p>
+
+          <Style.Timeline>
+            <Style.TimelineItem>
+              <Style.TimelineYear>Pass 1</Style.TimelineYear>
+              <strong>Brotli-Fast (Q=6)</strong>: Optimized for Ingress. Data is compressed
+              instantly as it enters the system to save bandwidth with minimal CPU hit.
+            </Style.TimelineItem>
+            <Style.TimelineItem>
+              <Style.TimelineYear>Pass 2</Style.TimelineYear>
+              <strong>Brotli-Max (Q=11)</strong>: Optimized for Storage. When data settles into the
+              Cold Tier, it is re-compressed at maximum density, shrinking its footprint by an
+              additional 20%.
+            </Style.TimelineItem>
+          </Style.Timeline>
+
+          <p>
+            This "Alchemy" ensures that the network is always fast, but the disk is always
+            efficient.
+          </p>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      {/* Lesson 5 */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 5: The Global Mesh Archive</h3>
+          <p>
+            When data is no longer needed on your local machine, it is archived into the
+            <strong> Global Mesh</strong>. This is a Peer-to-Peer swarm where 256 sectors (0-255)
+            collaborate to store the world's data.
+          </p>
+          <p>
+            Availability is guaranteed by a <strong>Dynamic Replication Factor (RF)</strong>.
+            Standard data is mirrored on 3 nodes (RF=3). Viral patterns or critical system assets
+            scale automatically up to <strong>RF=50</strong>, creating a self-healing,
+            high-bandwidth CDN distributed across the globe. All data is encrypted at rest
+            (ChaCha20); the mesh is adversarial by design—trust is earned through consistent
+            availability, not assumed.
+          </p>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>
+                DHT Mesh Topology // 256 Hash Sectors
+              </Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <DhtMeshMap />
+            <Style.IllustrationCaption>
+              Nodes assigned to sectors (0-255). Replication scaling from RF=3 to RF=50 based on
+              demand.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      {/* Conclusion */}
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Conclusion: The Converged Backbone</h3>
+          <p>
+            From the nanosecond pulses of Tier 1 Shared Memory to the deep-cold storage of the
+            Global Mesh, INOS provides a singular interface for all data. We've bridged the
+            "Persistence Paradox"—building a system that is as fast as RAM, as vast as the cloud,
+            and as private as your own machine.
+          </p>
+
+          <Style.IllustrationContainer>
+            <Style.IllustrationHeader>
+              <Style.IllustrationTitle>
+                Converged Architecture // Final Topology
+              </Style.IllustrationTitle>
+            </Style.IllustrationHeader>
+            <TieredConvergenceMap />
+            <Style.IllustrationCaption>
+              A unified storage stack managed by the StorageSupervisor.
+            </Style.IllustrationCaption>
+          </Style.IllustrationContainer>
+
+          <p>
+            The web is no longer a graveyard of storage expectations. It is a world-scale database.
+          </p>
+
+          <Style.HistoryCard>
+            <h4>Failure Recovery</h4>
+            <p>
+              If the browser crashes mid-write, SAB state is discarded. On restart, the Storage
+              Supervisor reconstructs hot state from the last committed OPFS heartbeat. No partial
+              writes. No corruption. Automatic reconciliation.
+            </p>
+          </Style.HistoryCard>
+
+          <Style.DefinitionBox>
+            <h4>Timing Ladder</h4>
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '0.875rem' }}>
+              SAB read: ~100ns
+              <br />
+              Atomic signal: ~50ns
+              <br />
+              OPFS sync write: ~10–50µs
+              <br />
+              Mesh propagation: ~10–100ms
+            </p>
+          </Style.DefinitionBox>
+
+          <Style.DefinitionBox>
+            <h4>The Unification Thesis</h4>
+            <p>
+              INOS does not distinguish between memory, disk, or network storage—only latency tiers.
+              Tier 1 (SAB) is hot memory. Tier 2 (OPFS) is warm disk. Tier 3 (Mesh) is cold network.
+              The interface is identical; only access time differs.
+            </p>
+          </Style.DefinitionBox>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <ChapterNav
+        prev={{ to: '/deep-dives/graphics', title: 'Graphics Pipeline' }}
+        next={{ to: '/cosmos', title: '04. The Cosmos' }}
+      />
+    </Style.BlogContainer>
+  );
+}
+
+export default Database;
