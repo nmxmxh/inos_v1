@@ -315,12 +315,23 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
     // Helper to register simple modules
     let register_simple = |id: &str, mem: u16, gpu: bool| {
         let mut builder = ModuleEntryBuilder::new(id).version(1, 4, 3);
+
+        // Register core capabilities
         builder = builder.capability("image", gpu, mem);
         builder = builder.capability("video", gpu, mem);
         builder = builder.capability("audio", gpu, mem);
         builder = builder.capability("crypto", gpu, mem);
         builder = builder.capability("data", gpu, mem);
-        builder = builder.capability("gpu_shader", gpu, 4096);
+
+        // Unit-specific extensions
+        if id == "gpu" {
+            builder = builder.capability("gpu.compute", true, mem);
+            builder = builder.capability("gpu.shader", true, mem);
+            builder = builder.capability("gpu.render", true, mem);
+            builder = builder.capability("gpu.tensor", true, mem);
+            builder = builder.capability("gpu.boids", true, mem);
+            builder = builder.capability("instance_matrix_gen", true, mem);
+        }
 
         match builder.build() {
             Ok((mut entry, _, caps)) => {
@@ -366,6 +377,7 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
     // Register core modules provided by this kernel
     register_simple("compute", 512, false); // Base compute
     register_simple("boids", 512, false); // Flocking simulation
+    register_simple("gpu", 1024, true); // GPU-accelerated compute
 
     // Signal registry change to wake Go discovery loop immediately
     sdk::registry::signal_registry_change(sab);

@@ -108,6 +108,10 @@ type MeshCoordinator struct {
 	// Load tracking for delegation optimization
 	activeJobs   map[string]int32
 	activeJobsMu sync.RWMutex
+
+	// Adaptive Mesh Identity
+	role        system.Runtime_RuntimeRole
+	runtimeCaps *common.RuntimeCapabilities
 }
 
 // CoordinatorConfig holds mesh coordinator settings
@@ -314,9 +318,21 @@ func (m *MeshCoordinator) SetEconomicVault(vault foundation.EconomicVault) {
 }
 
 // ApplyRoleConfig updates mesh behavior based on runtime role
-func (m *MeshCoordinator) ApplyRoleConfig(config runtime.RoleConfig) {
+func (m *MeshCoordinator) ApplyRoleConfig(config runtime.RoleConfig, caps runtime.RuntimeCapabilities) {
+	m.role = config.Role
+	m.runtimeCaps = &common.RuntimeCapabilities{
+		ComputeScore:    float32(caps.ComputeScore),
+		NetworkLatency:  float32(caps.NetworkLatency.Seconds() * 1000),
+		AtomicsOverhead: float32(caps.AtomicsOverhead.Nanoseconds()),
+		IsHeadless:      caps.IsHeadless,
+		HasGpu:          caps.HasGpu,
+		HasSimd:         caps.HasSimd,
+	}
+
 	m.logger.Info("applying runtime role config",
-		"role", config.Role.String())
+		"role", m.role.String(),
+		"gpu", m.runtimeCaps.HasGpu,
+		"simd", m.runtimeCaps.HasSimd)
 
 	if tr, ok := m.transport.(*transport.WebRTCTransport); ok {
 		tr.ApplyRoleConfig(config)
@@ -1440,25 +1456,51 @@ func (m *MeshCoordinator) DelegateJob(ctx context.Context, job *foundation.Job) 
 }
 
 // DelegateCompute offloads a compute operation to the mesh with integrity verification
+// Automatically uses parallel fan-out for large jobs based on P2P_MESH.md guidelines
 func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string, inputDigest string, data []byte) ([]byte, error) {
-	// 1. Find suitable peer
-	bestPeer, _ := m.selectBestPeerForJob()
+	dataSize := len(data)
+	nodeCount := m.calculateNodeCount(dataSize)
 
+	if nodeCount == 1 {
+		return m.delegateSingle(ctx, operation, inputDigest, data)
+	}
+
+	// Parallel delegation for large jobs
+	return m.delegateParallel(ctx, operation, data, nodeCount)
+}
+
+// calculateNodeCount determines how many workers based on job size (P2P_MESH.md spec)
+func (m *MeshCoordinator) calculateNodeCount(dataSize int) int {
+	const MB = 1024 * 1024
+	const GB = 1024 * MB
+
+	switch {
+	case dataSize < 10*MB:
+		return 1 // Small job: single node
+	case dataSize < 100*MB:
+		return 5 // Medium job: 5 nodes
+	case dataSize < GB:
+		return 20 // Large job: 20 nodes
+	default:
+		return 50 // Massive job: 50+ nodes (MapReduce style)
+	}
+}
+
+// delegateSingle delegates to a single peer (existing behavior)
+func (m *MeshCoordinator) delegateSingle(ctx context.Context, operation string, inputDigest string, data []byte) ([]byte, error) {
+	bestPeer, _ := m.selectBestPeerForJob()
 	if bestPeer == "" {
 		return nil, errors.New("no suitable peers found for compute delegation")
 	}
 
-	// Track active job
 	m.incrementActiveJobs(bestPeer)
 	defer m.decrementActiveJobs(bestPeer)
 
-	// 2. Prepare request
 	req := DelegateRequest{
 		ID:        fmt.Sprintf("deleg_%d", time.Now().UnixNano()),
 		Operation: operation,
 	}
 
-	// Create Resource payload
 	resBytes, err := m.packResource(req.ID, inputDigest, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack resource: %w", err)
@@ -1466,7 +1508,6 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 	req.Resource = resBytes
 	m.emitDelegationRequestEvent(operation, req.ID, []byte(inputDigest), uint32(len(data)))
 
-	// 3. Dispatch via RPC
 	var resp DelegationResponse
 	err = m.transport.SendRPC(ctx, bestPeer, "mesh.DelegateCompute", req, &resp)
 	if err != nil {
@@ -1484,7 +1525,6 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 		return nil, fmt.Errorf("compute delegation failed: %s", resp.Error)
 	}
 
-	// 4. Unpack Result Resource
 	if len(resp.Resource) == 0 {
 		return nil, errors.New("delegation response missing resource")
 	}
@@ -1494,14 +1534,202 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 		return nil, fmt.Errorf("failed to unpack response resource: %w", err)
 	}
 
-	// Verification (Simplified for now - should re-hash)
 	m.logger.Info("compute delegation successful", "peer", getShortID(bestPeer), "latency", resp.LatencyMs)
 	m.updateCircuitBreaker(bestPeer, true)
 	digest, _ := res.Digest()
 	m.emitDelegationResponseEvent(p2p.DelegateResponse_Status_success, req.ID, digest, res.RawSize(), resp.LatencyMs, "")
 
-	// Return data (inline for now)
 	return res.Inline()
+}
+
+// ShardResult holds the result from a parallel worker
+type ShardResult struct {
+	ShardIndex int
+	PeerID     string
+	Data       []byte
+	LatencyMs  float64
+	Verified   bool
+	Error      error
+}
+
+// delegateParallel fans out to multiple workers and collects results
+func (m *MeshCoordinator) delegateParallel(ctx context.Context, operation string, data []byte, nodeCount int) ([]byte, error) {
+
+	// 1. Shard the data
+	shards := m.shardData(data, nodeCount)
+	m.logger.Info("parallel delegation started",
+		"operation", operation,
+		"total_size", len(data),
+		"shard_count", len(shards),
+		"node_count", nodeCount)
+
+	// 2. Select peers for each shard
+	peers := m.selectPeersForShards(len(shards))
+	if len(peers) < len(shards) {
+		m.logger.Warn("fewer peers than shards, some shards will share peers",
+			"peers", len(peers), "shards", len(shards))
+	}
+
+	// 3. Fan-out: dispatch shards in parallel
+	results := make(chan ShardResult, len(shards))
+	for i, shard := range shards {
+		peerID := peers[i%len(peers)]
+		go m.dispatchShard(ctx, operation, peerID, i, shard, results)
+	}
+
+	// 4. Collect results (fastest-first)
+	collected := make([]ShardResult, 0, len(shards))
+	timeout := time.After(30 * time.Second)
+CollectLoop:
+
+	for range shards {
+		select {
+		case result := <-results:
+			collected = append(collected, result)
+		case <-timeout:
+			m.logger.Warn("parallel delegation timeout", "collected", len(collected), "expected", len(shards))
+			break CollectLoop
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	// 5. Aggregate results
+	return m.aggregateShardResults(collected, len(data))
+}
+
+// shardData splits data into approximately equal chunks
+func (m *MeshCoordinator) shardData(data []byte, nodeCount int) [][]byte {
+	if nodeCount <= 1 || len(data) == 0 {
+		return [][]byte{data}
+	}
+
+	chunkSize := (len(data) + nodeCount - 1) / nodeCount
+	shards := make([][]byte, 0, nodeCount)
+
+	for i := 0; i < len(data); i += chunkSize {
+		end := i + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		shards = append(shards, data[i:end])
+	}
+
+	return shards
+}
+
+// selectPeersForShards selects multiple peers for parallel work
+func (m *MeshCoordinator) selectPeersForShards(count int) []string {
+	m.peerCacheMu.RLock()
+	defer m.peerCacheMu.RUnlock()
+
+	peers := make([]string, 0, count)
+	for peerID := range m.peerCache {
+		if m.isCircuitBreakerOpenForPeer(peerID) {
+			continue
+		}
+		peers = append(peers, peerID)
+		if len(peers) >= count {
+			break
+		}
+	}
+
+	return peers
+}
+
+// dispatchShard sends a single shard to a peer
+func (m *MeshCoordinator) dispatchShard(ctx context.Context, operation string, peerID string, shardIndex int, shard []byte, results chan<- ShardResult) {
+	start := time.Now()
+	result := ShardResult{
+		ShardIndex: shardIndex,
+		PeerID:     peerID,
+	}
+
+	m.incrementActiveJobs(peerID)
+	defer m.decrementActiveJobs(peerID)
+
+	req := DelegateRequest{
+		ID:        fmt.Sprintf("shard_%d_%d", time.Now().UnixNano(), shardIndex),
+		Operation: operation,
+	}
+
+	resBytes, err := m.packResource(req.ID, "", shard)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+	req.Resource = resBytes
+
+	var resp DelegationResponse
+	err = m.transport.SendRPC(ctx, peerID, "mesh.DelegateCompute", req, &resp)
+	if err != nil {
+		result.Error = err
+		m.updateCircuitBreaker(peerID, false)
+		results <- result
+		return
+	}
+
+	result.LatencyMs = float64(time.Since(start).Milliseconds())
+
+	if resp.Status != "success" {
+		result.Error = fmt.Errorf("shard %d failed: %s", shardIndex, resp.Error)
+		results <- result
+		return
+	}
+
+	res, err := m.unpackResource(resp.Resource)
+	if err != nil {
+		result.Error = err
+		results <- result
+		return
+	}
+
+	result.Data, _ = res.Inline()
+	result.Verified = true
+	m.updateCircuitBreaker(peerID, true)
+	results <- result
+}
+
+// aggregateShardResults combines shard results in order
+func (m *MeshCoordinator) aggregateShardResults(results []ShardResult, expectedSize int) ([]byte, error) {
+	// Sort by shard index
+	sortedResults := make([]ShardResult, len(results))
+	copy(sortedResults, results)
+	for i := 0; i < len(sortedResults)-1; i++ {
+		for j := i + 1; j < len(sortedResults); j++ {
+			if sortedResults[i].ShardIndex > sortedResults[j].ShardIndex {
+				sortedResults[i], sortedResults[j] = sortedResults[j], sortedResults[i]
+			}
+		}
+	}
+
+	// Check for failures
+	verifiedCount := 0
+	for _, r := range sortedResults {
+		if r.Verified {
+			verifiedCount++
+		}
+	}
+
+	if verifiedCount == 0 {
+		return nil, errors.New("all shards failed")
+	}
+
+	// Aggregate data
+	aggregated := make([]byte, 0, expectedSize)
+	for _, r := range sortedResults {
+		if r.Verified && r.Data != nil {
+			aggregated = append(aggregated, r.Data...)
+		}
+	}
+
+	m.logger.Info("parallel delegation complete",
+		"verified_shards", verifiedCount,
+		"total_shards", len(results),
+		"output_size", len(aggregated))
+
+	return aggregated, nil
 }
 
 func (m *MeshCoordinator) registerRPCHandlers() {

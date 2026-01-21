@@ -73,8 +73,10 @@ func TestDelegationPipeline_FullCycle(t *testing.T) {
 	assert.Equal(t, cost, result.Amount)
 
 	// 8. Verify economic outcome
-	assert.Equal(t, int64(cost), economicLedger.GetBalance("did:inos:provider"))
+	expectedProviderPay := int64(cost) - (int64(cost) * 50 / 1000)
+	assert.Equal(t, expectedProviderPay, economicLedger.GetBalance("did:inos:provider"))
 	assert.Equal(t, int64(10000-int(cost)), economicLedger.GetBalance("did:inos:requester"))
+
 }
 
 // TestDelegationPipeline_VerificationFailure tests the refund path

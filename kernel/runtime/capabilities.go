@@ -8,4 +8,6 @@ type RuntimeCapabilities struct {
 	NetworkLatency  time.Duration // Loopback WebRTC RTT estimate
 	AtomicsOverhead time.Duration // Average overhead of Atomics.wait
 	IsHeadless      bool          // Heuristic detection
+	HasGpu          bool          // WebGPU support detected
+	HasSimd         bool          // WebAssembly SIMD support detected
 }

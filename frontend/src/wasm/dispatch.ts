@@ -3,6 +3,7 @@ import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from './layout';
 
 // Vite worker import syntax
 import ComputeWorkerUrl from './compute.worker.ts?worker&url';
+import GpuWorkerUrl from './gpu.worker.ts?worker&url';
 
 export interface DispatchResult<T = any> {
   success: boolean;
@@ -94,7 +95,10 @@ export class Dispatcher {
       }
 
       console.log(`[Dispatch] Spawning worker ${i + 1}/${parallel} for ${unit} (role: ${role})`);
-      const worker = new Worker(ComputeWorkerUrl, { type: 'module' });
+      const isGpu = unit === 'gpu';
+      const workerUrl = isGpu ? GpuWorkerUrl : ComputeWorkerUrl;
+
+      const worker = new Worker(workerUrl, { type: 'module' });
       const workerRef: WorkerRef = { worker, unit, role, ready: false };
       this.workers.set(workerId, workerRef);
       workerRefs.push(workerRef);
@@ -107,12 +111,24 @@ export class Dispatcher {
           switch (type) {
             case 'ready':
               workerRef.ready = true;
-              // Transition to the requested role with partition info
-              worker.postMessage({
-                type: 'start_role_loop',
-                role,
-                params: { ...params, index: i, parallel },
-              });
+              if (unit === 'gpu') {
+                // For GPU workers, we fetch the specialized WebGpuRequest from Rust first
+                const res = this.executeSync('gpu', role, params);
+                if (res) {
+                  const request = JSON.parse(new TextDecoder().decode(res));
+                  worker.postMessage({
+                    type: 'START_AUTONOMOUS',
+                    request,
+                  });
+                }
+              } else {
+                // Transition to the requested role with partition info
+                worker.postMessage({
+                  type: 'start_role_loop',
+                  role,
+                  params: { ...params, index: i, parallel },
+                });
+              }
               resolve();
               break;
 

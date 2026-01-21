@@ -296,3 +296,98 @@ func (dv *DelegationVerifier) ExecutionTime() int64 {
 	defer dv.mu.Unlock()
 	return dv.executionTime
 }
+
+// GpuVerifier handles verification of GPU-specific compute results
+type GpuVerifier struct {
+	operation  string
+	prevState  []byte // Previous state for delta checks
+	parameters map[string]interface{}
+	status     VerificationStatus
+	mu         sync.Mutex
+}
+
+// NewGpuVerifier creates a verifier for GPU compute tasks
+func NewGpuVerifier(operation string, prevState []byte) *GpuVerifier {
+	return &GpuVerifier{
+		operation: operation,
+		prevState: prevState,
+		status:    VerificationPending,
+	}
+}
+
+// VerifyCompute validates the output of a GPU compute pass
+func (gv *GpuVerifier) VerifyCompute(output []byte) bool {
+	gv.mu.Lock()
+	defer gv.mu.Unlock()
+
+	if gv.status != VerificationPending {
+		return gv.status == VerificationPassed
+	}
+
+	// 1. Basic check: length should be non-zero and match expected structure if possible
+	if len(output) == 0 {
+		gv.status = VerificationFailed
+		return false
+	}
+
+	// 2. Operation-specific logic
+	switch gv.operation {
+	case "gpu.boids":
+		// Phase 17: Support WebGpuRequest JSON (Rust → JS Delegation)
+		// If the output starts with '{', it's a structured request for the host.
+		if len(output) > 0 && output[0] == '{' {
+			// Basic sanity: Check for JSON markers
+			if len(output) > 20 && (bytes.Contains(output, []byte("shader")) || bytes.Contains(output, []byte("method"))) {
+				gv.status = VerificationPassed
+				return true
+			}
+		}
+
+		// Legacy Path: Basic Sanity: Boid buffer should be a multiple of boid struct size
+		// Canonical Bird struct is 236 bytes (59 floats)
+		const birdSize = 236
+		if len(output)%birdSize != 0 {
+			gv.status = VerificationCorrupted
+			return false
+		}
+
+		// Delta Check: If we have previous state, ensure no teleportation
+		if len(gv.prevState) > 0 && len(gv.prevState) == len(output) {
+			// In a high-fidelity verifier, we would parse floats here.
+			// For Phase 4/5 integration, we'll verify the buffer is "active" (not all zeros)
+			isActive := false
+			for i := 0; i < len(output); i++ {
+				if output[i] != 0 {
+					isActive = true
+					break
+				}
+			}
+			if !isActive {
+				gv.status = VerificationFailed
+				return false
+			}
+		}
+		gv.status = VerificationPassed
+
+	case "instance_matrix_gen":
+		// Matrix generation should return 64 bytes per matrix
+		const matSize = 64
+		if len(output) == 0 || len(output)%matSize != 0 {
+			gv.status = VerificationCorrupted
+			return false
+		}
+		gv.status = VerificationPassed
+
+	default:
+		// Fallback to presence check
+		gv.status = VerificationPassed
+	}
+
+	return gv.status == VerificationPassed
+}
+
+func (gv *GpuVerifier) Status() VerificationStatus {
+	gv.mu.Lock()
+	defer gv.mu.Unlock()
+	return gv.status
+}

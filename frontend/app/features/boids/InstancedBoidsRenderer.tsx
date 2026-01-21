@@ -8,6 +8,7 @@ import {
   OFFSET_MATRIX_BUFFER_A,
   OFFSET_MATRIX_BUFFER_B,
   IDX_MATRIX_EPOCH,
+  IDX_SYSTEM_VISIBILITY,
   getLayoutConfig,
   type ResourceTier,
 } from '../../../src/wasm/layout';
@@ -176,12 +177,36 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     []
   );
 
-  // Initialize boids population once when system is ready
+  // Initialize boids population and PLUG autonomous loops when system is ready
   useEffect(() => {
     if (status === 'ready') {
-      console.log('[BoidsFlock] Initializing boids population');
+      console.log('[BoidsFlock] Initializing boids and plugging autonomous loops');
+
+      // 1. Init population data (One-time)
       dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
+
+      // 2. PLUG autonomous workers (Zero-rAF Pilot)
+      // These will run in background workers, blocking on IDX_SYSTEM_PULSE
+      dispatch.plug('boids', 'physics', {
+        method: 'step_physics',
+        bird_count: CONFIG.BIRD_COUNT,
+        dt: 1 / 60, // Target DT for physics integration
+      });
+
+      // 3. Compute: Instance Matrix Generation (GPU-Driven)
+      // Offload 100k+ matrix transformations to WebGPU via autonomous gpu.worker
+      dispatch.plug('gpu', 'instance_matrix_gen', {
+        count: CONFIG.BIRD_COUNT,
+        // 64 threads per workgroup in WGSL
+        dispatch: [Math.ceil(CONFIG.BIRD_COUNT / 64), 1, 1],
+        workgroup: [64, 1, 1],
+      });
     }
+
+    return () => {
+      // Shutdown loops on unmount is handled by dispatch.shutdown() generally,
+      // but we could add more granular cleanup if needed.
+    };
   }, [status]);
 
   useEffect(() => {
@@ -211,45 +236,35 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     });
   }, [palette, sharedColors]);
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     // Wait for system to be ready (dispatcher initialized)
     if (status !== 'ready') return;
 
     const sab = (window as any).__INOS_SAB__;
     if (!sab) return;
 
-    // 1. ALWAYS dispatch physics and matrix generation (they update SAB and flip epochs)
-    dispatch
-      .execute('boids', 'step_physics', {
-        bird_count: CONFIG.BIRD_COUNT,
-        dt: delta,
-      })
-      .catch(err => console.error('[BoidsRenderer] Physics step failed:', err));
-
-    dispatch
-      .execute('math', 'compute_instance_matrices', {
-        count: CONFIG.BIRD_COUNT,
-        source_offset: CONFIG.SAB_OFFSET,
-        pivots: [],
-      })
-      .catch(err => console.error('[BoidsRenderer] Matrix compute failed:', err));
-
-    // 2. Check if matrix epoch changed (indicates new data available)
+    // 1. Read signaling state
     if (!flagsRef.current || flagsRef.current.buffer !== sab) {
-      flagsRef.current = new Int32Array(sab, 0, 16);
+      flagsRef.current = new Int32Array(sab, 0, 256); // 1KB flags
     }
     const flags = flagsRef.current;
+
+    // Visibility Check: Pause rendering if system is hidden
+    const isVisible = Atomics.load(flags, IDX_SYSTEM_VISIBILITY) === 1;
+    if (!isVisible) return;
+
     const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // STALL RESILIENCE: If epoch unchanged, skip matrix update (reuse GPU buffer).
-    // Dispatch ALWAYS runs (to drive physics forward), but we only upload to GPU
-    // when new data is ready. This prevents redundant GPU uploads, not stalls.
+    // ZERO-rAF RENDERING:
+    // We NO LONGER dispatch compute here. We only OBSERVE the matrix epoch.
+    // Compute is running autonomously in background workers @ 60 TPS (or 10 in BG).
     // ═══════════════════════════════════════════════════════════════════════════
-    if (matrixEpoch === lastEpochRef.current) {
-      return; // GPU already has latest data, skip redundant upload
+
+    if (Number(matrixEpoch) === lastEpochRef.current) {
+      return; // GPU already has latest data
     }
-    lastEpochRef.current = matrixEpoch;
+    lastEpochRef.current = Number(matrixEpoch);
 
     // 3. Determine which ping-pong buffer to read from
     const isBufferA = Number(matrixEpoch) % 2 === 0;
