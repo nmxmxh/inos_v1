@@ -1,4 +1,3 @@
-use crate::js_interop::Int32Array;
 use crate::sab::SafeSAB;
 
 /// Generic Ring Buffer backed by SharedArrayBuffer
@@ -244,7 +243,7 @@ impl RingBuffer {
         val as u32
     }
 
-    fn store_tail(&self, val: u32) {
+    fn _store_tail(&self, val: u32) {
         let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::TAIL_OFFSET) / 4;
         crate::js_interop::atomic_store(&view_val, idx, val as i32);

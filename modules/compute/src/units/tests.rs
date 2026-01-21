@@ -3,7 +3,6 @@ mod tests {
     use super::super::*;
     use crate::engine::UnitProxy;
     use crate::units::image::ImageUnit;
-    use crate::units::physics::PhysicsEngine;
     use ::image::ImageEncoder;
     use audio::AudioUnit;
     use base64::{engine::general_purpose, Engine as _};
@@ -353,7 +352,7 @@ mod tests {
             *p = ::image::Rgba([255, 0, 0, 255]);
         }
         let mut input = Vec::new();
-        let mut cursor = std::io::Cursor::new(&mut input);
+        let cursor = std::io::Cursor::new(&mut input);
         let encoder = ::image::codecs::png::PngEncoder::new(cursor);
         encoder
             .write_image(&img, 10, 10, ::image::ExtendedColorType::Rgba8)
@@ -387,7 +386,7 @@ mod tests {
 
     // ========== HELPER FUNCTIONS ==========
 
-    fn create_test_arrow_batch() -> Vec<u8> {
+    fn _create_test_arrow_batch() -> Vec<u8> {
         // Create a simple Arrow IPC batch
         // In a real implementation, this would use arrow-rs
         // For now, return a minimal valid IPC message

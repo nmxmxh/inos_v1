@@ -1,0 +1,15 @@
+
+Running 10 tests using 2 workers
+
+  ✓   1 [firefox] › e2e/mesh_telemetry.spec.js:83:3 › INOS Mesh Telemetry & User Insights E2E › should display accurate global metrics from SAB (3.6s)
+  ✓   3 [firefox] › e2e/mesh_telemetry.spec.js:108:3 › INOS Mesh Telemetry & User Insights E2E › should reflect mesh health status via pulse indicator (2.6s)
+  ✓   4 [firefox] › e2e/mesh_telemetry.spec.js:118:3 › INOS Mesh Telemetry & User Insights E2E › should provide descriptive tooltips for layman users (2.5s)
+  ✓   2 [chromium] › e2e/mesh_telemetry.spec.js:83:3 › INOS Mesh Telemetry & User Insights E2E › should display accurate global metrics from SAB (11.2s)
+  ✓   5 [firefox] › e2e/mesh_telemetry.spec.js:140:3 › INOS Mesh Telemetry & User Insights E2E › should navigate to deep dive pages and verify content (4.6s)
+  ✓   7 [firefox] › e2e/mesh_telemetry.spec.js:160:3 › INOS Mesh Telemetry & User Insights E2E › should handle zero-nodes state gracefully (2.5s)
+  ✓   6 [chromium] › e2e/mesh_telemetry.spec.js:108:3 › INOS Mesh Telemetry & User Insights E2E › should reflect mesh health status via pulse indicator (5.9s)
+  ✓   8 [chromium] › e2e/mesh_telemetry.spec.js:118:3 › INOS Mesh Telemetry & User Insights E2E › should provide descriptive tooltips for layman users (10.6s)
+  ✓   9 [chromium] › e2e/mesh_telemetry.spec.js:140:3 › INOS Mesh Telemetry & User Insights E2E › should navigate to deep dive pages and verify content (7.6s)
+  ✓  10 [chromium] › e2e/mesh_telemetry.spec.js:160:3 › INOS Mesh Telemetry & User Insights E2E › should handle zero-nodes state gracefully (7.3s)
+
+  10 passed (43.5s)

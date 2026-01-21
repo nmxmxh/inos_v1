@@ -1228,6 +1228,8 @@ func (t *WebRTCTransport) sendSignalingMessage(message interface{}) error {
 // receiveSignalingMessages handles incoming signaling messages
 func (t *WebRTCTransport) receiveSignalingMessages(s SignalingChannel, url string) {
 	defer func() {
+		_ = s.Close() // Ensure JS callbacks are released
+
 		t.signalingMu.Lock()
 		// Remove this specific channel from the map
 		if current, exists := t.signaling[url]; exists && current == s {

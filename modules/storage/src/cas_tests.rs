@@ -76,7 +76,7 @@ mod cas_tests {
         let engine = StorageEngine::new(&key).expect("Failed to create engine");
 
         let data = b"Original data";
-        let (hash, blob) = engine
+        let (_hash, blob) = engine
             .store_cas_chunk(data)
             .expect("Failed to store CAS chunk");
 

@@ -213,7 +213,6 @@ mod credits_tests {
     #[test]
     fn test_bandwidth_reward_calculation() {
         let incentive = ReplicationIncentive::new();
-        let reward = incentive.calculate_bandwidth_reward(1000);
-        assert!(reward >= 0);
+        let _reward = incentive.calculate_bandwidth_reward(1000);
     }
 }

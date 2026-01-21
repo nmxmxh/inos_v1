@@ -396,6 +396,7 @@
         "str_length",
         "str_to_lowercase",
         "str_to_uppercase",
+        "data",
         "data.transform",
         "data.filter",
         "data.aggregate",
@@ -736,6 +737,7 @@
         "diagnostics.capnp",
         "orchestration.capnp",
         "resource.capnp",
+        "runtime.capnp",
         "sab_layout.capnp",
         "syscall.capnp"
       ]
@@ -889,7 +891,7 @@
       }
     },
     "metrics": {
-      "capability_count": 270,
+      "capability_count": 271,
       "layer_count": 3,
       "protocol_count": 9,
       "unit_count": 10

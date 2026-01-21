@@ -103,11 +103,8 @@ func (s *AnalyticsSupervisor) updateGlobalMetrics() {
 	// Global Ops/Sec - Use Float64 for precision
 	binary.LittleEndian.PutUint64(buf[16:24], math.Float64bits(float64(metrics.GlobalOpsPerSec)))
 
-	// Node Count - Ensure at least 1 if metrics Provider is present
+	// Node Count - Report exactly what the provider gives us
 	nodeCount := metrics.ActiveNodeCount
-	if nodeCount == 0 {
-		nodeCount = 1
-	}
 	binary.LittleEndian.PutUint32(buf[24:28], nodeCount)
 
 	// 3. Write to SAB

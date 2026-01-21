@@ -342,11 +342,11 @@ pub(crate) mod native_mock {
         0.0
     }
 
-    pub fn get_global() -> JsValue {
+    pub fn _get_global() -> JsValue {
         JsValue::UNDEFINED
     }
 
-    pub fn reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
+    pub fn _reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
         Ok(JsValue::UNDEFINED)
     }
 

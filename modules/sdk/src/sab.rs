@@ -47,7 +47,7 @@ where
 type BufferHandle = crate::js_interop::JsValue;
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Default)]
-pub(crate) struct BufferHandle(u32);
+pub(crate) struct BufferHandle(#[allow(dead_code)] u32);
 
 #[cfg(not(target_arch = "wasm32"))]
 unsafe impl Sync for BufferHandle {}
@@ -57,6 +57,7 @@ unsafe impl Send for BufferHandle {}
 /// Safe wrapper around SharedArrayBuffer to prevent data races and ensure memory safety
 #[derive(Clone)]
 pub struct SafeSAB {
+    #[allow(dead_code)]
     pub(crate) buffer: BufferHandle,
     /// Persistent view for memory barriers to prevent JS object bloat
     pub(crate) barrier_view: JsValue,
@@ -99,7 +100,7 @@ impl SafeSAB {
         #[cfg(target_arch = "wasm32")]
         let total_capacity = crate::js_interop::get_byte_length(_buffer) as u32;
         #[cfg(not(target_arch = "wasm32"))]
-        let total_capacity = size;
+        let _total_capacity = size;
 
         // PRE-CACHE full-buffer barrier view for zero-copy efficiency
         // Even for shared views, we use a full-buffer view for barriers to simplify indexing

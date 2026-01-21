@@ -193,15 +193,15 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
       ? Math.floor(metrics.gossipRate * 100)
       : 0;
 
-  const activeNodes = global?.activeNodeCount || displayMetrics.connectedPeers || 1;
+  const activeNodes = global?.activeNodeCount ?? displayMetrics.connectedPeers;
   const totalComputeGFLOPS = global?.totalComputeGFLOPS ?? 0;
   const avgCapability = global?.avgCapability ?? 0;
   const sectorId = displayMetrics.sectorId ?? 0;
   const avgReputation = displayMetrics.avgReputation ?? 0;
 
   // Mesh Health logic
-  const successRate = displayMetrics.successRate || 1.0;
-  const p50 = displayMetrics.p50Latency || 0;
+  const successRate = displayMetrics.successRate ?? 1.0;
+  const p50 = displayMetrics.p50Latency ?? 0;
   const healthStatus: 'good' | 'fair' | 'poor' =
     successRate > 0.98 && p50 < 100 ? 'good' : successRate > 0.9 ? 'fair' : 'poor';
 
@@ -228,6 +228,7 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
           }}
         >
           <Style.PulseIndicator
+            data-testid="health-pulse"
             $active={!!global || displayMetrics.meshActive}
             $health={healthStatus}
           />
@@ -248,6 +249,7 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
 
       <Style.Metric
         data-testid="metric-ops"
+        data-value={opsPerSecond}
         title="Total Network Throughput — Aggregated operations per second across the entire mesh"
       >
         <Style.Label>Net Ops/s</Style.Label>
@@ -256,6 +258,7 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
 
       <Style.HiddenMetric
         data-testid="metric-cap"
+        data-value={totalComputeGFLOPS}
         title="Total Compute Power — Combined compute capacity across active nodes"
       >
         <Style.Label>Cap</Style.Label>
@@ -264,6 +267,7 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
 
       <Style.HiddenMetric
         data-testid="metric-avg"
+        data-value={avgCapability}
         title="Average Capability — Mean compute capacity per active node"
       >
         <Style.Label>Avg</Style.Label>
@@ -272,6 +276,7 @@ export function MeshMetricsBar({ onClick }: { onClick?: () => void }) {
 
       <Style.Metric
         data-testid="metric-nodes"
+        data-value={activeNodes}
         title="Participating Nodes — Number of independent devices currently collaborating in your regional mesh"
       >
         <Style.Label>Nodes</Style.Label>

@@ -953,7 +953,7 @@ mod tests {
         let sab_inner = sdk::sab::SafeSAB::with_size(sab_size);
         crate::set_cached_sab(sab_inner.clone());
 
-        const BYTES_PER_BIRD: usize = sdk::layout::BIRD_STRIDE;
+        const _BYTES_PER_BIRD: usize = sdk::layout::BIRD_STRIDE;
         let count = 2;
         let source_offset = sdk::layout::OFFSET_BIRD_BUFFER_A;
         let target_offset = sdk::layout::OFFSET_MATRIX_BUFFER_B;

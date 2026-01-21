@@ -18,6 +18,7 @@ type wasmSignalingChannel struct {
 	onClose   js.Func
 	onError   js.Func
 	onOpen    js.Func
+	closeOnce sync.Once
 }
 
 func dialSignaling(ctx context.Context, url string) (SignalingChannel, error) {
@@ -126,21 +127,28 @@ func (w *wasmSignalingChannel) Receive() ([]byte, error) {
 }
 
 func (w *wasmSignalingChannel) Close() error {
-	// 1. Null out callbacks FIRST to prevent "call to released function"
-	w.ws.Set("onmessage", js.Null())
-	w.ws.Set("onclose", js.Null())
-	w.ws.Set("onerror", js.Null())
-	w.ws.Set("onopen", js.Null())
+	w.closeOnce.Do(func() {
+		// 1. Null out callbacks FIRST to prevent "call to released function"
+		w.ws.Set("onmessage", js.Null())
+		w.ws.Set("onclose", js.Null())
+		w.ws.Set("onerror", js.Null())
+		w.ws.Set("onopen", js.Null())
 
-	// 2. Release Go functions
-	w.onMessage.Release()
-	w.onClose.Release()
-	w.onError.Release()
-	// onOpen might have been released already, but double-release is usually a panic in Go WASM
-	// so we check if it was initialized or manage it better.
-	// Actually, in dialSignaling we release it on success.
+		// 2. Release Go functions
+		w.onMessage.Release()
+		w.onClose.Release()
+		w.onError.Release()
 
-	w.ws.Call("close")
+		// 3. Close WebSocket
+		w.ws.Call("close")
+
+		// 4. Ensure closed channel is triggered
+		select {
+		case <-w.closed:
+		default:
+			close(w.closed)
+		}
+	})
 	return nil
 }
 

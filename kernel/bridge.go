@@ -45,12 +45,13 @@ func jsInitializeSharedMemory(this js.Value, args []js.Value) interface{} {
 	// In the Twin pattern, we ignore the JS-provided offset (grounding pointer)
 	// and allocate our own local replica of the requested size.
 	size := uint32(args[1].Int())
-	go func() {
-		// Pass nil for ptr as it's no longer needed for grounding
-		if err := kernelInstance.InjectSAB(nil, size); err != nil {
-			kernelInstance.logger.Error("InjectSAB failed", utils.Err(err))
-		}
-	}()
+
+	// FIX: Synchronous InjectSAB ensures the JS worker receives the success/error
+	// strictly AFTER the kernel is ready for signaling.
+	if err := kernelInstance.InjectSAB(nil, size); err != nil {
+		kernelInstance.logger.Error("InjectSAB failed", utils.Err(err))
+		return js.ValueOf(map[string]interface{}{"error": err.Error()})
+	}
 
 	return js.ValueOf(map[string]interface{}{"success": true})
 }
