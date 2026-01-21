@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: Credits & Economy
+ * INOS Technical Codex — Deep Dive: Credits & Economy (Chapter 07)
  *
  * A comprehensive exploration of the participation-first economy: UBI,
  * identity, social graphs, and gamification. Explains how INOS achieves
@@ -827,7 +827,7 @@ function GamificationTiersDiagram() {
 export function Economy() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 06 // Economic Mesh Ledger</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 07 // Economic Mesh Ledger</Style.SectionTitle>
       <Style.PageTitle>Storage That Pays for Itself</Style.PageTitle>
 
       <Style.LeadParagraph>
@@ -1212,8 +1212,8 @@ func (cs *CreditSupervisor) ProcessUBIDrip(epoch uint64) {
       </Style.ContentCard>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/mesh', title: 'Distributed P2P Mesh' }}
-        next={{ to: '/deep-dives/threads', title: 'Supervisor Threads' }}
+        prev={{ title: 'Distributed P2P Mesh', to: '/deep-dives/mesh' }}
+        next={{ title: 'Supervisor Threads', to: '/deep-dives/threads' }}
       />
     </Style.BlogContainer>
   );

@@ -300,7 +300,7 @@ const Style = {
     style: {
       '--meter-width': `${props.$percent}%`,
       '--meter-color': props.$color || '#8b5cf6',
-    } as React.CSSProperties,
+    } as React.CSSProperties & Record<string, string>,
   }))<{ $percent: number; $color?: string }>`
     height: 4px;
     background: rgba(0, 0, 0, 0.1);
@@ -1321,7 +1321,7 @@ impl SafeSAB {
 
       <ChapterNav
         prev={{ to: '/deep-dives/performance', title: 'System Performance' }}
-        next={{ to: '/deep-dives/signaling', title: 'Epoch Signaling' }}
+        next={{ to: '/deep-dives/capn-proto', title: 'Capn Proto Schema DNA' }}
       />
     </Style.BlogContainer>
   );

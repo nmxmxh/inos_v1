@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: The Persistence Paradox
+ * INOS Technical Codex — Deep Dive: The Persistence Paradox (Chapter 10)
  *
  * A deep exploration of the INOS storage backbone.
  * Focusing on 1MB Hashing, Double Compression, and Tiered Persistence.
@@ -936,7 +936,7 @@ function TieredConvergenceMap() {
 export function Database() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 09 // Persistence Paradox</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 10 // Persistence Paradox</Style.SectionTitle>
       <Style.PageTitle>Cellular Memory: Tiered Convergence</Style.PageTitle>
       <Style.LeadParagraph>
         Human memory is layered: the immediate flash of awareness, the short-term working space, and
@@ -1252,8 +1252,8 @@ export function Database() {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/graphics', title: 'Graphics Pipeline' }}
-        next={{ to: '/cosmos', title: '04. The Cosmos' }}
+        prev={{ title: 'Graphics Pipeline', to: '/deep-dives/graphics' }}
+        next={{ title: 'Epilogue: Project History', to: '/history' }}
       />
     </Style.BlogContainer>
   );

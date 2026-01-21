@@ -1378,6 +1378,10 @@ export function Architecture() {
             <Style.DeepDiveTitle $color="#10b981">Database & Storage</Style.DeepDiveTitle>
             <Style.DeepDiveDesc>OPFS + BLAKE3 content addressing</Style.DeepDiveDesc>
           </Style.DeepDiveLink>
+          <Style.DeepDiveLink to="/deep-dives/capn-proto" $color="#059669">
+            <Style.DeepDiveTitle $color="#059669">Cap'n Proto Schema DNA</Style.DeepDiveTitle>
+            <Style.DeepDiveDesc>Schema-first memory alignment</Style.DeepDiveDesc>
+          </Style.DeepDiveLink>
         </Style.DeepDiveGrid>
       </Style.ContentCard>
 

@@ -1036,7 +1036,12 @@ func (t *WebRTCTransport) connectSignaling() error {
 		return errors.New("no signaling servers configured")
 	}
 
-	t.logger.Info("dialing signaling servers", "servers", servers)
+	// Downgrade log level for retries to avoid console spam
+	if t.reconnecting.Load() {
+		t.logger.Debug("dialing signaling servers (retry)", "servers", servers)
+	} else {
+		t.logger.Info("dialing signaling servers", "servers", servers)
+	}
 
 	// Create a context for this attempt that times out across all server dials
 	ctx, cancel := context.WithTimeout(context.Background(), t.config.ConnectionTimeout)
@@ -1148,28 +1153,39 @@ func (t *WebRTCTransport) reconnectSignaling() {
 	}
 	defer t.reconnecting.Store(false)
 
-	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
+	backoff := 5 * time.Second
+	maxBackoff := 60 * time.Second
+	attempts := 0
 
 	for {
 		select {
 		case <-t.shutdown:
 			return
 		default:
+			attempts++
 			if err := t.connectSignaling(); err == nil {
 				return // Successfully reconnected
 			}
 
-			t.logger.Warn("signaling reconnect failed, backoff starting",
-				"delay", backoff,
-			)
+			// Downgrade log level after first few failures to keep console clean
+			if attempts <= 3 {
+				t.logger.Warn("signaling reconnect failed, backoff starting",
+					"attempt", attempts,
+					"delay", backoff,
+				)
+			} else {
+				t.logger.Debug("signaling reconnect still failing",
+					"attempt", attempts,
+					"delay", backoff,
+				)
+			}
 
 			select {
 			case <-t.shutdown:
 				return
 			case <-time.After(t.applyJitter(backoff)):
-				// Exponential increase
-				backoff = time.Duration(float64(backoff) * 1.5)
+				// Exponential increase (using 2x for faster ramp but higher cap)
+				backoff = time.Duration(float64(backoff) * 2.0)
 				if backoff > maxBackoff {
 					backoff = maxBackoff
 				}

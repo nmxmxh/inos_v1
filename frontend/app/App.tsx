@@ -34,6 +34,7 @@ import {
   Database,
   Atomics,
   Performance,
+  CapnProto,
 } from './pages/DeepDives';
 import Diagnostics from './pages/Diagnostics';
 import ArchitecturalBoids from './features/boids/ArchitecturalBoids';
@@ -158,15 +159,16 @@ export default function App() {
               <Route path="diagnostics" element={<Diagnostics />} />
               {/* Deep Dives */}
               <Route path="deep-dives">
+                <Route path="performance" element={<Performance />} />
                 <Route path="zero-copy" element={<ZeroCopy />} />
+                <Route path="capn-proto" element={<CapnProto />} />
                 <Route path="signaling" element={<Signaling />} />
+                <Route path="atomics" element={<Atomics />} />
                 <Route path="mesh" element={<Mesh />} />
                 <Route path="economy" element={<Economy />} />
                 <Route path="threads" element={<Threads />} />
                 <Route path="graphics" element={<Graphics />} />
                 <Route path="database" element={<Database />} />
-                <Route path="atomics" element={<Atomics />} />
-                <Route path="performance" element={<Performance />} />
               </Route>
             </Route>
           </Routes>

@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: Graphics Pipeline
+ * INOS Technical Codex — Deep Dive: Graphics Pipeline (Chapter 09)
  *
  * A stunning exploration of zero-copy SAB architecture and WebGPU-capable
  * rendering. Integrates a procedural Terrain background with Architectural Boids
@@ -854,7 +854,7 @@ export default function Graphics() {
 
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 08 // Graphics Pipeline</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 09 // Graphics Pipeline</Style.SectionTitle>
       <Style.PageTitle>The Light Path: From Compute to Retina</Style.PageTitle>
 
       <Style.LeadParagraph>
@@ -1268,8 +1268,8 @@ pub fn validate_shader(&self, shader_code: &str) -> Result<ShaderAnalysis> {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/threads', title: 'Supervisor Threads' }}
-        next={{ to: '/deep-dives/database', title: 'Database & Storage' }}
+        prev={{ title: 'Supervisor Threads', to: '/deep-dives/threads' }}
+        next={{ title: 'Database & Storage', to: '/deep-dives/database' }}
       />
     </Style.BlogContainer>
   );

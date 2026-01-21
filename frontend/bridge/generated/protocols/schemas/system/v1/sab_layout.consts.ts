@@ -279,80 +279,104 @@ export const IDX_STORAGE_EPOCH = 6 as const;
 /** System updates */
 export const IDX_SYSTEM_EPOCH = 7 as const;
 
+/** Global high-precision pulse */
+export const IDX_SYSTEM_PULSE = 8 as const;
+
+/** 1 = Visible, 0 = Hidden */
+export const IDX_SYSTEM_VISIBILITY = 9 as const;
+
+/** 0 = Low, 1 = Normal, 2 = High */
+export const IDX_SYSTEM_POWER_STATE = 10 as const;
+
+/** idxReservedPulse1 */
+export const IDX_RESERVED_PULSE1 = 11 as const;
+
+/** idxReservedPulse2 */
+export const IDX_RESERVED_PULSE2 = 12 as const;
+
+/** idxReservedPulse3 */
+export const IDX_RESERVED_PULSE3 = 13 as const;
+
+/** idxReservedPulse4 */
+export const IDX_RESERVED_PULSE4 = 14 as const;
+
+/** idxReservedPulse5 */
+export const IDX_RESERVED_PULSE5 = 15 as const;
+
 /** Arena bump pointer (atomic) */
-export const IDX_ARENA_ALLOCATOR = 8 as const;
+export const IDX_ARENA_ALLOCATOR = 16 as const;
 
 /** Mutex for outbox synchronization (unused) */
-export const IDX_OUTBOX_MUTEX = 9 as const;
+export const IDX_OUTBOX_MUTEX = 17 as const;
 
 /** Mutex for inbox synchronization (unused) */
-export const IDX_INBOX_MUTEX = 10 as const;
+export const IDX_INBOX_MUTEX = 18 as const;
 
 /** Metrics updated */
-export const IDX_METRICS_EPOCH = 11 as const;
+export const IDX_METRICS_EPOCH = 19 as const;
 
 /** Bird physics complete */
-export const IDX_BIRD_EPOCH = 12 as const;
+export const IDX_BIRD_EPOCH = 20 as const;
 
 /** Matrix generation complete */
-export const IDX_MATRIX_EPOCH = 13 as const;
+export const IDX_MATRIX_EPOCH = 21 as const;
 
 /** Active buffer (0=A, 1=B) */
-export const IDX_PINGPONG_ACTIVE = 14 as const;
+export const IDX_PINGPONG_ACTIVE = 22 as const;
 
 /** Module registration signal */
-export const IDX_REGISTRY_EPOCH = 15 as const;
+export const IDX_REGISTRY_EPOCH = 23 as const;
 
 /** Boids evolution complete */
-export const IDX_EVOLUTION_EPOCH = 16 as const;
+export const IDX_EVOLUTION_EPOCH = 24 as const;
 
 /** Health metrics updated */
-export const IDX_HEALTH_EPOCH = 17 as const;
+export const IDX_HEALTH_EPOCH = 25 as const;
 
 /** Pattern learning complete */
-export const IDX_LEARNING_EPOCH = 18 as const;
+export const IDX_LEARNING_EPOCH = 26 as const;
 
 /** Credit settlement needed */
-export const IDX_ECONOMY_EPOCH = 19 as const;
+export const IDX_ECONOMY_EPOCH = 27 as const;
 
 /** Active bird count (mutable) */
-export const IDX_BIRD_COUNT = 20 as const;
+export const IDX_BIRD_COUNT = 28 as const;
 
 /** Global diagnostics complete */
-export const IDX_GLOBAL_METRICS_EPOCH = 21 as const;
+export const IDX_GLOBAL_METRICS_EPOCH = 29 as const;
 
 /** Signal from Module to Kernel (Syscalls) */
-export const IDX_OUTBOX_KERNEL_DIRTY = 22 as const;
-
-/** Remote job delegation complete */
-export const IDX_DELEGATED_JOB_EPOCH = 23 as const;
-
-/** Local user job complete */
-export const IDX_USER_JOB_EPOCH = 24 as const;
-
-/** Remote chunk fetch/store complete */
-export const IDX_DELEGATED_CHUNK_EPOCH = 25 as const;
-
-/** Mesh event stream updated */
-export const IDX_MESH_EVENT_EPOCH = 26 as const;
-
-/** Consumer head (monotonic) */
-export const IDX_MESH_EVENT_HEAD = 27 as const;
-
-/** Producer tail (monotonic) */
-export const IDX_MESH_EVENT_TAIL = 28 as const;
-
-/** Dropped event counter */
-export const IDX_MESH_EVENT_DROPPED = 29 as const;
+export const IDX_OUTBOX_KERNEL_DIRTY = 30 as const;
 
 /** Hash of initialization context ID */
 export const IDX_CONTEXT_ID_HASH = 31 as const;
 
-/** supervisorPoolBase */
-export const SUPERVISOR_POOL_BASE = 32 as const;
+/** Remote job delegation complete */
+export const IDX_DELEGATED_JOB_EPOCH = 32 as const;
 
-/** Supports 96 supervisors */
-export const SUPERVISOR_POOL_SIZE = 96 as const;
+/** Local user job complete */
+export const IDX_USER_JOB_EPOCH = 33 as const;
+
+/** Remote chunk fetch/store complete */
+export const IDX_DELEGATED_CHUNK_EPOCH = 34 as const;
+
+/** Mesh event stream updated */
+export const IDX_MESH_EVENT_EPOCH = 35 as const;
+
+/** Consumer head (monotonic) */
+export const IDX_MESH_EVENT_HEAD = 36 as const;
+
+/** Producer tail (monotonic) */
+export const IDX_MESH_EVENT_TAIL = 37 as const;
+
+/** Dropped event counter */
+export const IDX_MESH_EVENT_DROPPED = 38 as const;
+
+/** supervisorPoolBase */
+export const SUPERVISOR_POOL_BASE = 64 as const;
+
+/** Supports 128 supervisors */
+export const SUPERVISOR_POOL_SIZE = 128 as const;
 
 /** reservedPoolBase */
 export const RESERVED_POOL_BASE = 128 as const;
@@ -462,6 +486,14 @@ export const CONSTS = {
   IDX_ACTOR_EPOCH,
   IDX_STORAGE_EPOCH,
   IDX_SYSTEM_EPOCH,
+  IDX_SYSTEM_PULSE,
+  IDX_SYSTEM_VISIBILITY,
+  IDX_SYSTEM_POWER_STATE,
+  IDX_RESERVED_PULSE1,
+  IDX_RESERVED_PULSE2,
+  IDX_RESERVED_PULSE3,
+  IDX_RESERVED_PULSE4,
+  IDX_RESERVED_PULSE5,
   IDX_ARENA_ALLOCATOR,
   IDX_OUTBOX_MUTEX,
   IDX_INBOX_MUTEX,
@@ -477,6 +509,7 @@ export const CONSTS = {
   IDX_BIRD_COUNT,
   IDX_GLOBAL_METRICS_EPOCH,
   IDX_OUTBOX_KERNEL_DIRTY,
+  IDX_CONTEXT_ID_HASH,
   IDX_DELEGATED_JOB_EPOCH,
   IDX_USER_JOB_EPOCH,
   IDX_DELEGATED_CHUNK_EPOCH,
@@ -484,7 +517,6 @@ export const CONSTS = {
   IDX_MESH_EVENT_HEAD,
   IDX_MESH_EVENT_TAIL,
   IDX_MESH_EVENT_DROPPED,
-  IDX_CONTEXT_ID_HASH,
   SUPERVISOR_POOL_BASE,
   SUPERVISOR_POOL_SIZE,
   RESERVED_POOL_BASE,

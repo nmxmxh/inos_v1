@@ -19,11 +19,14 @@ declare const self: DedicatedWorkerGlobalScope;
 import { WasmHeap } from './heap';
 import { createBaseEnv, createPlaceholders } from './bridge';
 import { INOSBridge } from './bridge-state';
+import { IDX_SYSTEM_PULSE } from './layout';
 
 // Worker-scoped state
 let _memory: WebAssembly.Memory | null = null;
 let _modules: Record<string, ModuleExports> = {};
 let _dispatcher: WorkerDispatcher | null = null;
+let _isLooping = false;
+let _loopParams: any = {};
 
 interface ModuleExports {
   exports: WebAssembly.Exports;
@@ -326,7 +329,9 @@ self.onmessage = async (event: MessageEvent<any>) => {
         (self as any).__INOS_SAB__ = sab;
         (self as any).__INOS_SAB_OFFSET__ = sabOffset || 0;
         (self as any).__INOS_SAB_SIZE__ = sabSize || sab.byteLength;
-        (self as any).__INOS_SAB_INT32__ = INOSBridge.getFlagsView();
+
+        // Ensure flags view is large enough for all system indices (at least 32 elements)
+        (self as any).__INOS_SAB_INT32__ = new Int32Array(sab, sabOffset || 0, 32);
         if (identity) {
           (self as any).__INOS_IDENTITY__ = identity;
           if (typeof identity.nodeId === 'string') {
@@ -354,18 +359,39 @@ self.onmessage = async (event: MessageEvent<any>) => {
         break;
       }
 
-      case 'execute': {
+      case 'start_role_loop': {
         if (!_dispatcher) throw new Error('Dispatcher not initialized');
-        const { library, method, params } = event.data;
-        const result = _dispatcher.execute(library, method, params || {});
-        if (method === 'step_physics' && (self as any).__INOS_DEBUG_COMPUTE__) {
-          console.log(`[ComputeWorker] ✅ ${method} finished (id: ${id})`);
+        const { role, params } = event.data;
+        _loopParams = { ...params, role };
+        _isLooping = true;
+
+        runAutonomousLoop();
+        break;
+      }
+
+      case 'execute': {
+        const { id, library, method, params } = event.data;
+        if (!_dispatcher) {
+          self.postMessage({ type: 'error', id, error: 'Dispatcher not initialized' });
+          return;
         }
-        self.postMessage({ type: 'result', id, result });
+
+        try {
+          const result = _dispatcher.execute(library, method, params);
+          self.postMessage({ type: 'result', id, result });
+        } catch (e) {
+          self.postMessage({ type: 'error', id, error: (e as Error).message });
+        }
+        break;
+      }
+
+      case 'stop_loop': {
+        _isLooping = false;
         break;
       }
 
       case 'shutdown': {
+        _isLooping = false;
         _modules = {};
         _dispatcher = null;
         _memory = null;
@@ -384,5 +410,53 @@ self.onmessage = async (event: MessageEvent<any>) => {
     });
   }
 };
+
+/**
+ * The Autonomous Loop
+ * Zero-CPU idling via Atomics.wait on the system pulse.
+ */
+async function runAutonomousLoop() {
+  if (!_dispatcher) return;
+
+  const { library, method } = _loopParams;
+
+  if (!library || !method) {
+    console.error(
+      '[ComputeWorker] Autonomous loop aborted: missing library or method',
+      _loopParams
+    );
+    _isLooping = false;
+    return;
+  }
+
+  console.log(`[ComputeWorker] Starting autonomous loop for ${library}:${method}`);
+
+  while (_isLooping) {
+    const flags = INOSBridge.getFlagsView();
+    if (!flags) {
+      // Wait a bit if flags aren't ready yet
+      await new Promise(r => setTimeout(r, 100));
+      continue;
+    }
+
+    // 1. Get current pulse
+    const lastPulse = Atomics.load(flags, IDX_SYSTEM_PULSE);
+
+    // 2. Execute the unit logic
+    // The dispatcher handles SAB mutation and epoch flipping
+    try {
+      _dispatcher.execute(library, method, _loopParams);
+    } catch (e) {
+      console.error(`[ComputeWorker] Loop error in ${library}:${method}:`, e);
+      _isLooping = false;
+      break;
+    }
+
+    // 3. PARK until the next pulse (Zero-CPU idling)
+    Atomics.wait(flags, IDX_SYSTEM_PULSE, lastPulse);
+  }
+
+  console.log(`[ComputeWorker] Autonomous loop stopped`);
+}
 
 export {};

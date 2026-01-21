@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: Supervisor Threads
+ * INOS Technical Codex — Deep Dive: Supervisor Threads (Chapter 08)
  *
  * A comprehensive exploration of the actor model, supervisor hierarchy,
  * and intelligent thread orchestration. Explains how INOS achieves
@@ -878,7 +878,7 @@ function JobExecutionFlowDiagram() {
 export function Threads() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 07 // Supervisor Threads</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 08 // Supervisor Threads</Style.SectionTitle>
       <Style.PageTitle>Autonomous Intent, Orchestrated</Style.PageTitle>
 
       <Style.LeadParagraph>
@@ -1299,8 +1299,8 @@ func (us *UnifiedSupervisor) exampleLoop() {
       </Style.ContentCard>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/economy', title: 'Economic Mesh Ledger' }}
-        next={{ to: '/deep-dives/graphics', title: 'Graphics Pipeline' }}
+        prev={{ title: 'Economic Mesh Ledger', to: '/deep-dives/economy' }}
+        next={{ title: 'Graphics Pipeline', to: '/deep-dives/graphics' }}
       />
     </Style.BlogContainer>
   );

@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: P2P Mesh
+ * INOS Technical Codex — Deep Dive: P2P Mesh (Chapter 06)
  *
  * A comprehensive exploration of peer-to-peer networking, distributed storage,
  * and shared compute. Explains how INOS achieves decentralized resilience.
@@ -1221,7 +1221,7 @@ export function Mesh() {
 
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 05 // Distributed P2P Mesh</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 06 // Distributed P2P Mesh</Style.SectionTitle>
       <Style.PageTitle>Trust, Verified by the Network</Style.PageTitle>
 
       <Style.LeadParagraph>
@@ -1724,8 +1724,8 @@ interface P2PMesh {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ to: '/deep-dives/atomics', title: 'Atomics & Shared Memory' }}
-        next={{ to: '/deep-dives/economy', title: 'Economic Mesh Ledger' }}
+        prev={{ title: 'Memory Paradigms', to: '/deep-dives/atomics' }}
+        next={{ title: 'Economic Mesh Ledger', to: '/deep-dives/economy' }}
       />
     </Style.BlogContainer>
   );

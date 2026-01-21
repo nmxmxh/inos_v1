@@ -1,4 +1,4 @@
-import { getSAB, getMemory, getOffset } from './bridge-state';
+import { getSAB, getMemory } from './bridge-state';
 import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from './layout';
 
 // Vite worker import syntax
@@ -64,12 +64,15 @@ export class Dispatcher {
    * Supports 'parallel: n' to spawn a pool for multi-core processing.
    */
   async plug(unit: string, role: string, params: any = {}): Promise<WorkerRef[]> {
-    const sab = getSAB();
     const memory = getMemory();
-    const offset = getOffset();
+    const sab = getSAB();
 
-    if (!sab || !memory) {
-      throw new Error('[Dispatch] Cannot plug unit: SAB or Memory not initialized');
+    if (!sab) {
+      // Fallback to global if bridge-state hasn't synchronized yet
+      const globalSab = (window as any).__INOS_SAB__;
+      if (!globalSab) {
+        throw new Error('[Dispatch] Cannot plug unit: SAB or Memory not initialized');
+      }
     }
 
     const parallel = params.parallel || 1;
@@ -147,10 +150,10 @@ export class Dispatcher {
 
       worker.postMessage({
         type: 'init',
-        sab,
-        memory,
-        sabOffset: offset,
-        sabSize: sab.byteLength,
+        sab: sab || (window as any).__INOS_SAB__,
+        memory: memory,
+        sabOffset: (sab ? 0 : (window as any).__INOS_SAB_OFFSET__) || 0,
+        sabSize: (sab || (window as any).__INOS_SAB__)?.byteLength || 0,
         role,
       });
 

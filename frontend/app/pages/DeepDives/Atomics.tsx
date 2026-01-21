@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: Atomic Operations
+ * INOS Technical Codex — Deep Dive: Atomic Operations (Chapter 05)
  *
  * A comprehensive exploration of atomic operations, lock-free concurrency,
  * memory ordering, and how INOS leverages hardware guarantees for
@@ -265,7 +265,7 @@ const Style = {
     style: {
       '--meter-width': `${props.$percent}%`,
       '--meter-color': props.$color || '#8b5cf6',
-    } as React.CSSProperties,
+    } as React.CSSProperties & Record<string, string>,
   }))<{ $percent: number; $color?: string }>`
     height: 4px;
     background: rgba(0, 0, 0, 0.1);
@@ -1064,7 +1064,7 @@ function AtomicsTelemetry() {
 export default function AtomicsPage() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 04 // Atomics & Shared Memory</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 05 // Atomics & Shared Memory</Style.SectionTitle>
       <Style.PageTitle>Coordination Without Contention</Style.PageTitle>
 
       <Style.LeadParagraph>

@@ -30,7 +30,7 @@ const Style = {
 
   BangTitle: styled(motion.h1)`
     font-family: ${p => p.theme.fonts.main};
-    font-size: clamp(2rem, 8vw, 4.5rem);
+    font-size: clamp(1rem, 3.5vw, 1.8rem);
     font-weight: 900;
     line-height: 0.95;
     letter-spacing: -0.04em;
@@ -69,9 +69,9 @@ const Style = {
   ShiftCard: styled.div<{ $variant?: 'legacy' | 'inos' }>`
     padding: ${p => p.theme.spacing[8]};
     border-radius: 12px;
-    background: ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.05)' : 'rgba(0,0,0,0.02)')};
+    background: ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.25)' : 'rgba(0,0,0,0.15)')};
     border: 1px solid
-      ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.2)' : 'rgba(0,0,0,0.05)')};
+      ${p => (p.$variant === 'inos' ? 'rgba(139, 92, 246, 0.6)' : 'rgba(0,0,0,0.4)')};
     position: relative;
     overflow: hidden;
 
@@ -83,15 +83,27 @@ const Style = {
       font-family: ${p => p.theme.fonts.typewriter};
       font-size: 8px;
       font-weight: 800;
-      opacity: 0.5;
+      opacity: 0.7;
       letter-spacing: 0.1em;
     }
 
     h4 {
       margin-top: 0;
+      font-size: 1.2rem;
+      font-weight: 900;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: ${p => (p.$variant === 'inos' ? p.theme.colors.accent : 'inherit')};
+    }
+
+    p {
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1.6;
+    }
+
+    li {
+      font-weight: 700;
     }
   `,
 
@@ -473,21 +485,14 @@ export function Landing() {
       >
         <Style.Subtitle>Phase 1: Experimental Research System (Alpha)</Style.Subtitle>
         <Style.BangTitle>
-          The Browser is no longer <span>a document viewer.</span>
+          The browser is finally growing up.{' '}
+          <span>Building the systems of tomorrow on a deeper, more empathetic architecture.</span>
         </Style.BangTitle>
-
-        <Style.LeadParagraph>
-          <strong>
-            INOS is the first experimental distributed operating system that turns your browser into
-            a high-performance compute node in a global mesh network. This is a visionary overhaul
-            of the web.
-          </strong>
-        </Style.LeadParagraph>
 
         <Style.ShiftGrid>
           <Style.ShiftCard $variant="legacy">
-            <h4 style={{ color: '#666' }}>The Millisecond World</h4>
-            <p style={{ fontSize: '0.9rem', color: '#666' }}>
+            <h4 style={{ color: '#444' }}>The Millisecond World</h4>
+            <p style={{ color: '#444' }}>
               Traditional web apps are trapped in a cycle of <strong>Request-Response</strong>. Data
               is copied, serialized, and sent over high-latency sockets.
             </p>
@@ -501,7 +506,7 @@ export function Landing() {
 
           <Style.ShiftCard $variant="inos">
             <h4>The Microsecond World</h4>
-            <p style={{ fontSize: '0.9rem' }}>
+            <p>
               INOS communicates via <strong>Hardware Signaling</strong>. Threads sleep at the
               hardware level, waking for signals in nanoseconds.
             </p>
@@ -546,12 +551,27 @@ export function Landing() {
 
         <ScrollReveal variant="fade">
           <h3>The Great Shift: From Viewers to Neurons</h3>
-          <p style={{ fontSize: '1.1rem', lineHeight: 1.7 }}>
-            We have reclaimed the lost compute of the web. By moving synchronization from the
-            application layer to the <strong>hardware memory layer</strong>, INOS achieves
-            performance figures that were previously impossible in a browser. This isn't just faster
-            code; it's a fundamental re-architecture of the internet substrate.
-          </p>
+          <div style={{ fontSize: '1rem', lineHeight: 1.7, color: '#4b5563' }}>
+            <p>
+              <strong>The Shift:</strong> We are turning the browser from a passive document viewer
+              into an active "neuron" in a global supercomputer.
+            </p>
+            <p>
+              <strong>The Why:</strong> Most modern software wastes over 60% of its power just
+              translating data between different parts of the system. By eliminating this waste, we
+              reclaim that compute power for much more complex, meaningful work.
+            </p>
+            <p>
+              <strong>The How:</strong> We moved the synchronization out of the software and onto
+              the hardware memory layer. Using a shared memory pool allows Go, Rust, and TypeScript
+              to work on the exact same data at the exact same time, without ever making a copy.
+            </p>
+            <p style={{ fontSize: '0.85rem', fontStyle: 'italic', marginTop: '1.5rem' }}>
+              Note: The performance figures shown below—such as our 43.2x speedup in memory
+              throughput—are derived from verified benchmark tests of our core system, not marketing
+              estimates.
+            </p>
+          </div>
         </ScrollReveal>
 
         <Style.BentoBox>
@@ -711,6 +731,13 @@ export function Landing() {
                 <Style.DeepDiveTitle $color="#f59e0b">Economic Mesh Ledger</Style.DeepDiveTitle>
                 <Style.DeepDiveDesc>
                   Sub-microsecond settlement for distributed compute and storage tiers.
+                </Style.DeepDiveDesc>
+              </Style.DeepDiveLink>
+
+              <Style.DeepDiveLink to="/deep-dives/capn-proto" $color="#059669">
+                <Style.DeepDiveTitle $color="#059669">Cap'n Proto Schema DNA</Style.DeepDiveTitle>
+                <Style.DeepDiveDesc>
+                  Zero-cost serialization and random access for Shared Memory Twins.
                 </Style.DeepDiveDesc>
               </Style.DeepDiveLink>
             </div>

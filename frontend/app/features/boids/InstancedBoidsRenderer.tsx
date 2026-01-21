@@ -176,11 +176,27 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     []
   );
 
-  // Initialize boids population once when system is ready
   useEffect(() => {
     if (status === 'ready') {
-      console.log('[BoidsFlock] Initializing boids population');
+      console.log('[BoidsFlock] Initializing boids population and plugging workers');
       dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
+
+      // Plug Boids Physics into an autonomous worker
+      dispatch.plug('boids', 'simulation', {
+        bird_count: CONFIG.BIRD_COUNT,
+        dt: 0.016, // Fixed DT for autonomous loop (approx 60fps)
+        library: 'boids',
+        method: 'step_physics',
+      });
+
+      // Plug Matrix Compute into another autonomous worker
+      dispatch.plug('math', 'projection', {
+        count: CONFIG.BIRD_COUNT,
+        source_offset: CONFIG.SAB_OFFSET,
+        pivots: [],
+        library: 'math',
+        method: 'compute_instance_matrices',
+      });
     }
   }, [status]);
 
@@ -211,32 +227,19 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
     });
   }, [palette, sharedColors]);
 
-  useFrame((_, delta) => {
-    // Wait for system to be ready (dispatcher initialized)
-    if (status !== 'ready') return;
+  useFrame(_ => {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // DECOUPLED COMPUTE: Physics and Matrix generation now run in autonomous workers.
+    // They wait on the high-precision PulseWorker (Zero-CPU idling).
+    // React only handles GPU synchronization when epochs flip.
+    // ═══════════════════════════════════════════════════════════════════════════
 
     const sab = (window as any).__INOS_SAB__;
     if (!sab) return;
 
-    // 1. ALWAYS dispatch physics and matrix generation (they update SAB and flip epochs)
-    dispatch
-      .execute('boids', 'step_physics', {
-        bird_count: CONFIG.BIRD_COUNT,
-        dt: delta,
-      })
-      .catch(err => console.error('[BoidsRenderer] Physics step failed:', err));
-
-    dispatch
-      .execute('math', 'compute_instance_matrices', {
-        count: CONFIG.BIRD_COUNT,
-        source_offset: CONFIG.SAB_OFFSET,
-        pivots: [],
-      })
-      .catch(err => console.error('[BoidsRenderer] Matrix compute failed:', err));
-
     // 2. Check if matrix epoch changed (indicates new data available)
     if (!flagsRef.current || flagsRef.current.buffer !== sab) {
-      flagsRef.current = new Int32Array(sab, 0, 16);
+      flagsRef.current = new Int32Array(sab, 0, 32);
     }
     const flags = flagsRef.current;
     const matrixEpoch = Atomics.load(flags, IDX_MATRIX_EPOCH);

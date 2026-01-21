@@ -156,7 +156,9 @@ const matrixStride           :UInt32 = 64;
 
 # ========== EPOCH INDEX ALLOCATION ==========
 
-# Fixed system epochs (0-31 Reserved)
+# ========== EPOCH INDEX ALLOCATION ==========
+
+# --- 1. FIXED SYSTEM SIGNALS (0-7) ---
 const idxKernelReady         :UInt32 = 0;  # Kernel boot complete
 const idxInboxDirty          :UInt32 = 1;  # Signal from Kernel to Module
 const idxOutboxHostDirty     :UInt32 = 2;  # Signal from Kernel to Host (Results)
@@ -166,44 +168,46 @@ const idxActorEpoch          :UInt32 = 5;  # Actor updates
 const idxStorageEpoch        :UInt32 = 6;  # Storage updates
 const idxSystemEpoch         :UInt32 = 7;  # System updates
 
-# Extended System Epochs
-const idxArenaAllocator      :UInt32 = 8;  # Arena bump pointer (atomic)
-const idxOutboxMutex         :UInt32 = 9;  # Mutex for outbox synchronization (unused)
-const idxInboxMutex          :UInt32 = 10; # Mutex for inbox synchronization (unused)
-const idxMetricsEpoch        :UInt32 = 11; # Metrics updated
-const idxBirdEpoch           :UInt32 = 12; # Bird physics complete
-const idxMatrixEpoch         :UInt32 = 13; # Matrix generation complete
-const idxPingpongActive      :UInt32 = 14; # Active buffer (0=A, 1=B)
+# --- 2. AUTONOMOUS SYSTEM PULSE (8-15) ---
+const idxSystemPulse         :UInt32 = 8;  # Global high-precision pulse
+const idxSystemVisibility    :UInt32 = 9;  # 1 = Visible, 0 = Hidden
+const idxSystemPowerState    :UInt32 = 10; # 0 = Low, 1 = Normal, 2 = High
+const idxReservedPulse1      :UInt32 = 11;
+const idxReservedPulse2      :UInt32 = 12;
+const idxReservedPulse3      :UInt32 = 13;
+const idxReservedPulse4      :UInt32 = 14;
+const idxReservedPulse5      :UInt32 = 15;
 
-# Signal-Based Architecture Epochs
-const idxRegistryEpoch       :UInt32 = 15; # Module registration signal
-const idxEvolutionEpoch      :UInt32 = 16; # Boids evolution complete
-const idxHealthEpoch         :UInt32 = 17; # Health metrics updated
-const idxLearningEpoch       :UInt32 = 18; # Pattern learning complete
-const idxEconomyEpoch        :UInt32 = 19; # Credit settlement needed
-const idxBirdCount           :UInt32 = 20; # Active bird count (mutable)
-const idxGlobalMetricsEpoch  :UInt32 = 21; # Global diagnostics complete
-
-# Outbox Kernel Epoch
-const idxOutboxKernelDirty   :UInt32 = 22; # Signal from Module to Kernel (Syscalls)
-
-# Mesh Delegation Epochs (P2P Coordination) (Shifted to prevent collision)
-const idxDelegatedJobEpoch   :UInt32 = 23; # Remote job delegation complete
-const idxUserJobEpoch        :UInt32 = 24; # Local user job complete
-const idxDelegatedChunkEpoch :UInt32 = 25; # Remote chunk fetch/store complete
-
-# Mesh Event Stream (Atomic Counters + Epoch)
-const idxMeshEventEpoch      :UInt32 = 26; # Mesh event stream updated
-const idxMeshEventHead       :UInt32 = 27; # Consumer head (monotonic)
-const idxMeshEventTail       :UInt32 = 28; # Producer tail (monotonic)
-const idxMeshEventDropped    :UInt32 = 29; # Dropped event counter
-
-# Context Verification (Zero-Copy)
+# --- 3. EXTENDED SYSTEM SIGNALS (16-31) ---
+const idxArenaAllocator      :UInt32 = 16; # Arena bump pointer (atomic)
+const idxOutboxMutex         :UInt32 = 17; # Mutex for outbox synchronization (unused)
+const idxInboxMutex          :UInt32 = 18; # Mutex for inbox synchronization (unused)
+const idxMetricsEpoch        :UInt32 = 19; # Metrics updated
+const idxBirdEpoch           :UInt32 = 20; # Bird physics complete
+const idxMatrixEpoch         :UInt32 = 21; # Matrix generation complete
+const idxPingpongActive      :UInt32 = 22; # Active buffer (0=A, 1=B)
+const idxRegistryEpoch       :UInt32 = 23; # Module registration signal
+const idxEvolutionEpoch      :UInt32 = 24; # Boids evolution complete
+const idxHealthEpoch         :UInt32 = 25; # Health metrics updated
+const idxLearningEpoch       :UInt32 = 26; # Pattern learning complete
+const idxEconomyEpoch        :UInt32 = 27; # Credit settlement needed
+const idxBirdCount           :UInt32 = 28; # Active bird count (mutable)
+const idxGlobalMetricsEpoch  :UInt32 = 29; # Global diagnostics complete
+const idxOutboxKernelDirty   :UInt32 = 30; # Signal from Module to Kernel (Syscalls)
 const idxContextIdHash       :UInt32 = 31; # Hash of initialization context ID
 
-# Dynamic supervisor pool (32-127)
-const supervisorPoolBase     :UInt32 = 32;
-const supervisorPoolSize     :UInt32 = 96;  # Supports 96 supervisors
+# --- 4. MESH & DELEGATION SIGNALS (32-47) ---
+const idxDelegatedJobEpoch   :UInt32 = 32; # Remote job delegation complete
+const idxUserJobEpoch        :UInt32 = 33; # Local user job complete
+const idxDelegatedChunkEpoch :UInt32 = 34; # Remote chunk fetch/store complete
+const idxMeshEventEpoch      :UInt32 = 35; # Mesh event stream updated
+const idxMeshEventHead       :UInt32 = 36; # Consumer head (monotonic)
+const idxMeshEventTail       :UInt32 = 37; # Producer tail (monotonic)
+const idxMeshEventDropped    :UInt32 = 38; # Dropped event counter
+
+# --- 5. WORKER CONTROL & DYNAMIC POOL (64-255) ---
+const supervisorPoolBase     :UInt32 = 64;
+const supervisorPoolSize     :UInt32 = 128; # Supports 128 supervisors
 
 # Reserved for future expansion (128-255)
 const reservedPoolBase       :UInt32 = 128;

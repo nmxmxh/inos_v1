@@ -8,6 +8,7 @@ import {
   type MeshBootstrapConfig,
 } from './kernel.shared';
 import { createMeshClient } from './mesh';
+import pulseManager from './pulse-manager';
 
 // Vite worker import syntax
 import KernelWorkerUrl from './kernel.worker?worker&url';
@@ -295,6 +296,9 @@ async function initializeKernelInWorker(
           );
           (window as any).INOSBridge = INOSBridge;
           startEpochLogger('worker', sabOffset);
+
+          // Start Global Pulse System
+          pulseManager.start(window.__INOS_SAB__);
         }
 
         // Initialize API proxies to worker
@@ -559,6 +563,9 @@ async function initializeKernelOnMainThread(
     initializeBridge(buffer, sabOffset, sabSize, memory);
     (window as any).INOSBridge = INOSBridge;
     startEpochLogger('main', sabOffset);
+
+    // Start Global Pulse System
+    pulseManager.start(buffer);
 
     // FIX: Inject SAB to start supervisors (Grounding)
     // This is required to signal 'sabReady' in the Go kernel

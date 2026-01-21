@@ -1,5 +1,5 @@
 /**
- * INOS Technical Codex — Deep Dive: Epoch Signaling
+ * INOS Technical Codex — Deep Dive: Epoch Signaling (Chapter 04)
  *
  * A comprehensive exploration of reactivity paradigms: polling, callbacks,
  * atomics, and epoch-based signaling. Explains why INOS achieves <10µs latency.
@@ -322,7 +322,7 @@ const Style = {
     style: {
       '--meter-width': `${props.$percent}%`,
       '--meter-color': props.$color || '#8b5cf6',
-    } as React.CSSProperties,
+    } as React.CSSProperties & Record<string, string>,
   }))<{ $percent: number; $color?: string }>`
     height: 4px;
     background: rgba(0, 0, 0, 0.1);
@@ -1221,7 +1221,7 @@ function AnimatedLoopDiagram() {
 export function Signaling() {
   return (
     <Style.BlogContainer>
-      <Style.SectionTitle>Chapter 03 // Epoch Signaling</Style.SectionTitle>
+      <Style.SectionTitle>Chapter 04 // Epoch Signaling</Style.SectionTitle>
       <Style.PageTitle>React to Reality, Not to Messages</Style.PageTitle>
 
       <Style.LeadParagraph>
@@ -1730,8 +1730,8 @@ func (ee *EnhancedEpoch) WaitForChange(timeout time.Duration) (bool, error) {
       </ScrollReveal>
 
       <ChapterNav
-        prev={{ title: 'Zero-Copy Memory I/O', to: '/deep-dives/zero-copy' }}
-        next={{ title: 'Atomics & Shared Memory', to: '/deep-dives/atomics' }}
+        prev={{ title: 'Capn Proto Schema DNA', to: '/deep-dives/capn-proto' }}
+        next={{ title: 'Memory Paradigms', to: '/deep-dives/atomics' }}
       />
     </Style.BlogContainer>
   );
