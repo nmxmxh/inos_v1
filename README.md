@@ -41,6 +41,92 @@ inos_v1/
 
 ---
 
+## 📡 Cap'n Proto: The Zero-Copy Language
+
+INOS uses **Cap'n Proto** for all cross-boundary communication. Unlike JSON or Protobuf, Cap'n Proto requires **no parsing step**; data is accessed directly from the wire format.
+
+### Why Cap'n Proto?
+*   **Zero-Copy Reads**: Pointers into the message buffer, no deserialization.
+*   **Type Safety**: Compile-time schema validation across Go, Rust, and TypeScript.
+*   **Compact Binary Format**: Efficient for SAB regions and P2P mesh traffic.
+
+### Schema Organization
+All schemas live in `protocols/schemas/` with versioned subdirectories:
+
+| Domain | Schemas | Purpose |
+|:---|:---|:---|
+| `system/v1` | `sab_layout`, `syscall`, `runtime` | Kernel internals, SAB region definitions |
+| `compute/v1` | `capsule` | Job requests/results for Rust units |
+| `p2p/v1` | `mesh`, `gossip`, `delegation` | Peer discovery, state propagation |
+| `identity/v1` | `identity` | Cryptographic identity and attestation |
+
+### Relevant Files
+*   [`protocols/schemas/`](protocols/schemas/) — All `.capnp` schema definitions
+*   [`scripts/gen-proto-go.sh`](scripts/gen-proto-go.sh) — Go code generation script
+*   [`modules/sdk/src/protocols/`](modules/sdk/src/protocols/) — Rust bindings (via `build.rs`)
+
+---
+
+## 🚫 No wasm-bindgen: The Library Proxy Philosophy
+
+INOS **deliberately avoids `wasm-bindgen`** for Rust modules. This architectural decision ensures:
+
+1.  **Pure C ABI**: All exports use `extern "C"` with `#[no_mangle]`. No JS glue code generated.
+2.  **Minimal Binary Size**: No runtime overhead from bindgen-generated wrappers.
+3.  **SAB Compatibility**: Direct pointer manipulation into SharedArrayBuffer without JS object marshalling.
+4.  **Predictable Memory**: Manual `compute_alloc` / `compute_free` lifecycle.
+
+### The Library Proxy Pattern
+Instead of exposing many `#[wasm_bindgen]` functions, we expose a **single generic dispatcher**:
+
+```rust
+#[no_mangle]
+pub extern "C" fn compute_execute(
+    library_ptr: *const u8, library_len: usize,
+    method_ptr: *const u8, method_len: usize,
+    input_ptr: *const u8, input_len: usize,
+    params_ptr: *const u8, params_len: usize,
+) -> *mut u8
+```
+
+The `ComputeEngine` internally routes to registered units (Image, Crypto, Boids, etc.).
+
+### Relevant Files
+*   [`modules/compute/src/lib.rs`](modules/compute/src/lib.rs) — `compute_execute` entry point
+*   [`modules/compute/src/engine.rs`](modules/compute/src/engine.rs) — Unit registry and routing
+*   [`modules/storage/src/lib.rs`](modules/storage/src/lib.rs) — Storage module (no wasm-bindgen)
+*   [`modules/drivers/src/lib.rs`](modules/drivers/src/lib.rs) — I/O drivers (pure C ABI)
+
+---
+
+## 🧠 The Memory Twin: Go WASM Integrity
+
+Go's WASM runtime cannot natively share `SharedArrayBuffer` as its linear memory. INOS solves this with a **Synchronized Memory Twin** architecture.
+
+### The Problem
+*   **Rust/JS**: Direct SAB access (true zero-copy).
+*   **Go Kernel**: Operates on its own private linear memory.
+
+### The Solution: Ephemeral Snapshot Isolation
+The Kernel maintains a **Local Replica (Twin)** synchronized via explicit bridge calls:
+
+```go
+// Bulk copy from Global SAB → Local Twin
+js.CopyBytesToGo(localTwin, view.Call("subarray", offset, offset+size))
+```
+
+### Benefits
+*   **Snapshot Consistency**: Kernel operates on a stable snapshot, immune to tearing reads.
+*   **Zero-Allocation Sync**: `ReadAt` pattern recycles buffers, minimizing GC pressure.
+*   **Double-Buffered State**: Front Buffer (SAB, mutated by Rust/JS) ↔ Back Buffer (Go Twin, stable for logic).
+
+### Relevant Files
+*   [`docs/go_wasm_memory_integrity.md`](docs/go_wasm_memory_integrity.md) — Full architectural deep-dive
+*   [`kernel/threads/bridge.go`](kernel/threads/bridge.go) — SAB bridge implementation
+*   [`frontend/src/wasm/layout.ts`](frontend/src/wasm/layout.ts) — SAB region offsets and indices
+
+---
+
 ## ⚡ The Unit Proxy Model (Rust ↔ JS)
 
 INOS uses a standardized **Unit Proxy Model** to expose Rust performance to the JavaScript frontend without complex glue code.
