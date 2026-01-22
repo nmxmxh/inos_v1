@@ -9,15 +9,38 @@ const backgroundFPS = 1;
 let lastPulseTime = 0;
 let flags: Int32Array | null = null;
 
-self.onmessage = event => {
+interface PulseMessage {
+  type: 'INIT' | 'STOP' | 'SET_TPS' | 'SET_VISIBILITY' | 'WATCH_INDICES';
+  payload: {
+    sab?: SharedArrayBuffer;
+    fps?: number;
+    visible?: boolean;
+    indices?: number[];
+  };
+}
+
+const watchers = new Set<number>();
+
+self.onmessage = (event: MessageEvent<PulseMessage>) => {
   const { type, payload } = event.data;
 
   switch (type) {
     case 'INIT':
       const { sab } = payload;
-      flags = new Int32Array(sab);
+      if (!sab) return;
+      flags = new Int32Array(sab, 0, 128); // Standard 128-byte flags region
       isRunning = true;
       runPulseLoop();
+      break;
+
+    case 'WATCH_INDICES':
+      if (!flags || !payload.indices) return;
+      for (const index of payload.indices) {
+        if (!watchers.has(index)) {
+          watchers.add(index);
+          watchIndex(index);
+        }
+      }
       break;
 
     case 'STOP':
@@ -25,19 +48,45 @@ self.onmessage = event => {
       break;
 
     case 'SET_TPS':
-      targetFPS = payload.fps;
+      if (payload.fps !== undefined) targetFPS = payload.fps;
       break;
 
     case 'SET_VISIBILITY':
-      isVisible = payload.visible;
+      if (payload.visible !== undefined) isVisible = payload.visible;
       if (flags) {
-        // Update visibility flag in SAB for workers to see
         Atomics.store(flags, IDX_SYSTEM_VISIBILITY, isVisible ? 1 : 0);
         Atomics.notify(flags, IDX_SYSTEM_VISIBILITY);
       }
       break;
   }
 };
+
+/**
+ * Microsecond-latency watcher using non-blocking Atomics.waitAsync
+ */
+function watchIndex(index: number) {
+  if (!isRunning || !flags) return;
+
+  const current = Atomics.load(flags, index);
+
+  // @ts-ignore - Atomics.waitAsync is available in modern browsers/workers
+  const result = Atomics.waitAsync(flags, index, current);
+
+  if (result.async) {
+    result.value.then(() => {
+      if (isRunning && flags) {
+        const newValue = Atomics.load(flags, index);
+        self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+        watchIndex(index); // Re-arm
+      }
+    });
+  } else {
+    // Value already changed
+    const newValue = Atomics.load(flags, index);
+    self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+    setTimeout(() => watchIndex(index), 0); // Avoid stack overflow
+  }
+}
 
 function runPulseLoop() {
   if (!isRunning) return;

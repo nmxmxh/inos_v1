@@ -9,7 +9,7 @@ import type {
   MeshMetrics,
   PeerCapability,
 } from '../../bridge/generated/protocols/schemas/p2p/v1/mesh';
-import EpochWatcherWorkerUrl from './epoch-watcher.worker.ts?worker&url';
+import pulseManager from './pulse-manager';
 import { getDataView, getFlagsView, getOffset, getSAB } from './bridge-state';
 import type { MeshBootstrapConfig } from './kernel.shared';
 import {
@@ -170,8 +170,8 @@ function decodeEnvelope(bytes: Uint8Array): MeshEventMessage | null {
 }
 
 class MeshEventStream {
-  private worker: Worker | null = null;
   private handlers = new Map<string, MeshEventHandler>();
+  private isWatching = false;
 
   subscribe(id: string, handler: MeshEventHandler): void {
     this.handlers.set(id, handler);
@@ -186,7 +186,7 @@ class MeshEventStream {
   }
 
   private ensureWorker(): void {
-    if (this.worker) {
+    if (this.isWatching) {
       return;
     }
     const sab = getSAB();
@@ -195,28 +195,20 @@ class MeshEventStream {
       return;
     }
 
-    this.worker = new Worker(EpochWatcherWorkerUrl, { type: 'module' });
-    this.worker.onmessage = event => {
-      if (event.data?.type !== 'epoch_change') {
-        return;
-      }
+    // Reuse the pulseManager's heartbeat worker
+    pulseManager.watchEpochs([IDX_MESH_EVENT_EPOCH], () => {
       this.drainQueue();
-    };
-    this.worker.postMessage({
-      type: 'init',
-      sab,
-      sabOffset: getOffset(),
-      index: IDX_MESH_EVENT_EPOCH,
     });
+
+    this.isWatching = true;
   }
 
   private stopWorker(): void {
-    if (!this.worker) {
+    if (!this.isWatching) {
       return;
     }
-    this.worker.postMessage({ type: 'shutdown' });
-    this.worker.terminate();
-    this.worker = null;
+    pulseManager.unwatchEpoch(IDX_MESH_EVENT_EPOCH, this.drainQueue.bind(this));
+    this.isWatching = false;
   }
 
   private drainQueue(): void {
