@@ -371,3 +371,5 @@ secrets/
 !*.example
 !*.sample
 !*.template
+
+/test-results
