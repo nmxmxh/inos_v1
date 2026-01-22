@@ -2,223 +2,105 @@
 
 > **A state-centric distributed runtime with native economic incentives**
 
-[![Version](https://img.shields.io/badge/version-1.9-blue.svg)](spec.md)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-specification-yellow.svg)](spec.md)
+[![Version](https://img.shields.io/badge/version-2.0-blue.svg)](docs/spec.md)
+[![License](https://img.shields.io/badge/license-BSL--1.1-orange.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-production--ready-green.svg)](docs/spec.md)
 
 ---
 
-## 🌌 What is INOS?
+## 🌌 Overview
 
-INOS is not just another distributed system—it's a **biological runtime** for the internet age. Think of it as a globally distributed motherboard where:
-
-*   **Nodes are Cells**: Disposable, specialized (GPU/Storage), self-healing
-*   **Kernel is the Nervous System**: Go-based orchestration brain
-*   **Economy is ATP**: Credits drive replication, maintenance, and compute
-*   **Reactive Mutation is Reflexes**: Zero-copy signaling mimics biological nerve responses
+INOS is a **biological runtime** for the internet age. It replaces traditional message passing with **shared reality**, enabling zero-copy communication across Go, Rust, and JavaScript boundaries.
 
 ### The Core Innovation: Reactive Mutation
-
-We replace traditional message passing with **shared reality**:
-
-```
-Traditional:  Node A → (serialize) → network → (deserialize) → Node B
-INOS:         Node A writes to SAB → Node B reads from same memory
-```
-
-**Result:** Zero serialization overhead, atomic consistency, O(1) performance.
+We eliminate serialization overhead by allowing components to share memory via **SharedArrayBuffer (SAB)**.
+1.  **Mutate**: A worker updates the shared state.
+2.  **Signal**: The worker increments an **Atomic Epoch Counter**.
+3.  **React**: Subscribers detect the epoch change and synchronize instantly.
 
 ---
 
-## 🏗️ Architecture at a Glance
+## 🗺️ Developer Navigation Map
 
-```
-┌────────────────────────────────────────────────────────┐
-│  Layer 3: The Modules (WASM)                           │
-│  [Rust Compute/Storage] [React+Vite UI]                │
-├────────────────────────────────────────────────────────┤
-│  Layer 2: The Kernel (WASM)                            │
-│  [Go Orchestration & Currency]                         │
-├────────────────────────────────────────────────────────┤
-│  Layer 1: The Hybrid Host (Native)                     │
-│  [Nginx + Brotli] [JS Web API Bridge]                  │
-└────────────────────────────────────────────────────────┘
-```
-
-| Layer | Technology | Role |
-|:------|:-----------|:-----|
-| **Ingress** | Nginx + Brotli | High-speed network termination |
-| **UI** | React + Vite | User interaction & sensor access |
-| **Kernel** | Go (WASM) | Orchestration, policy, economy |
-| **Compute** | Rust (WASM) | GPU, Data, Crypto, Image, Audio, Physics, API Proxy |
-| **Storage** | P2P Mesh | Content-addressed, economically incentivized |
-
----
-
-## 🚀 Key Features
-
-### Zero-Copy Pipelining & Synchronized Twins
-We employ a hybrid memory strategy:
-1.  **Rust/JS (Hot Path):** Zero-copy access to SharedArrayBuffer (SAB) for physics/rendering.
-2.  **Kernel (Control Path):** Uses a **Synchronized Memory Twin** (Zero-Allocation Sync) to operate on a stable snapshot of the state.
-
-```
-Network → SAB (Inbox) → Rust (Process) → SAB (Arena) → JS (Render)
-SAB (Arena) ⟳ [Active Sync] ➔ Kernel (Twin) ➔ Orchestration
-```
-
-### Layered Compression Integrity
-*   **Pass 1 (Ingress):** Brotli-Fast for network efficiency
-*   **Pass 2 (Storage):** Brotli-Max for storage density
-*   **Anchor:** `Hash = BLAKE3(Compressed-1)` ensures global deduplication
-
-### Economic Storage Mesh & Mosaic P2P (v1.9)
-*   **Hierarchical Topology:** Seeds (Core) → Hubs (Aggregation) → Edges (Leaf) for massive scale.
-*   **1MB State Chunking:** Optimal voxel-state distribution via QUIC-based P2P bridge.
-*   **Geo-Aware Replication:** Redundant storage with latency-tier optimization.
-*   **Hot Tier (Edge/CDN):** Earns credits for bandwidth (data retrieval).
-*   **Cold Tier (Vault):** Earns credits for capacity (data retention).
-*   **Dynamic Scaling:** Viral content automatically replicates to more nodes.
-
-### Epoch-Based Signaling (v1.9)
-Components signal state changes via atomic epoch counters:
-```rust
-Epoch += 1  // Signal mutation
-// Kernel reacts when: Epoch > LastSeenEpoch
-```
-
-### Syscall Architecture (v2.0)
-*   **Authenticated Communication**: Modules request kernel services via Cap'n Proto syscalls
-*   **Zero-Copy Routing**: Messages routed through `MeshCoordinator` without serialization overhead
-*   **Type Safety**: Cap'n Proto schemas ensure compile-time correctness across Go-Rust boundary
-*   **Available Syscalls**: `fetchChunk`, `storeChunk`, `sendMessage`, `spawnThread`, `killThread`
-*   **Security**: Every syscall includes `source_module_id` for identity verification and policy enforcement
-
----
-
----
-
-## 📂 Project Structure
-
-> **Note:** The definitive source of truth for architectural requirements is [spec.md](spec.md).
-
-```
+```text
 inos_v1/
-├── kernel/              # Go WASM kernel (orchestration)
-│   ├── core/           # Memory, scheduler, supervisor
-│   ├── transport/      # P2P networking (DHT, WebRTC)
-│   └── utils/          # Logging, error handling
-├── modules/            # Rust WASM modules (compute)
-│   ├── sdk/           # Shared utilities (SAB, Epoch, Credits)
-│   ├── compute/       # Multi-unit compute (GPU, Data, Crypto, Image, Audio, Physics, API Proxy)
-│   ├── storage/       # Encrypted storage (ChaCha20, Brotli)
-│   ├── drivers/       # I/O Sockets (Sensors → Actors, library proxies)
-│   └── diagnostics/   # System metrics and monitoring
-├── frontend/           # React + Vite UI
-├── protocols/          # Cap'n Proto schemas
-│   └── schemas/        # Versioned protocol definitions
-├── docs/               # Architecture documentation
-└── deployment/         # Docker, Nginx configs
+├── kernel/             # Layer 2: Go WASM Kernel (The Brain)
+│   ├── core/           # Scheduler, Mesh Coordinator, Memory management
+│   ├── threads/        # WebWorker supervisors and unit loaders
+│   └── transport/      # P2P stack (Gossip, DHT, WebRTC)
+├── modules/            # Layer 3: Rust WASM Modules (The Muscle)
+│   ├── sdk/            # Shared primitives (Epochs, SAB, Registry)
+│   ├── compute/        # High-performance compute units (GPU, Image, etc.)
+│   └── storage/        # Encrypted storage (ChaCha20, Brotli)
+├── frontend/           # Layer 1: React + Vite Host (The Body)
+│   ├── app/            # Feature-driven UI components
+│   └── src/wasm/       # JS Bridge, Dispatcher, and SAB layout
+├── protocols/          # Cap'n Proto schemas (The Language)
+└── docs/               # Architectural directives and specifications
 ```
 
 ---
 
-## 🛠️ Quick Start
+## ⚡ The Unit Proxy Model (Rust ↔ JS)
+
+INOS uses a standardized **Unit Proxy Model** to expose Rust performance to the JavaScript frontend without complex glue code.
+
+1.  **Registry**: Rust units (Boids, Math, Crypto) register their capabilities in a global table.
+2.  **Marshalling**: The `compute_execute` WASM export serves as a generic entry point.
+3.  **Dispatch**: The frontend `Dispatcher` routes requests to dedicated background workers (`plug`) or executes them synchronously.
+4.  **Zero-Copy**: Parameters and results stay in the SAB; only pointers and lengths cross the WASM boundary.
+
+---
+
+## 🧬 Communication Patterns
+
+Based on the [ArchitecturalBoids](frontend/app/features/boids/ArchitecturalBoids.tsx) implementation:
+
+*   **Decoupled Compute**: Physics (Boids) and Matrix generation (Math) run in autonomous workers.
+*   **Pulse Signaling**: Workers wait on the high-precision `PulseWorker` (Zero-CPU idling).
+*   **Epoch-Based GPU Sync**: React only flips the GPU buffer pointers when the `IDX_MATRIX_EPOCH` increments, ensuring tear-free rendering at 60FPS+.
+
+---
+
+## 🛠️ Capability Catalog
+
+INOS provides a rich set of built-in functionalities exposed via the `dispatch` system:
+
+| Unit | Capabilities |
+|:---|:---|
+| **Compute** | BLAKE3/SHA256 Hashing, Brotli Compression/Decompression |
+| **GPU** | PBR Rendering, WGSL Execution, Particle Systems, SSAO/SSR |
+| **Math** | Matrix/Vector SIMD-ready operations, Quaternions, Projections |
+| **Boids** | Massively parallel flocking physics, Evolutionary scaling |
+| **Audio** | FFT/Spectrogram, Spatial Audio, FLAC/WAV Encoding |
+| **Data** | Parquet/JSON/CSV processing, SQL-like aggregations |
+| **Storage** | Content-addressed storage, ChaCha20 encryption, P2P replication |
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-*   **Go 1.21+** (for kernel)
-*   **Rust 1.75+** (for modules)
-*   **Node.js 20+** (for frontend)
-*   **Cap'n Proto 1.0+** (for protocol generation)
+*   **Go 1.21+**, **Rust 1.75+**, **Node.js 20+**, **Cap'n Proto 1.0+**
 
-### Build & Run
-
+### Quick Build
 ```bash
-# 1. Build the kernel
-make kernel
-
-# 2. Build Rust modules
-cd modules && cargo build --target wasm32-unknown-unknown --release
-
-# 3. Start frontend dev server
-cd frontend && yarn install && yarn dev
-
-# 4. Open browser
-open http://localhost:5173
+make setup    # Install tools and generate protocols
+make build    # Build Kernel, Modules, and Frontend
+cd frontend && npm run dev
 ```
-
----
-
-## 📖 Documentation
-
-*   **[Specification (spec.md)](spec.md)** - Complete v1.9 architecture
-*   **[Supervisor Architecture (threads.md)](threads.md)** - SAB-native supervisor implementation
-*   **[Rust Explainer (RUST_EXPLAINER.md)](RUST_EXPLAINER.md)** - Why Rust is the "muscle"
-*   **[Cap'n Proto Guide (kernel/docs/CAPNPROTO.md)](kernel/docs/CAPNPROTO.md)** - Protocol integration
-*   **[P2P Mesh Architecture (docs/P2P_MESH.md)](docs/P2P_MESH.md)** - Adaptive replication (5-700 nodes)
-
----
-
-## 🧬 The Post-AI Development Paradigm
-
-INOS is built using a novel methodology where:
-
-*   **AI handles boilerplate**: 100% of Go/Rust/TS scaffolding is AI-generated
-*   **Human directs architecture**: System design and coherence maintained by focused vision
-*   **Validation is exhaustive**: Thousands of edge cases tested before deployment
-
-**Result:** What traditionally requires large teams is orchestrated by amplified human intelligence.
-
----
-
-## 🎯 Current Status
-
-| Component | Status | Notes |
-|:----------|:-------|:------|
-| **Kernel (Go)** | ✅ Production | Scheduler, memory manager, transport, Mesh Coordinator, Intelligence |
-| **SDK (Rust)** | ✅ Production | SAB, Epoch, Credits, Cap'n Proto, Identity |
-| **Compute Module** | ✅ Production | GPU, Data, Crypto, Image, Audio, Physics, API Proxy (8 units) |
-| **Storage Module** | ✅ Production | ChaCha20 encryption, Brotli compression, 15/17 tests passing |
-| **Drivers Module** | 🏗️ In Progress | I/O Sockets (Sensors → Actors), library proxy pattern |
-| **P2P Mesh** | ✅ Production | DHT, WebRTC, Gossip, Adaptive Replication |
-| **Frontend** | ✅ Production | React + Three.js, WASM loader, zero-copy rendering |
-| **Documentation** | ✅ Complete | ASSESSMENT.md, MIGRATION_GUIDE.md, DRIVERS_ARCHITECTURE.md |
-
-
----
-
-## 🤝 Contributing
-
-INOS is an intentional architecture. Contributions should align with the core philosophy:
-
-1.  **Zero-copy first**: Avoid serialization wherever possible
-2.  **Economic alignment**: Every resource has a cost and a reward
-3.  **Deterministic execution**: Same input → same output, always
-4.  **Biological metaphors**: Design systems that heal and adapt
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
 ## 📜 License
 
-MIT License - See [LICENSE](LICENSE) for details.
+INOS is licensed under the **Business Source License 1.1 (BSL 1.1)**.
 
----
+*   **Free for Individuals & Small Teams**: Permitted for entities with <$5M annual revenue and <50 employees.
+*   **Commercial Use**: Requires a separate agreement for larger corporations ("Fat Checks").
+*   **Eventual Open Source**: Becomes **MIT Licensed** on **2029-01-01**.
 
-## 🌟 Vision
-
-**INOS isn't just software—it's a digital immune system.**
-
-By combining:
-*   **Rust's muscle** (performance + safety)
-*   **Go's brain** (orchestration + policy)
-*   **JS's body** (sensors + UI)
-*   **Economic incentives** (self-sustaining mesh)
-
-We're building the foundational layer for the next generation of distributed applications—where computation, storage, and identity flow seamlessly across devices, from phones to drones to data centers.
-
-**This is computing as a living system, not as a mechanical construct.**
+See [LICENSE](LICENSE) for full legal text.
 
 ---
 
