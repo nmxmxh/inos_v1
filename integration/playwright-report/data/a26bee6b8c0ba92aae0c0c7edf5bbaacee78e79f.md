@@ -1,0 +1,266 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e7]:
+  - banner [ref=e8]:
+    - navigation "Main navigation" [ref=e10]:
+      - link "INOS Home" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - text: INOS Codex
+      - list [ref=e12]:
+        - listitem [ref=e13]:
+          - link "Problem" [ref=e14] [cursor=pointer]:
+            - /url: /problem
+        - listitem [ref=e15]:
+          - link "Insight" [ref=e16] [cursor=pointer]:
+            - /url: /insight
+        - listitem [ref=e17]:
+          - link "Architecture" [ref=e18] [cursor=pointer]:
+            - /url: /architecture
+        - listitem [ref=e19]:
+          - link "Cosmos" [ref=e20] [cursor=pointer]:
+            - /url: /cosmos
+  - main [ref=e21]:
+    - main [ref=e23]:
+      - generic [ref=e24]:
+        - paragraph [ref=e25]: "Phase 1: Experimental Research System (Alpha)"
+        - heading "The browser is finally growing up. Building the systems of tomorrow on a deeper, more empathetic architecture." [level=1] [ref=e26]:
+          - text: The browser is finally growing up.
+          - generic [ref=e27]: Building the systems of tomorrow on a deeper, more empathetic architecture.
+        - paragraph [ref=e28]:
+          - text: INOS is an experimental formula for a distributed operating system hosted within the browser—a research alpha designed to solve the fragmentation of the modern web. We leveraged the synergy of
+          - strong [ref=e29]: Go
+          - text: for supervisory orchestration,
+          - strong [ref=e30]: Rust
+          - text: for dedicated high-performance compute, and
+          - strong [ref=e31]: JavaScript
+          - text: for reactive human interfaces, all woven through the zero-copy spine of a
+          - strong [ref=e32]: SharedArrayBuffer
+          - text: . By encoding our intent in
+          - strong [ref=e33]: Cap'n Proto
+          - text: "schemas, we've eliminated the serialization tax that consumes most of planetary compute. It is an ambiguous reality: part research paper, part production kernel, and entirely focused on localizing planetary-scale intelligence into a single, shared memory pool."
+        - generic [ref=e34]:
+          - generic [ref=e35]:
+            - generic [ref=e36]: Reactive Throughput
+            - generic [ref=e41]:
+              - generic [ref=e42]: "0"
+              - generic [ref=e43]: "1"
+              - generic [ref=e44]: "2"
+              - generic [ref=e45]: "3"
+              - generic [ref=e46]: "4"
+              - generic [ref=e47]: "5"
+              - generic [ref=e48]: "6"
+              - generic [ref=e49]: "7"
+              - generic [ref=e50]: "8"
+              - generic [ref=e51]: "9"
+            - generic [ref=e52]: KERNEL OPS / SECOND
+          - generic [ref=e53]:
+            - generic [ref=e54]: Singular Reality
+            - generic [ref=e58]:
+              - generic [ref=e59]: "0"
+              - generic [ref=e60]: "1"
+              - generic [ref=e61]: "2"
+              - generic [ref=e62]: "3"
+              - generic [ref=e63]: "4"
+              - generic [ref=e64]: "5"
+              - generic [ref=e65]: "6"
+              - generic [ref=e66]: "7"
+              - generic [ref=e67]: "8"
+              - generic [ref=e68]: "9"
+            - generic [ref=e69]: DETERMINISTIC SIGNALS
+          - generic [ref=e70]:
+            - generic [ref=e71]: Bridge Latency
+            - generic [ref=e76]:
+              - generic [ref=e77]: "0"
+              - generic [ref=e78]: "1"
+              - generic [ref=e79]: "2"
+              - generic [ref=e80]: "3"
+              - generic [ref=e81]: "4"
+              - generic [ref=e82]: "5"
+              - generic [ref=e83]: "6"
+              - generic [ref=e84]: "7"
+              - generic [ref=e85]: "8"
+              - generic [ref=e86]: "9"
+            - generic [ref=e87]: MILLISECONDS (TARGET)
+        - generic [ref=e88]:
+          - 'heading "The Great Shift: From Viewers to Neurons" [level=3] [ref=e89]'
+          - generic [ref=e90]:
+            - paragraph [ref=e91]:
+              - strong [ref=e92]: "The Shift:"
+              - text: We are turning the browser from a passive document viewer into an active "neuron" in a global supercomputer.
+            - paragraph [ref=e93]:
+              - strong [ref=e94]: "The Why:"
+              - text: Most modern software wastes over 60% of its power just translating data between different parts of the system. By eliminating this waste, we reclaim that compute power for much more complex, meaningful work.
+            - paragraph [ref=e95]:
+              - strong [ref=e96]: "The How:"
+              - text: We moved the synchronization out of the software and onto the hardware memory layer. Using a shared memory pool allows Go, Rust, and TypeScript to work on the exact same data at the exact same time, without ever making a copy.
+            - paragraph [ref=e97]: "Note: The performance figures shown below—such as our 43.2x speedup in memory throughput—are derived from verified benchmark tests of our core system, not marketing estimates."
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - generic [ref=e100]: 43.2x SPEEDUP
+            - heading "Zero-Copy Architecture" [level=4] [ref=e101]
+            - paragraph [ref=e102]: Data reaches Go, Rust, and TypeScript simultaneously without ever being copied. We simply swap memory pointers in nanoseconds.
+          - generic [ref=e103]:
+            - generic [ref=e104]: ENERGY SAVINGS
+            - heading "Hardware Sleep" [level=4] [ref=e105]
+            - paragraph [ref=e106]: Threads sleep at the hardware level, consuming near-zero power until an atomic signal wakes them.
+          - generic [ref=e107]:
+            - generic [ref=e108]: 121,354x FASTER
+            - heading "Zero-Polling" [level=4] [ref=e109]
+            - paragraph [ref=e110]: Replaced legacy polling loops with signal-driven epochs, reducing reaction jitter to sub-microsecond levels.
+          - generic [ref=e111]:
+            - generic [ref=e112]: 5.7M TPS
+            - heading "Economic Ledger" [level=4] [ref=e113]
+            - paragraph [ref=e114]: A provably consistent credit system running in shared memory, coordinating millions of participants without a central server.
+        - generic [ref=e116]:
+          - heading "The Anatomy of the Machine" [level=3] [ref=e117]
+          - paragraph [ref=e118]: This diagram shows the SharedArrayBuffer memory pool live in your browser. All layers of the stack—Go, Rust, and TypeScript—are reading from this single source of truth.
+          - generic [ref=e119]:
+            - generic [ref=e121]: Shared Reality Memory Layout
+            - generic [ref=e122]:
+              - img [ref=e124]:
+                - generic [ref=e239]:
+                  - generic [ref=e240]: SAB HUBAbsolute Memory Space
+                  - generic [ref=e241]: GO ORCHESTRATORPolicy Control
+                  - generic [ref=e243]: RUST ENGINEWASM Physics
+                  - generic [ref=e245]: TS SENSORY LAYERConcurrent Rendering
+              - generic:
+                - generic:
+                  - strong: "The Circulatory Pipeline:"
+                  - text: INOS eliminates message-passing latency by mapping all threads to the same absolute memory region. The
+                  - strong: Go Orchestrator
+                  - text: evolutionary patches, the
+                  - strong: Rust Engine
+                  - text: SIMD-writes physics, and the
+                  - strong: TS Sensory Layer
+                  - text: reads the results concurrently for 120fps. Atomic
+                  - strong: Ping-Pong buffers
+                  - text: ensure total isolation.
+                - generic: MEMORY_EPOCH_SYNC // SAB_HUB_0xBPONG
+            - paragraph [ref=e258]: Hardware-synchronized memory buffer. No serialization. No translation. Total coherence.
+        - generic [ref=e260]:
+          - heading "🐦 Observe the Swarm" [level=3] [ref=e261]
+          - paragraph [ref=e262]:
+            - text: Look behind this text. The birds you see are not a video. They are
+            - strong [ref=e263]: 1,000 autonomous agents
+            - text: executing Reynolds flocking physics in real-time.
+          - list [ref=e264]:
+            - listitem [ref=e265]:
+              - strong [ref=e266]: Rust
+              - text: computes forces and SIMD matrix transforms at 60fps
+            - listitem [ref=e267]:
+              - strong [ref=e268]: Go
+              - text: evolves the flock's behavior through a genetic supervisor
+            - listitem [ref=e269]:
+              - strong [ref=e270]: TypeScript
+              - text: reads positions directly from SharedArrayBuffer and renders via WebGL
+          - paragraph [ref=e271]:
+            - text: No messages. No serialization. Just shared memory and atomic epoch signals. The counter in the corner is not a timer. It is the
+            - strong [ref=e272]: evolutionary heartbeat
+            - text: of the swarm.
+        - generic [ref=e273]:
+          - heading "The Living Codex Map" [level=2] [ref=e274]
+          - list [ref=e275]:
+            - listitem [ref=e276]:
+              - link "01 The Problem The internet is dying of a thousand copies. Serialization overhead and polling cycles consume 60% of modern compute. This is the Copy Tax." [ref=e277] [cursor=pointer]:
+                - /url: /problem
+                - text: "01"
+                - heading "The Problem" [level=3] [ref=e278]
+                - paragraph [ref=e279]: The internet is dying of a thousand copies. Serialization overhead and polling cycles consume 60% of modern compute. This is the Copy Tax.
+            - listitem [ref=e280]:
+              - link "02 The Insight The browser is a supercomputer node in disguise. By connecting WebAssembly, WebGPU, and SharedArrayBuffer, we unlock native-speed distributed reality." [ref=e281] [cursor=pointer]:
+                - /url: /insight
+                - text: "02"
+                - heading "The Insight" [level=3] [ref=e282]
+                - paragraph [ref=e283]: The browser is a supercomputer node in disguise. By connecting WebAssembly, WebGPU, and SharedArrayBuffer, we unlock native-speed distributed reality.
+            - listitem [ref=e284]:
+              - 'link "03 The Architecture A three-layer nervous system: Go orchestrates, Rust computes, and TypeScript renders. One shared memory buffer. Zero copies. Near-zero latency." [ref=e285] [cursor=pointer]':
+                - /url: /architecture
+                - text: "03"
+                - heading "The Architecture" [level=3] [ref=e286]
+                - paragraph [ref=e287]: "A three-layer nervous system: Go orchestrates, Rust computes, and TypeScript renders. One shared memory buffer. Zero copies. Near-zero latency."
+            - listitem [ref=e288]:
+              - link "04 History From the dream of a unified network to the message-passing bloat of the cloud. INOS is a return to Distributed Shared Memory at global scale." [ref=e289] [cursor=pointer]:
+                - /url: /history
+                - text: "04"
+                - heading "History" [level=3] [ref=e290]
+                - paragraph [ref=e291]: From the dream of a unified network to the message-passing bloat of the cloud. INOS is a return to Distributed Shared Memory at global scale.
+            - listitem [ref=e292]:
+              - link "05 What's Next Planetary compute infrastructure. From autonomous agent swarms to proof-of-useful-work consensus. The web is evolving into an Operating System." [ref=e293] [cursor=pointer]:
+                - /url: /whats-next
+                - text: "05"
+                - heading "What's Next" [level=3] [ref=e294]
+                - paragraph [ref=e295]: Planetary compute infrastructure. From autonomous agent swarms to proof-of-useful-work consensus. The web is evolving into an Operating System.
+          - generic [ref=e296]:
+            - paragraph [ref=e297]: Advanced Deep Dives
+            - heading "Technical Pillars of an Experimental OS" [level=3] [ref=e298]
+            - paragraph [ref=e299]: Explore the core innovations that turn a browser into a planetary node. Each deep dive documents the research behind sub-10µs reactivity and shared-memory mesh networking.
+            - generic [ref=e300]:
+              - link "System Performance Analyzing the 43.2x speedup and cross-engine deterministic stability." [ref=e301] [cursor=pointer]:
+                - /url: /deep-dives/performance
+                - generic [ref=e302]: System Performance
+                - generic [ref=e303]: Analyzing the 43.2x speedup and cross-engine deterministic stability.
+              - link "Zero-Copy Memory I/O Eliminating the serialization tax through atomic pointer swapping." [ref=e304] [cursor=pointer]:
+                - /url: /deep-dives/zero-copy
+                - generic [ref=e305]: Zero-Copy Memory I/O
+                - generic [ref=e306]: Eliminating the serialization tax through atomic pointer swapping.
+              - link "Epoch Signaling Achieving sub-10µs reactivity with lock-free atomic barriers." [ref=e307] [cursor=pointer]:
+                - /url: /deep-dives/signaling
+                - generic [ref=e308]: Epoch Signaling
+                - generic [ref=e309]: Achieving sub-10µs reactivity with lock-free atomic barriers.
+              - link "Distributed P2P Mesh How thousands of agents collaborate across a browser-based swarm." [ref=e310] [cursor=pointer]:
+                - /url: /deep-dives/mesh
+                - generic [ref=e311]: Distributed P2P Mesh
+                - generic [ref=e312]: How thousands of agents collaborate across a browser-based swarm.
+              - link "Economic Mesh Ledger Sub-microsecond settlement for distributed compute and storage tiers." [ref=e313] [cursor=pointer]:
+                - /url: /deep-dives/economy
+                - generic [ref=e314]: Economic Mesh Ledger
+                - generic [ref=e315]: Sub-microsecond settlement for distributed compute and storage tiers.
+              - link "Cap'n Proto Schema DNA Zero-cost serialization and random access for Shared Memory Twins." [ref=e316] [cursor=pointer]:
+                - /url: /deep-dives/capn-proto
+                - generic [ref=e317]: Cap'n Proto Schema DNA
+                - generic [ref=e318]: Zero-cost serialization and random access for Shared Memory Twins.
+      - navigation "Chapter navigation" [ref=e319]:
+        - generic [ref=e320]:
+          - generic [ref=e321]: ←
+          - generic [ref=e322]: Previous
+        - 'link "Next: 01. The Problem" [ref=e323] [cursor=pointer]':
+          - /url: /problem
+          - generic [ref=e324]:
+            - generic [ref=e325]: Next
+            - generic [ref=e326]: 01. The Problem
+          - generic [ref=e327]: →
+  - contentinfo [ref=e328]:
+    - generic [ref=e329]:
+      - 'generic "Mesh Connection Status — Green: Healthy, Yellow: Degraded, Red: Critical" [ref=e330]':
+        - link "Mesh LIVE" [ref=e331] [cursor=pointer]:
+          - /url: /diagnostics
+          - generic [ref=e333]: Mesh
+          - generic [ref=e334]: LIVE
+      - generic "Total Network Throughput — Aggregated operations per second across the entire mesh" [ref=e336]:
+        - generic [ref=e337]: Net Ops/s
+        - generic [ref=e341]:
+          - generic [ref=e342]: "0"
+          - generic [ref=e343]: "1"
+          - generic [ref=e344]: "2"
+          - generic [ref=e345]: "3"
+          - generic [ref=e346]: "4"
+          - generic [ref=e347]: "5"
+          - generic [ref=e348]: "6"
+          - generic [ref=e349]: "7"
+          - generic [ref=e350]: "8"
+          - generic [ref=e351]: "9"
+      - generic "Participating Nodes — Number of independent devices currently collaborating in your regional mesh" [ref=e352]:
+        - generic [ref=e353]: Nodes
+        - generic [ref=e357]:
+          - generic [ref=e358]: "0"
+          - generic [ref=e359]: "1"
+          - generic [ref=e360]: "2"
+          - generic [ref=e361]: "3"
+          - generic [ref=e362]: "4"
+          - generic [ref=e363]: "5"
+          - generic [ref=e364]: "6"
+          - generic [ref=e365]: "7"
+          - generic [ref=e366]: "8"
+          - generic [ref=e367]: "9"
+```

@@ -432,20 +432,13 @@ export function resolveMeshBootstrapConfig(storageKey = 'inos.mesh.identity'): M
     localStorage.setItem(storageKey, JSON.stringify(mergedIdentity));
   }
 
-  let transport: MeshTransportConfig | undefined =
+  // Signaling servers are optional. If not provided via URL params,
+  // the node starts isolated and discovers peers via gossip protocol.
+  // For testing, signaling URLs can be injected via ?signaling=ws://... param.
+  const transport: MeshTransportConfig | undefined =
     signalingServers.length > 0
       ? { signalingServers, webSocketUrl: signalingServers[0] }
       : undefined;
-
-  // Applying universal signaling strategy (Local + Global)
-
-  if (!transport) {
-    console.log('[Mesh] Applying universal signaling strategy (Local + Global)');
-    transport = {
-      signalingServers: ['ws://localhost:8787/ws', 'wss://signaling.inos.ai/ws'],
-      webSocketUrl: 'ws://localhost:8787/ws', // Legacy primary
-    };
-  }
 
   return {
     identity: mergedIdentity as any,

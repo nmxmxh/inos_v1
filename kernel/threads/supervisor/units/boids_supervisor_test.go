@@ -273,8 +273,8 @@ func TestMutate(t *testing.T) {
 			mutationCount++
 		}
 
-		// Check clamping
-		if mutated.Weights[i] > 5.0 || mutated.Weights[i] < -5.0 {
+		// Check clamping (implementation uses ±10 bounds per boids_supervisor.go)
+		if mutated.Weights[i] > 10.0 || mutated.Weights[i] < -10.0 {
 			t.Errorf("Gene %d exceeds clamping bounds: %f", i, mutated.Weights[i])
 		}
 	}

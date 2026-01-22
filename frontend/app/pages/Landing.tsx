@@ -489,35 +489,18 @@ export function Landing() {
           <span>Building the systems of tomorrow on a deeper, more empathetic architecture.</span>
         </Style.BangTitle>
 
-        <Style.ShiftGrid>
-          <Style.ShiftCard $variant="legacy">
-            <h4 style={{ color: '#444' }}>The Millisecond World</h4>
-            <p style={{ color: '#444' }}>
-              Traditional web apps are trapped in a cycle of <strong>Request-Response</strong>. Data
-              is copied, serialized, and sent over high-latency sockets.
-            </p>
-            <ul style={{ paddingLeft: '1.2rem', fontSize: '0.8rem', color: '#666' }}>
-              <li>Polling every 16-50ms</li>
-              <li>Massive Serialization Tax</li>
-              <li>Centralized Bottlenecks</li>
-              <li>Wasted Energy & Heat</li>
-            </ul>
-          </Style.ShiftCard>
-
-          <Style.ShiftCard $variant="inos">
-            <h4>The Microsecond World</h4>
-            <p>
-              INOS communicates via <strong>Hardware Signaling</strong>. Threads sleep at the
-              hardware level, waking for signals in nanoseconds.
-            </p>
-            <ul style={{ paddingLeft: '1.2rem', fontSize: '0.8rem' }}>
-              <li>Zero-Polling Performance</li>
-              <li>Zero-Copy Memory Pipeline</li>
-              <li>Distributed Mesh Consensus</li>
-              <li>Biologically Inspired Efficiency</li>
-            </ul>
-          </Style.ShiftCard>
-        </Style.ShiftGrid>
+        <Style.LeadParagraph style={{ marginTop: '3rem', marginBottom: '4rem' }}>
+          INOS is an experimental formula for a distributed operating system hosted within the
+          browser—a research alpha designed to solve the fragmentation of the modern web. We
+          leveraged the synergy of <strong>Go</strong> for supervisory orchestration,{' '}
+          <strong>Rust</strong> for dedicated high-performance compute, and{' '}
+          <strong>JavaScript</strong> for reactive human interfaces, all woven through the zero-copy
+          spine of a <strong>SharedArrayBuffer</strong>. By encoding our intent in{' '}
+          <strong>Cap'n Proto</strong> schemas, we've eliminated the serialization tax that consumes
+          most of planetary compute. It is an ambiguous reality: part research paper, part
+          production kernel, and entirely focused on localizing planetary-scale intelligence into a
+          single, shared memory pool.
+        </Style.LeadParagraph>
 
         <Style.LiveStatsGrid>
           <Style.StatBox>

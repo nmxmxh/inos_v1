@@ -206,12 +206,11 @@ func DefaultTransportConfig() TransportConfig {
 		},
 		TURNServers: []string{},
 
-		WebSocketURL: "wss://signaling.inos.ai/ws",
-		SignalingServers: []string{
-			"wss://signaling1.inos.ai/ws",
-			"wss://signaling2.inos.ai/ws",
-			"wss://signaling3.inos.ai/ws",
-		},
+		// No centralized signaling servers by default.
+		// P2P mesh: nodes start isolated and discover peers via gossip protocol.
+		// Signaling URLs can be injected via URL params for testing if needed.
+		WebSocketURL:     "",
+		SignalingServers: []string{},
 
 		MaxConnections:    100,
 		ConnectionTimeout: 10 * time.Second,
@@ -289,9 +288,12 @@ func (t *WebRTCTransport) Start(ctx context.Context) error {
 
 	t.logger.Info("starting transport", "signaling_servers", t.signalingServerList())
 
-	// Connect to signaling server
-	if err := t.connectSignaling(); err != nil {
-		t.logger.Warn("failed to connect to signaling server, will retry", "error", err)
+	// Connect to signaling server (if any configured)
+	servers := t.signalingServerList()
+	if len(servers) == 0 {
+		t.logger.Debug("no signaling servers configured, node starts isolated (P2P gossip mode)")
+	} else if err := t.connectSignaling(); err != nil {
+		t.logger.Debug("signaling unavailable, will retry", "error", err)
 		go t.reconnectSignaling()
 	}
 
@@ -2125,4 +2127,64 @@ func (t *WebRTCTransport) ApplyRoleConfig(config runtime.RoleConfig) {
 	if t.localCapability != nil {
 		t.localCapability.Role = config.Role
 	}
+}
+
+// ========== Gossip-Based SDP Relay for Decentralized WebRTC Signaling ==========
+
+// BroadcastSDPRelay broadcasts an SDP offer/answer via gossip when no signaling server is available
+func (t *WebRTCTransport) BroadcastSDPRelay(targetID string, sessionID string, sdp []byte, maxHops uint8) error {
+	relay := map[string]interface{}{
+		"originator_id": t.nodeID,
+		"target_id":     targetID,
+		"session_id":    sessionID,
+		"sdp":           sdp,
+		"hop_count":     uint8(0),
+		"max_hops":      maxHops,
+		"timestamp":     time.Now().UnixNano(),
+	}
+
+	t.logger.Debug("broadcasting SDP relay via gossip",
+		"target", getShortID(targetID),
+		"session", getShortID(sessionID))
+
+	return t.Broadcast("sdp.relay", relay)
+}
+
+// BroadcastSDPNotify sends a lightweight notification that SDP is available (stored in DHT)
+func (t *WebRTCTransport) BroadcastSDPNotify(targetID string, sessionID string) error {
+	nonce := make([]byte, 8)
+	rand.Read(nonce)
+
+	notify := map[string]interface{}{
+		"originator_id": t.nodeID,
+		"target_id":     targetID,
+		"session_id":    sessionID,
+		"timestamp":     time.Now().UnixNano(),
+		"nonce":         nonce,
+	}
+
+	t.logger.Debug("broadcasting SDP notify via gossip",
+		"target", getShortID(targetID),
+		"session", getShortID(sessionID))
+
+	return t.Broadcast("sdp.notify", notify)
+}
+
+// BroadcastICERelay broadcasts an ICE candidate via gossip
+func (t *WebRTCTransport) BroadcastICERelay(targetID string, sessionID string, candidate string, sdpMLineIndex uint16) error {
+	relay := map[string]interface{}{
+		"originator_id":   t.nodeID,
+		"target_id":       targetID,
+		"session_id":      sessionID,
+		"candidate":       candidate,
+		"sdp_mline_index": sdpMLineIndex,
+		"timestamp":       time.Now().UnixNano(),
+	}
+
+	return t.Broadcast("ice.relay", relay)
+}
+
+// HasSignalingServers returns true if any signaling servers are configured
+func (t *WebRTCTransport) HasSignalingServers() bool {
+	return len(t.signalingServerList()) > 0
 }

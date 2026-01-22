@@ -43,10 +43,13 @@ const (
 	Gossip_GossipPayload_Which_chunkAd    Gossip_GossipPayload_Which = 2
 	Gossip_GossipPayload_Which_modelAd    Gossip_GossipPayload_Which = 3
 	Gossip_GossipPayload_Which_custom     Gossip_GossipPayload_Which = 4
+	Gossip_GossipPayload_Which_sdpNotify  Gossip_GossipPayload_Which = 5
+	Gossip_GossipPayload_Which_sdpRelay   Gossip_GossipPayload_Which = 6
+	Gossip_GossipPayload_Which_iceRelay   Gossip_GossipPayload_Which = 7
 )
 
 func (w Gossip_GossipPayload_Which) String() string {
-	const s = "ledgerSyncpeerListchunkAdmodelAdcustom"
+	const s = "ledgerSyncpeerListchunkAdmodelAdcustomsdpNotifysdpRelayiceRelay"
 	switch w {
 	case Gossip_GossipPayload_Which_ledgerSync:
 		return s[0:10]
@@ -58,6 +61,12 @@ func (w Gossip_GossipPayload_Which) String() string {
 		return s[25:32]
 	case Gossip_GossipPayload_Which_custom:
 		return s[32:38]
+	case Gossip_GossipPayload_Which_sdpNotify:
+		return s[38:47]
+	case Gossip_GossipPayload_Which_sdpRelay:
+		return s[47:55]
+	case Gossip_GossipPayload_Which_iceRelay:
+		return s[55:63]
 
 	}
 	return "Gossip_GossipPayload_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
@@ -267,6 +276,105 @@ func (s Gossip_GossipPayload) SetCustom(v []byte) error {
 	return s.Struct.SetData(0, v)
 }
 
+func (s Gossip_GossipPayload) SdpNotify() (Gossip_SDPNotify, error) {
+	if s.Struct.Uint16(0) != 5 {
+		panic("Which() != sdpNotify")
+	}
+	p, err := s.Struct.Ptr(0)
+	return Gossip_SDPNotify{Struct: p.Struct()}, err
+}
+
+func (s Gossip_GossipPayload) HasSdpNotify() bool {
+	if s.Struct.Uint16(0) != 5 {
+		return false
+	}
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_GossipPayload) SetSdpNotify(v Gossip_SDPNotify) error {
+	s.Struct.SetUint16(0, 5)
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewSdpNotify sets the sdpNotify field to a newly
+// allocated Gossip_SDPNotify struct, preferring placement in s's segment.
+func (s Gossip_GossipPayload) NewSdpNotify() (Gossip_SDPNotify, error) {
+	s.Struct.SetUint16(0, 5)
+	ss, err := NewGossip_SDPNotify(s.Struct.Segment())
+	if err != nil {
+		return Gossip_SDPNotify{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
+func (s Gossip_GossipPayload) SdpRelay() (Gossip_SDPRelay, error) {
+	if s.Struct.Uint16(0) != 6 {
+		panic("Which() != sdpRelay")
+	}
+	p, err := s.Struct.Ptr(0)
+	return Gossip_SDPRelay{Struct: p.Struct()}, err
+}
+
+func (s Gossip_GossipPayload) HasSdpRelay() bool {
+	if s.Struct.Uint16(0) != 6 {
+		return false
+	}
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_GossipPayload) SetSdpRelay(v Gossip_SDPRelay) error {
+	s.Struct.SetUint16(0, 6)
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewSdpRelay sets the sdpRelay field to a newly
+// allocated Gossip_SDPRelay struct, preferring placement in s's segment.
+func (s Gossip_GossipPayload) NewSdpRelay() (Gossip_SDPRelay, error) {
+	s.Struct.SetUint16(0, 6)
+	ss, err := NewGossip_SDPRelay(s.Struct.Segment())
+	if err != nil {
+		return Gossip_SDPRelay{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
+func (s Gossip_GossipPayload) IceRelay() (Gossip_ICERelay, error) {
+	if s.Struct.Uint16(0) != 7 {
+		panic("Which() != iceRelay")
+	}
+	p, err := s.Struct.Ptr(0)
+	return Gossip_ICERelay{Struct: p.Struct()}, err
+}
+
+func (s Gossip_GossipPayload) HasIceRelay() bool {
+	if s.Struct.Uint16(0) != 7 {
+		return false
+	}
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_GossipPayload) SetIceRelay(v Gossip_ICERelay) error {
+	s.Struct.SetUint16(0, 7)
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewIceRelay sets the iceRelay field to a newly
+// allocated Gossip_ICERelay struct, preferring placement in s's segment.
+func (s Gossip_GossipPayload) NewIceRelay() (Gossip_ICERelay, error) {
+	s.Struct.SetUint16(0, 7)
+	ss, err := NewGossip_ICERelay(s.Struct.Segment())
+	if err != nil {
+		return Gossip_ICERelay{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
 // Gossip_GossipPayload_List is a list of Gossip_GossipPayload.
 type Gossip_GossipPayload_List struct{ capnp.List }
 
@@ -315,6 +423,18 @@ func (p Gossip_GossipPayload_Promise) ChunkAd() Gossip_ChunkAdvertisement_Promis
 
 func (p Gossip_GossipPayload_Promise) ModelAd() Gossip_ModelAdvertisement_Promise {
 	return Gossip_ModelAdvertisement_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+func (p Gossip_GossipPayload_Promise) SdpNotify() Gossip_SDPNotify_Promise {
+	return Gossip_SDPNotify_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+func (p Gossip_GossipPayload_Promise) SdpRelay() Gossip_SDPRelay_Promise {
+	return Gossip_SDPRelay_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+func (p Gossip_GossipPayload_Promise) IceRelay() Gossip_ICERelay_Promise {
+	return Gossip_ICERelay_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
 }
 
 type Gossip_LedgerSync struct{ capnp.Struct }
@@ -899,80 +1019,556 @@ func (p Gossip_ModelAdvertisement_Promise) Struct() (Gossip_ModelAdvertisement, 
 	return Gossip_ModelAdvertisement{s}, err
 }
 
-const schema_f1a2b3c4d5e6f789 = "x\xda\x8cT_h\x1c\xd5\x1b\xfd\xce\xbd3\xdd\xb6\xbf" +
-	"nw\xe7\xb7+\xd4\xd0\x12\xb4\x15\x9aB\xda\xa6\xa1P" +
-	"\x03\x92\xfe1\x94\x0d\x09\xeem\x84\x96j\xc1\xc9\xee\xed" +
-	"f\xec\xee\xcc83[\xdc\xaa\xa4\x08>\xe8K\x9f\x04" +
-	"\xdb\xa7(y\xb0`i\x8c\xcdC\xa0b\x1f\x04\x1f\x04" +
-	"A0bE%\x0fU[\xb0\x0f\x91B@\xdb\\\xb9" +
-	"\xbb\xd9\x99\x8d`\xc9\xc3\xc2\xb7\xdf={\xef\xf9\xcew" +
-	"\xce\xee\xdf\xcd\x0e\xb3>\xd3cDb\xbb\xb9A\x8d]" +
-	"\xdcu\xf5\xfe\xf8\xb3\x97\xc9\xda\x89\x95\xa3_\x0c\x0cw" +
-	"u-\x98H\x11\xf5\xef\xc08r}\xba\xcc\xf5b\x90" +
-	"\xa0v\x1f\xfaz\xc7\xc5\x07\x87\xe6\xd6@\xb9\x86\x9e\xc1" +
-	",r\xf5&\xf45\\'\xa8\x17\x8e\xf6\xbd\xdd\xff\xf4" +
-	"\xc9oI\xecD\x82e\x1a\xdb\xc3f\x91;\xa2\xcb\xdc" +
-	"s\xec:\xc5\xa7\xd6v\xae\xde]\xfem\xe1\xcb\xcf>" +
-	"Z\"B\xffm\xd6\x85\xdc=V!\xca\x8d\xf2\x94\xfe" +
-	"\x10=\x1a\xde\xf5\xd2_\xc5\xc2\xf7knm28\xc8" +
-	"\x03\xe4\x0a\xba\xcc\x0d\xf1\xdf\x09\xea\x09cqyv\xea" +
-	"\xfd?5\x03\x16c\x0d\x8d}\xca\x18G\xee`\xb3\xec" +
-	"3.\x81\xa0\x8e_{ky&\xbb\xb4\xb2\x86\xee\x10" +
-	"K\x99D\xfd\xb7\xcd\xf7\x90[25\xfa\xbeyR\xa3" +
-	"\xfd\x03\xfe\xbe\xf3}\xfb*\x86\x17\x86\x8e\xdf[\xf1z" +
-	"#Y\xf3\xf7\x96l\xdf\xf5\x07\x8e7\x9b{\x8bR\x06" +
-	"#)'\x8c\x8a\x800\xb8Ad\x80\xc8J\x1f \x12" +
-	"\x1b9\xc4.\x86n_\xca \xc4VB\x91\x03\xd9\x84" +
-	"1A7\xe3g\xcc\xc7<3\xea\x95e\xf5H\xf9\xbc" +
-	"\x0c\"'\xec\x965\xe96\x1f\xdc\x12?8t\x94H" +
-	"\x1c\xe6\x10#\x0c\x16\x90\x87n\x16\x06\x88\xc4\xf3\x1c\xe2" +
-	"\x15\x06\x8b\xb1<\x18\x91uF7Oq\x88\x88a\xb2" +
-	"\xa6\xef-\x94\xb1\x85\x18\xb6\x10\x06K\x13u\xf7\\\xcc" +
-	"Uw\xb7\x12\x06\xabv\xa3c\x82\x8d\xad\xee\xbax\x1f" +
-	"\xd3\xf7=\x96\xf7\x9e\x84wL{\xcf*\xed\xa2\xa6\x8d" +
-	"\x16\xed\xd1q\"1\xc2!N1d&\xecp\xa2\xcd" +
-	"9\x13:\x17$6\x11\xc3&\x82*yn$\xdd\xe8" +
-	"EJ5|\xd9\x86\xc4T\xf9\x7fQ\xe5\x8e/\xb6\xa1" +
-	"\xc3 VO\xd06\xa1\xd5s\xba#==\xc3\xc9\x02" +
-	"\xf5\x978\x01V\xcf\x95\x8e\xe4\xf4^Q-\x09\x8a6" +
-	"u7\xaa\x9e]V#\xb2\\\x91\xc1X\x83\xb8[R" +
-	"M\xdf8aDD\xcd\xba\xe0\x9e\xf5t\xdd\x16\x0cM" +
-	"\xc5dMr7R\xed\xedw6\x8b\xdc,b}\x1e" +
-	"m>\xdc\x1d\x8c5\xdc\x92\x16?\x1b\x8bok+\xbc" +
-	"\xcc!&:L#O\x13\x892\x87\xf0;LS;" +
-	"A$\xaa\x1c\xe2u\x06\xf0<8\x91U\xd7\x96\xf39" +
-	"\xc4\x9b\x0c\x83\xda\xe3\x89\x8fTM\x06\xe7\xaa\xf2\x84G" +
-	"\xdc\x8b\x90&\x864A\x85N\xc5\xb5\xa3z@\x90\xed" +
-	"\xded\xd5\xab\x8cu\xeeo\xbd\x99+\xa4\xdc\xb3\x9e\x9e" +
-	"f{<\xcd\\\x17\x91\x98\xe1\x107;\xa6\x99\xd7$" +
-	"op\x88[\x1d\xd3|\xfe*\x91\xb8\xc9!~H\xa6" +
-	"Y\xd0c\x7f\xc7!\x16\x19,\x03y\x18D\xd6\xcf\xc3" +
-	"D\xe2'\x0eq\x97\xc12Y\x1e&\x91\xf5\xab\xb6\xe7" +
-	"\"\x87\xf8\x83\xc1\xda\xc0\xf3\xd8@d\xdd\xd3\xf6\xbc\xcb" +
-	"!\x1e0p'\x16b\xd2.\x97\x03\x19\x86\xb10%" +
-	"\xdb\xb7\xc7\x9d\xaaC\x99\xc8\x91\xff\x0e\x9a\x0a\xa4_\x8f" +
-	"\xec\xc8!\xee\xb9\xd8L\x0c\x9b\x09\xaaj\x87\xd1\x98\x94" +
-	".\x11\xc1$\x06\x93\x90\x09\xbc\xaaDF=s\xe7\xe1" +
-	"\xf4\xa5\x1f\xe7\xbe\xd1\x7f%\x19\xfd\xfb\xba\x1b95y" +
-	"\x8cR\xb6\x1f\"\xab\x1aw\xde\x99L]\xd8?\xaf\xcf" +
-	"\xb3\xeb\x8cl\xdb\xb6M\xd3\x12i\x8d\xb7q#\x0d\xa5" +
-	"\x9a*_\xd6:}\xc0!\xa6\x19\xd2lE\xb5d\xfe" +
-	"P\x0b5\xc5!>aH\xf3G\xaa\xa5\xf3U-\xfe" +
-	"4\x87\x98aH\x1b\x0fUK\xe9k\xba\xfb1\x87\xb8" +
-	"\xc1\x90]\x15\xfa\xd3\xe1dwi\xf3o\xd5Rz~" +
-	" Y\x9e\xaav\xc4\x07\xd9v8\xdb\x83%qB6" +
-	"Ik\xebt\xb2\xd4\x0a\x15\xb2IZWOj\xadd" +
-	"!\x9bDw\xf5\xc6\x9a\x8c\xec\xb2\x1d\xd9\xad\x1b\x9f\xfc" +
-	"\xffWS\xff\xbb\xf5\xc6/\xab\xa7\x83\xa5z\x18y\xb5" +
-	"\xb6\x8b\xff\x09\x00\x00\xff\xffe\xb2\xec\xcb"
+type Gossip_SDPNotify struct{ capnp.Struct }
+
+// Gossip_SDPNotify_TypeID is the unique identifier for the type Gossip_SDPNotify.
+const Gossip_SDPNotify_TypeID = 0xd663bb5331faa030
+
+func NewGossip_SDPNotify(s *capnp.Segment) (Gossip_SDPNotify, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4})
+	return Gossip_SDPNotify{st}, err
+}
+
+func NewRootGossip_SDPNotify(s *capnp.Segment) (Gossip_SDPNotify, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4})
+	return Gossip_SDPNotify{st}, err
+}
+
+func ReadRootGossip_SDPNotify(msg *capnp.Message) (Gossip_SDPNotify, error) {
+	root, err := msg.RootPtr()
+	return Gossip_SDPNotify{root.Struct()}, err
+}
+
+func (s Gossip_SDPNotify) String() string {
+	str, _ := text.Marshal(0xd663bb5331faa030, s.Struct)
+	return str
+}
+
+func (s Gossip_SDPNotify) OriginatorId() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPNotify) HasOriginatorId() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPNotify) OriginatorIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPNotify) SetOriginatorId(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Gossip_SDPNotify) TargetId() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPNotify) HasTargetId() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPNotify) TargetIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPNotify) SetTargetId(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Gossip_SDPNotify) SessionId() (string, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPNotify) HasSessionId() bool {
+	p, err := s.Struct.Ptr(2)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPNotify) SessionIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPNotify) SetSessionId(v string) error {
+	return s.Struct.SetText(2, v)
+}
+
+func (s Gossip_SDPNotify) Timestamp() int64 {
+	return int64(s.Struct.Uint64(0))
+}
+
+func (s Gossip_SDPNotify) SetTimestamp(v int64) {
+	s.Struct.SetUint64(0, uint64(v))
+}
+
+func (s Gossip_SDPNotify) Nonce() ([]byte, error) {
+	p, err := s.Struct.Ptr(3)
+	return []byte(p.Data()), err
+}
+
+func (s Gossip_SDPNotify) HasNonce() bool {
+	p, err := s.Struct.Ptr(3)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPNotify) SetNonce(v []byte) error {
+	return s.Struct.SetData(3, v)
+}
+
+// Gossip_SDPNotify_List is a list of Gossip_SDPNotify.
+type Gossip_SDPNotify_List struct{ capnp.List }
+
+// NewGossip_SDPNotify creates a new list of Gossip_SDPNotify.
+func NewGossip_SDPNotify_List(s *capnp.Segment, sz int32) (Gossip_SDPNotify_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 4}, sz)
+	return Gossip_SDPNotify_List{l}, err
+}
+
+func (s Gossip_SDPNotify_List) At(i int) Gossip_SDPNotify { return Gossip_SDPNotify{s.List.Struct(i)} }
+
+func (s Gossip_SDPNotify_List) Set(i int, v Gossip_SDPNotify) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Gossip_SDPNotify_List) String() string {
+	str, _ := text.MarshalList(0xd663bb5331faa030, s.List)
+	return str
+}
+
+// Gossip_SDPNotify_Promise is a wrapper for a Gossip_SDPNotify promised by a client call.
+type Gossip_SDPNotify_Promise struct{ *capnp.Pipeline }
+
+func (p Gossip_SDPNotify_Promise) Struct() (Gossip_SDPNotify, error) {
+	s, err := p.Pipeline.Struct()
+	return Gossip_SDPNotify{s}, err
+}
+
+type Gossip_SDPRelay struct{ capnp.Struct }
+
+// Gossip_SDPRelay_TypeID is the unique identifier for the type Gossip_SDPRelay.
+const Gossip_SDPRelay_TypeID = 0xc72f4316709a32e4
+
+func NewGossip_SDPRelay(s *capnp.Segment) (Gossip_SDPRelay, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5})
+	return Gossip_SDPRelay{st}, err
+}
+
+func NewRootGossip_SDPRelay(s *capnp.Segment) (Gossip_SDPRelay, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5})
+	return Gossip_SDPRelay{st}, err
+}
+
+func ReadRootGossip_SDPRelay(msg *capnp.Message) (Gossip_SDPRelay, error) {
+	root, err := msg.RootPtr()
+	return Gossip_SDPRelay{root.Struct()}, err
+}
+
+func (s Gossip_SDPRelay) String() string {
+	str, _ := text.Marshal(0xc72f4316709a32e4, s.Struct)
+	return str
+}
+
+func (s Gossip_SDPRelay) OriginatorId() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPRelay) HasOriginatorId() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPRelay) OriginatorIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPRelay) SetOriginatorId(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Gossip_SDPRelay) TargetId() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPRelay) HasTargetId() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPRelay) TargetIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPRelay) SetTargetId(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Gossip_SDPRelay) SessionId() (string, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.Text(), err
+}
+
+func (s Gossip_SDPRelay) HasSessionId() bool {
+	p, err := s.Struct.Ptr(2)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPRelay) SessionIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_SDPRelay) SetSessionId(v string) error {
+	return s.Struct.SetText(2, v)
+}
+
+func (s Gossip_SDPRelay) Sdp() ([]byte, error) {
+	p, err := s.Struct.Ptr(3)
+	return []byte(p.Data()), err
+}
+
+func (s Gossip_SDPRelay) HasSdp() bool {
+	p, err := s.Struct.Ptr(3)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPRelay) SetSdp(v []byte) error {
+	return s.Struct.SetData(3, v)
+}
+
+func (s Gossip_SDPRelay) HopCount() uint8 {
+	return s.Struct.Uint8(0)
+}
+
+func (s Gossip_SDPRelay) SetHopCount(v uint8) {
+	s.Struct.SetUint8(0, v)
+}
+
+func (s Gossip_SDPRelay) MaxHops() uint8 {
+	return s.Struct.Uint8(1)
+}
+
+func (s Gossip_SDPRelay) SetMaxHops(v uint8) {
+	s.Struct.SetUint8(1, v)
+}
+
+func (s Gossip_SDPRelay) Timestamp() int64 {
+	return int64(s.Struct.Uint64(8))
+}
+
+func (s Gossip_SDPRelay) SetTimestamp(v int64) {
+	s.Struct.SetUint64(8, uint64(v))
+}
+
+func (s Gossip_SDPRelay) Signature() ([]byte, error) {
+	p, err := s.Struct.Ptr(4)
+	return []byte(p.Data()), err
+}
+
+func (s Gossip_SDPRelay) HasSignature() bool {
+	p, err := s.Struct.Ptr(4)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_SDPRelay) SetSignature(v []byte) error {
+	return s.Struct.SetData(4, v)
+}
+
+// Gossip_SDPRelay_List is a list of Gossip_SDPRelay.
+type Gossip_SDPRelay_List struct{ capnp.List }
+
+// NewGossip_SDPRelay creates a new list of Gossip_SDPRelay.
+func NewGossip_SDPRelay_List(s *capnp.Segment, sz int32) (Gossip_SDPRelay_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 5}, sz)
+	return Gossip_SDPRelay_List{l}, err
+}
+
+func (s Gossip_SDPRelay_List) At(i int) Gossip_SDPRelay { return Gossip_SDPRelay{s.List.Struct(i)} }
+
+func (s Gossip_SDPRelay_List) Set(i int, v Gossip_SDPRelay) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Gossip_SDPRelay_List) String() string {
+	str, _ := text.MarshalList(0xc72f4316709a32e4, s.List)
+	return str
+}
+
+// Gossip_SDPRelay_Promise is a wrapper for a Gossip_SDPRelay promised by a client call.
+type Gossip_SDPRelay_Promise struct{ *capnp.Pipeline }
+
+func (p Gossip_SDPRelay_Promise) Struct() (Gossip_SDPRelay, error) {
+	s, err := p.Pipeline.Struct()
+	return Gossip_SDPRelay{s}, err
+}
+
+type Gossip_ICERelay struct{ capnp.Struct }
+
+// Gossip_ICERelay_TypeID is the unique identifier for the type Gossip_ICERelay.
+const Gossip_ICERelay_TypeID = 0xe1d03498a2bb0733
+
+func NewGossip_ICERelay(s *capnp.Segment) (Gossip_ICERelay, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
+	return Gossip_ICERelay{st}, err
+}
+
+func NewRootGossip_ICERelay(s *capnp.Segment) (Gossip_ICERelay, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4})
+	return Gossip_ICERelay{st}, err
+}
+
+func ReadRootGossip_ICERelay(msg *capnp.Message) (Gossip_ICERelay, error) {
+	root, err := msg.RootPtr()
+	return Gossip_ICERelay{root.Struct()}, err
+}
+
+func (s Gossip_ICERelay) String() string {
+	str, _ := text.Marshal(0xe1d03498a2bb0733, s.Struct)
+	return str
+}
+
+func (s Gossip_ICERelay) OriginatorId() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Gossip_ICERelay) HasOriginatorId() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_ICERelay) OriginatorIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_ICERelay) SetOriginatorId(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Gossip_ICERelay) TargetId() (string, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.Text(), err
+}
+
+func (s Gossip_ICERelay) HasTargetId() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_ICERelay) TargetIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_ICERelay) SetTargetId(v string) error {
+	return s.Struct.SetText(1, v)
+}
+
+func (s Gossip_ICERelay) SessionId() (string, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.Text(), err
+}
+
+func (s Gossip_ICERelay) HasSessionId() bool {
+	p, err := s.Struct.Ptr(2)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_ICERelay) SessionIdBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_ICERelay) SetSessionId(v string) error {
+	return s.Struct.SetText(2, v)
+}
+
+func (s Gossip_ICERelay) Candidate() (string, error) {
+	p, err := s.Struct.Ptr(3)
+	return p.Text(), err
+}
+
+func (s Gossip_ICERelay) HasCandidate() bool {
+	p, err := s.Struct.Ptr(3)
+	return p.IsValid() || err != nil
+}
+
+func (s Gossip_ICERelay) CandidateBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(3)
+	return p.TextBytes(), err
+}
+
+func (s Gossip_ICERelay) SetCandidate(v string) error {
+	return s.Struct.SetText(3, v)
+}
+
+func (s Gossip_ICERelay) SdpMLineIndex() uint16 {
+	return s.Struct.Uint16(0)
+}
+
+func (s Gossip_ICERelay) SetSdpMLineIndex(v uint16) {
+	s.Struct.SetUint16(0, v)
+}
+
+func (s Gossip_ICERelay) Timestamp() int64 {
+	return int64(s.Struct.Uint64(8))
+}
+
+func (s Gossip_ICERelay) SetTimestamp(v int64) {
+	s.Struct.SetUint64(8, uint64(v))
+}
+
+// Gossip_ICERelay_List is a list of Gossip_ICERelay.
+type Gossip_ICERelay_List struct{ capnp.List }
+
+// NewGossip_ICERelay creates a new list of Gossip_ICERelay.
+func NewGossip_ICERelay_List(s *capnp.Segment, sz int32) (Gossip_ICERelay_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 4}, sz)
+	return Gossip_ICERelay_List{l}, err
+}
+
+func (s Gossip_ICERelay_List) At(i int) Gossip_ICERelay { return Gossip_ICERelay{s.List.Struct(i)} }
+
+func (s Gossip_ICERelay_List) Set(i int, v Gossip_ICERelay) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Gossip_ICERelay_List) String() string {
+	str, _ := text.MarshalList(0xe1d03498a2bb0733, s.List)
+	return str
+}
+
+// Gossip_ICERelay_Promise is a wrapper for a Gossip_ICERelay promised by a client call.
+type Gossip_ICERelay_Promise struct{ *capnp.Pipeline }
+
+func (p Gossip_ICERelay_Promise) Struct() (Gossip_ICERelay, error) {
+	s, err := p.Pipeline.Struct()
+	return Gossip_ICERelay{s}, err
+}
+
+const schema_f1a2b3c4d5e6f789 = "x\xda\xa4Voh\x1c\xd7\x11\x9f\xdf{\xb7wRl" +
+	"E\xb7\xddkI\x8c\x83\xd2D\x85`\x9a\xd8\xb2ZH" +
+	"\xfdE\x91e\x93\x9e\x90\xd3{\xbaBR\xb7\x85\xaen" +
+	"\x9f\xa5u\xeev\x97\xdbU\xeaK\x13\x14J\x03mi" +
+	"I?4\xd46\x14\x94\x90\x0f\x0d\xd4$vc\xa8I" +
+	"Bm\x08\x18\xdaRb\xa8BZ\xd2b\x83\xd2\xc6\x10" +
+	"C\\l\xfc\xa7\xb6\xb7\xcc\x9enw\xd58F\xe0\x0f" +
+	"\x07ogf\xe7\xcd\xfcv\xe6\xf7\xbb-\x7f\x94\x8f\x88" +
+	"\x11\xe3\xfb\x92H=`\x14\xe3\xfas\xc3\xaf\x9e\x9b\xf9" +
+	"\xda\x012\xef\xc7\x8d\xed\x7f\xd86\xb9a\xc3\x92\x81\x12" +
+	"\xd1\xe8K\x98\x81u\x94\x8f\xd6a\x8c\x11\xe2\x07\x1e\xfe" +
+	"\xd3=\xcf]x\xf8\xe8\xaaP\xc9\xa1gp\x04\xd6\x95" +
+	"$\xf4\"^#\xc4\xcb[\x0f\x06_\x98\xd8|\x92\xd4" +
+	"\xfd\x10i\xac\xc1\xb1\x87\xc4\x0c\xac\x13\x82\x8fo\x8b\x93" +
+	" \xc4\xdf\xd8>\xf2\xc3\xd1\xfb\x1e?\xc5\xc1Y\xe2$" +
+	"\xe2@\xe1\x08\xac\xc3\x05N|\xa8\xf0\x1a\xa5^s\xa3" +
+	"\x8c\x7fr\xe9_K\xef\xfc\xee\xe5\xf3D\x18\xad\x1a\x1b" +
+	"`}\xcb\xf8\x15\x91u\xce(\xf1\x8f\xe8\xfa\xe4\xf0\xb7" +
+	"\xaf\xd6\xaa\xef\xad\xca\x9a\x94\xbbd\xb4a\x9d\xe5\x18\xeb" +
+	"C\xe3\xdf\x84x\xcb\xe2\xd5\x91\xfa\x9b\x8d\xf7VW\xc0" +
+	"\xd7\x8e\x9e(\xee\x85\xb5T\xe4\xe3\xa9\xe2\x10\x97;Z" +
+	"z\xf3\xe5\xfd_y\xf7\xcc\xea\xde\x92\xe0\xf3\xa5\x19X" +
+	"F\x1f\x1f\xd1\xf78\x07\x7f\xbep\xfa\xd2\x91\xc5\x17\xff" +
+	"s\x93`\xdd?\x03\xab\xd3\xcf\xc7\xf9\xfe\x178\xf8\xd1" +
+	"C\xcf^z\xbd|\xfe\xc6\xaa2v\x8aR\x1f\xd1\xe8" +
+	"=\xeb~\x0a\xeb\xab\xeb8zd]\xcc\xd1\xc1\xd6`" +
+	"\xf3S#\x9bg\x0b~\x18\xba\xc1\x83\xb3\xfe\x83\x91n" +
+	"\x05\x0f5\xec\xc0\x0b\xb6=\x9a\x18\x1f\xaai\xdd\x9e*" +
+	"\xb9aT\x03TA\x16\x88\x0a 2\x07\xb6\x12\xa9>" +
+	"\x095,0\x14h\xdd\x0eq'\xa1&\x81rV1" +
+	"\x81\x8d\xe95\xc6-\xae\xd9\xe5;\xba9\xee<\xa5\xdb" +
+	"\x91\x1b\x0e\xe9\x96\xf6\x92\x0b\xd7\xa7\x17\xee\xdcN\xa4\x1e" +
+	"\x91PS\x02&P\x01\x1b\xab\xdb\x88\xd4\x0e\x09\xf5=" +
+	"\x01S\x88\x0a\x04\x91\xf9]6>!\xa1\"\x81\x85\x16" +
+	"\xe7\xad:XO\x02\xeb\x09c\x8d\xb9y\xef\xc9\xb4V" +
+	"\xb6\xdeI\x18k\xda\x9d\\\x07}]\xeb\x9a\xe0\xa9\xef" +
+	"\xa8M\xebR\xd3\xeep\xb5\xf7\xa6\xd5\x9e\xdaK\xa4\xde" +
+	"\x95P\x1f\xe4\xaa\xfd\xdb$\x91z_B-\xe7\xaa=" +
+	"3M\xa4NK\xa8\x8f\x05L)+\x90D\xe6\xd9\xfb" +
+	"\x88\xd4\xb2\x84\xfaD\x00\x85\x0a\x0aD\xe69~\xfbc" +
+	"\x09uY\xc04P\x81Ad^dT>\x91P\xd7" +
+	"\x04\xcc\"*(\x12\x99W8\xe5e\x89z\x01\x02f" +
+	"\xa9PI\xd6\x0a\x98&\x9a\x86D}=\x04b\xbf\xed" +
+	"\xce\xba\x9e\x1d\xd1\xa0\xdf\xce\xf0\x89#\xbb=\xab\xa3\xaa" +
+	"CD\xa9-\xd4a\xe8\xfa^\x95\x90\xc6\x95B'\xc0" +
+	"\x00\x09\x0c\x10\xe29?\x98\xf0\xe7\xbd\x88\xdf)\x92@" +
+	"\x91\xb0\xd0\xb2\xf7}\xdd\x0f\xc2\xdes\x1c\xb9-\x1dF" +
+	"v\x8b\x10\xc0 \x01\x83\xf3\xba\xb3\x9e\x1d\xcd\xb7\x09:" +
+	"\xcd\xb5\x96Y\x99\xe0ox\xcbY\xd9\x94\xcdJ:*" +
+	"\x9bVF\xa5\xc6\xe0\xa3\x0b\xfe\xae\x19\"5%\xa1\x9e" +
+	"\x10\x18\x9c\xb3\xc3\xb9^\x7f\x83\xa1\xfb\xb4F?\x09\xf4" +
+	"\x13\xe2\x86\xefE\xda\x8b\xbeI\xa5N\xa0SXz\xa5" +
+	"\xca\xcf*U\xba\x81\x1aFn)\xcd\xf1v\x8fR\xcc" +
+	"\xf1\xdd9\xe2\x1c\x9f\xcc\x96\x86\x1fR>3\xc7\x0f\xe6" +
+	"Hs\xe7\xc1\x8cg\xcc\xeat\xc6\x91fu2#\x15" +
+	"~\xe8\"U\xb3i\xa8\xd3\xf4m'\x9e\xd2\xce\xacn" +
+	"\xd7;$\xbdF\x9c\xac\xb4\x1b\xf2\xf7J\xceUo\x8f" +
+	"\xcf\xe7\x1e\xaeH\x80\xd5--\xbd(\xee-\xe6*c" +
+	"}G\xed1?r\xf7\x10:q\xb2\x01M\xbb\xc3\x19" +
+	"\xaa\x13;{\xe7\x9a4jX\xdb\x0e%\xc5\x0d\xb5\xeb" +
+	"\x1d\xaf\xc1\xdf\xb1\x9c~G\x9b7\xf9;\x12j.\xb7" +
+	"Ez7\x91r$T\x90\xdb\xa2\x16\x8f|SB\xed" +
+	"\x13\xc0\xca\x12\xcd\xf3n\x04\x12\xea\x19\x811\xa6\xa8\xdc" +
+	"\x98\xb7t\xfb\xc9\xa6\x9e\xf6I\xfaQ:{7\x99\xc7" +
+	"\x85\xa6?[\xcf\x8f\xc2\x1a9\xe11\x7f0r\xf7$" +
+	"\xa4PI\xdby\x96I\xe1\x19\x09\xf5\xe3\\;\xcf\xf3" +
+	"Z\xffHB\xfd\"\xd7\xce\xcf\xb9\x9d\x9fI\xa8\xfdY" +
+	";/\xb2\xed\x97\x12jQ\xc0,\xc8.)\xfc\x9ai" +
+	"x\xbf\x84z\xe5\xb6W\xfaf+:\xe4\xf9^\xe3\xd3" +
+	"\xcby\xab\xe6\x93\x11\xe8\x11\xe2]i\xef\x07\xf6f\x85" +
+	"\xa6\xbd\xbf\xc4\xbd/J\xa8\xdf\xe6z\x7f\x95\xfb\xfc\x8d" +
+	"\x84z#G\x88\x87\xd9\xf8\xba\x84z+#\xc4cm" +
+	"\"\xf5{\x09\xf5N\x8e\x10Op\xe0q\x09\xf5\xe7\xdb" +
+	"\x07\xa4a{\x8e\xeb\xd8\x11\xcfC\x1a\xe7\x04\xbb\xa6\\" +
+	"O\xd3P\xd5s\xf4>\x94H\xa0\xf4\x19\xfc\xb6Vy" +
+	"\xad\x96\xbc=>\xc3\xb51\x85\xeb\xe8\x86\xac\xdf\x14\xae" +
+	"c<\xd0oH\xa8\xe39\xb8\xdef`\xdf\x92P\xef" +
+	"g\xa3\xb2\xc4+\xf2W\x09u\x9aG\x05]\xb8\xfe\xc1" +
+	"`\x7f \xa1>b\xb8D\x17\xae\x0f7\xe5\xd4\xa7(" +
+	"\xbb\xfaq\x96Y\xf1#\x09uA@\xba)\x1e\x0b\xb6" +
+	"\xe3\xb4u\x18\xe6\xf0\x09\xec\x19\xb7\xe9\xd2`\xe4\xea\xff" +
+	"\xd7\xd4\xb8\xad\x83\xf9\xc8\x8e\\\x92\xbe\x87;H\xe0\x0e" +
+	"B\xdc\xb4\xc3\xa8\xae\xb5\xc7\xd0\xaf\xc04\xd8\xf6\x9b\x1a" +
+	"\x83\xf1\x97\x96\xaf\xbd\xf2\xc2\xdf\x8f\xfe\x85\xff5\x0c\xf2" +
+	"\xfb\xf3\x1e\x83:A%;\x08Q\x8e;\xcb\xcf/\x94" +
+	"\x9e\xder\x8c\xfd\xe55*E\x8f\x06\x13\x12$b\x8c" +
+	"\x87ea\x00q\x9c\xa0|nw&\xa9\x03\xe2F\xdc" +
+	"\x85\xf9\"\x03uAb\x1a\x02\x03\xf2z\xdc\xc5\xf9\xfa" +
+	"\xf6\x9c\xa8\x0e\x14\xae\xc5\x09\xd4\x16\xc0\xf6k\x12\xf5>" +
+	"\x08\x94\xbbX[\x06&\x89\xea\x05\x16\xdb2\x87\x1b\xff" +
+	"\x8d\x13\xbc\xad\x01l#\xaa\xf7\xb1\xa3\xc2\x8e\xe2\xd58" +
+	"\xc1\xdc2Y\x9d\xebevldG\xe9J\xdc\x95\xed" +
+	"\xbb\x93Tw\xb1c\x98\x1d}\x97\xe3\x0a\xfa\x88\xac/" +
+	"&\x8e{\xd9\xf1e\x16\xf4f\x8e\xe2Q\xee\xe9L\x0f" +
+	"\xac\x8c\xf2Q\xce\x84\xa7\xeb]ht\x89\x1f\xe5Lx" +
+	"V<\xad.\xfb\xa3\x9c\xa9\xd0J\xc6\x96\x8el\xc7\x8e" +
+	"\xecn\xc6\xbb?wrq\xdd\xf1\x1f\xfcs\xc5;\xd6" +
+	"\x98\x0f#\xbf\x951\xab\x13\xf4\xf4\x02\xe5L\xc3VR" +
+	"\x85N\xd0S\x0d\x943Q[\xf1\xba\x0d\x9d\xf3\xa6*" +
+	"\xd7\xf5\xfe/\x00\x00\xff\xff\xa4\xee\"\xbf"
 
 func init() {
 	schemas.Register(schema_f1a2b3c4d5e6f789,
 		0x993962eda9248053,
 		0xb538f4801dcb3828,
+		0xc72f4316709a32e4,
 		0xd15722338231424f,
 		0xd51a1a4a3abf4200,
 		0xd64950fa5b24004a,
+		0xd663bb5331faa030,
+		0xe1d03498a2bb0733,
 		0xf295a0b2f7e00415,
 		0xfef110b0f77dad47)
 }

@@ -15,20 +15,34 @@ import (
 
 // MockTransport for DHT testing - fully implements common.Transport
 type MockDHTTransport struct {
-	mu        sync.RWMutex
-	responses map[string]interface{}
-	calls     []string
-	handlers  map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)
-	peers     map[string]*MockDHTTransport // Simulate network
+	mu             sync.RWMutex
+	responses      map[string]interface{}
+	calls          []string
+	handlers       map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)
+	peers          map[string]*MockDHTTransport // Simulate network
+	gossipManagers map[string]GossipReceiver    // For gossip message forwarding
+}
+
+// GossipReceiver interface for message delivery
+type GossipReceiver interface {
+	ReceiveMessage(senderID string, msg *common.GossipMessage) error
 }
 
 func NewMockDHTTransport() *MockDHTTransport {
 	return &MockDHTTransport{
-		responses: make(map[string]interface{}),
-		calls:     make([]string, 0),
-		handlers:  make(map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)),
-		peers:     make(map[string]*MockDHTTransport),
+		responses:      make(map[string]interface{}),
+		calls:          make([]string, 0),
+		handlers:       make(map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)),
+		peers:          make(map[string]*MockDHTTransport),
+		gossipManagers: make(map[string]GossipReceiver),
 	}
+}
+
+// SetGossipManager links a gossip manager for message delivery
+func (m *MockDHTTransport) SetGossipManager(nodeID string, gm GossipReceiver) {
+	m.mu.Lock()
+	m.gossipManagers[nodeID] = gm
+	m.mu.Unlock()
 }
 
 func (m *MockDHTTransport) Start(ctx context.Context) error { return nil }
@@ -80,7 +94,41 @@ func (m *MockDHTTransport) StreamRPC(ctx context.Context, peerID string, method 
 func (m *MockDHTTransport) SendMessage(ctx context.Context, peerID string, msg interface{}) error {
 	m.mu.Lock()
 	m.calls = append(m.calls, fmt.Sprintf("msg:%s", peerID))
+	target, ok := m.peers[peerID]
 	m.mu.Unlock()
+
+	// If we have a linked peer transport, forward the message to its gossip manager
+	if ok && target != nil {
+		if gossipMsg, isGossip := msg.(*common.GossipMessage); isGossip {
+			// Copy message to avoid race on HopCount increment
+			msgCopy := &common.GossipMessage{
+				ID:        gossipMsg.ID,
+				Type:      gossipMsg.Type,
+				Payload:   gossipMsg.Payload,
+				Sender:    gossipMsg.Sender,
+				Timestamp: gossipMsg.Timestamp,
+				TTL:       gossipMsg.TTL,
+				HopCount:  gossipMsg.HopCount,
+				MaxHops:   gossipMsg.MaxHops,
+				Signature: gossipMsg.Signature,
+				PublicKey: gossipMsg.PublicKey,
+			}
+
+			// Find the gossip manager for the target peer
+			target.mu.RLock()
+			for nodeID, gm := range target.gossipManagers {
+				if gm != nil {
+					// Forward message asynchronously to avoid deadlock
+					go func(receiver GossipReceiver, senderID string, m *common.GossipMessage) {
+						receiver.ReceiveMessage(senderID, m)
+					}(gm, msgCopy.Sender, msgCopy)
+					_ = nodeID // used for debugging
+					break      // Only one gossip manager per transport
+				}
+			}
+			target.mu.RUnlock()
+		}
+	}
 	return nil
 }
 func (m *MockDHTTransport) Broadcast(topic string, message interface{}) error { return nil }

@@ -571,10 +571,9 @@ func (g *GossipManager) Broadcast(topic string, payload interface{}) error {
 		MaxHops:   g.config.MaxHops,
 	}
 
-	// Sign the message (using binary data if possible, or ID+Payload string)
+	// Sign the message using consistent signatureData
 	if g.signKey != nil {
-		// Use binary repr for signing if possible
-		data, _ := msg.Marshal()
+		data := g.signatureData(msg)
 		sig := ed25519.Sign(g.signKey, data)
 		msg.Signature = sig
 		msg.PublicKey = g.publicKey
@@ -652,54 +651,68 @@ func (g *GossipManager) messageProcessor() {
 func (g *GossipManager) sendMessageToPeers(queued QueuedGossipMessage) {
 	var err error
 
-	if len(queued.Targets) == 0 {
-		// Broadcast to all peers
-		peers := g.getAllPeers()
-		if len(peers) > 0 {
-			err = g.transport.Broadcast("gossip", queued.Message)
+	targets := queued.Targets
+	if len(targets) == 0 {
+		// No specific targets - select random peers based on fanout
+		targets = g.getRandomPeers(g.config.Fanout)
+	}
+
+	if len(targets) == 0 {
+		// No peers available
+		g.logger.Debug("no peers available to send message to")
+		if queued.Result != nil {
+			queued.Result <- nil
 		}
-	} else {
-		// Send to specific peers
-		var wg sync.WaitGroup
-		errs := make(chan error, len(queued.Targets))
+		return
+	}
 
-		for _, peer := range queued.Targets {
-			wg.Add(1)
-			go func(p string) {
-				defer wg.Done()
+	// Send to each target peer
+	var wg sync.WaitGroup
+	errs := make(chan error, len(targets))
+	successCount := int32(0)
 
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
+	for _, peer := range targets {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
 
-				if sendErr := g.transport.SendMessage(ctx, p, queued.Message); sendErr != nil {
-					errs <- fmt.Errorf("peer %s: %w", getShortID(p), sendErr)
-				}
-			}(peer)
-		}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-		wg.Wait()
-		close(errs)
-
-		// Collect errors
-		for e := range errs {
-			if err == nil {
-				err = e
+			if sendErr := g.transport.SendMessage(ctx, p, queued.Message); sendErr != nil {
+				errs <- fmt.Errorf("peer %s: %w", getShortID(p), sendErr)
 			} else {
-				err = fmt.Errorf("%v; %v", err, e)
+				atomic.AddInt32(&successCount, 1)
 			}
+		}(peer)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	// Collect errors
+	for e := range errs {
+		if err == nil {
+			err = e
+		} else {
+			err = fmt.Errorf("%v; %v", err, e)
 		}
 	}
 
-	// Update metrics
-	if err == nil {
+	// Update metrics - count as sent if at least one peer received it
+	if atomic.LoadInt32(&successCount) > 0 {
 		g.metricsMu.Lock()
 		g.metrics.MessagesSent++
 		g.metricsMu.Unlock()
 	}
 
-	// Notify sender
+	// Notify sender - return error only if ALL sends failed
 	if queued.Result != nil {
-		queued.Result <- err
+		if atomic.LoadInt32(&successCount) > 0 {
+			queued.Result <- nil
+		} else {
+			queued.Result <- err
+		}
 	}
 }
 
@@ -1265,16 +1278,6 @@ func (g *GossipManager) getRandomPeers(count int) []string {
 	return selected
 }
 
-// getAllPeers returns all peers
-func (g *GossipManager) getAllPeers() []string {
-	g.peersMu.RLock()
-	defer g.peersMu.RUnlock()
-
-	peers := make([]string, len(g.peers))
-	copy(peers, g.peers)
-	return peers
-}
-
 // UpdatePeers updates the peer list
 func (g *GossipManager) UpdatePeers(peers []string) {
 	g.peersMu.Lock()
@@ -1721,6 +1724,156 @@ func (g *GossipManager) registerDefaultHandlers() {
 		// Handle Merkle sync requests
 		return g.handleMerkleSync(msg)
 	})
+
+	// ========== SDP Relay Handlers for Decentralized WebRTC Signaling ==========
+
+	g.RegisterHandler("sdp.notify", func(msg *common.GossipMessage) error {
+		return g.handleSDPNotify(msg)
+	})
+
+	g.RegisterHandler("sdp.relay", func(msg *common.GossipMessage) error {
+		return g.handleSDPRelay(msg)
+	})
+
+	g.RegisterHandler("ice.relay", func(msg *common.GossipMessage) error {
+		return g.handleICERelay(msg)
+	})
+}
+
+// ========== SDP Relay Handlers ==========
+
+// SDPNotifyPayload is the payload for sdp.notify messages
+type SDPNotifyPayload struct {
+	OriginatorID string `json:"originator_id"`
+	TargetID     string `json:"target_id"`
+	SessionID    string `json:"session_id"`
+	Timestamp    int64  `json:"timestamp"`
+	Nonce        []byte `json:"nonce"`
+}
+
+// SDPRelayPayload is the payload for sdp.relay messages
+type SDPRelayPayload struct {
+	OriginatorID string `json:"originator_id"`
+	TargetID     string `json:"target_id"`
+	SessionID    string `json:"session_id"`
+	SDP          []byte `json:"sdp"` // Encrypted SDP
+	HopCount     uint8  `json:"hop_count"`
+	MaxHops      uint8  `json:"max_hops"`
+	Timestamp    int64  `json:"timestamp"`
+	Signature    []byte `json:"signature"`
+}
+
+// ICERelayPayload is the payload for ice.relay messages
+type ICERelayPayload struct {
+	OriginatorID  string `json:"originator_id"`
+	TargetID      string `json:"target_id"`
+	SessionID     string `json:"session_id"`
+	Candidate     string `json:"candidate"`
+	SDPMLineIndex uint16 `json:"sdp_mline_index"`
+	Timestamp     int64  `json:"timestamp"`
+}
+
+// handleSDPNotify handles sdp.notify messages - lightweight notification that SDP is available
+func (g *GossipManager) handleSDPNotify(msg *common.GossipMessage) error {
+	// Parse payload
+	payloadBytes, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return nil
+	}
+	var notify SDPNotifyPayload
+	if err := json.Unmarshal(payloadBytes, &notify); err != nil {
+		return nil
+	}
+
+	// Am I the target?
+	if notify.TargetID != g.nodeID {
+		// Not for me, let gossip propagate naturally
+		return nil
+	}
+
+	g.logger.Info("received SDP notify",
+		"from", getShortID(notify.OriginatorID),
+		"session", getShortID(notify.SessionID))
+
+	// Notify transport layer to fetch SDP from DHT and handle handshake
+	// The transport layer will call DHT.FindPeers(hashSDP(originator, target, session))
+	if handler, exists := g.handlers["sdp.ready"]; exists {
+		return handler(msg)
+	}
+
+	return nil
+}
+
+// handleSDPRelay handles sdp.relay messages - full SDP forwarding
+func (g *GossipManager) handleSDPRelay(msg *common.GossipMessage) error {
+	payloadBytes, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return nil
+	}
+	var relay SDPRelayPayload
+	if err := json.Unmarshal(payloadBytes, &relay); err != nil {
+		return nil
+	}
+
+	// Check hop limit
+	if relay.HopCount >= relay.MaxHops {
+		g.logger.Debug("SDP relay exceeded max hops", "session", getShortID(relay.SessionID))
+		return nil
+	}
+
+	// Am I the target?
+	if relay.TargetID == g.nodeID {
+		g.logger.Info("received SDP relay (target)",
+			"from", getShortID(relay.OriginatorID),
+			"session", getShortID(relay.SessionID))
+
+		// Pass to transport for WebRTC handshake
+		if handler, exists := g.handlers["sdp.offer"]; exists {
+			return handler(msg)
+		}
+		return nil
+	}
+
+	// Am I directly connected to the target?
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := g.transport.Ping(ctx, relay.TargetID); err == nil {
+		// Forward directly to target
+		relay.HopCount++
+		msg.Payload = relay
+		return g.transport.SendMessage(ctx, relay.TargetID, msg)
+	}
+
+	// Otherwise, let natural gossip propagation handle it
+	return nil
+}
+
+// handleICERelay handles ice.relay messages - ICE candidate forwarding
+func (g *GossipManager) handleICERelay(msg *common.GossipMessage) error {
+	payloadBytes, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return nil
+	}
+	var relay ICERelayPayload
+	if err := json.Unmarshal(payloadBytes, &relay); err != nil {
+		return nil
+	}
+
+	// Am I the target?
+	if relay.TargetID != g.nodeID {
+		return nil // Let gossip propagate
+	}
+
+	g.logger.Debug("received ICE relay",
+		"from", getShortID(relay.OriginatorID),
+		"session", getShortID(relay.SessionID))
+
+	// Pass to transport for ICE handling
+	if handler, exists := g.handlers["ice.candidate"]; exists {
+		return handler(msg)
+	}
+	return nil
 }
 
 // handleMerkleSync handles Merkle tree synchronization requests

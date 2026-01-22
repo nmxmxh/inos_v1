@@ -17,6 +17,9 @@ interface Gossip {
             chunkAd @2 :ChunkAdvertisement;
             modelAd @3 :ModelAdvertisement;
             custom @5 :Data;
+            sdpNotify @6 :SDPNotify;      # WebRTC SDP ready notification
+            sdpRelay @7 :SDPRelay;        # WebRTC SDP relay message
+            iceRelay @8 :ICERelay;        # ICE candidate relay
         }
     }
     
@@ -54,4 +57,38 @@ interface Gossip {
         chunks @1 :List(Text); # Available chunks
         layers @2 :List(UInt32); # Cached layers
     }
+    
+    # ========== SDP Relay Types for Decentralized WebRTC Signaling ==========
+    
+    # Lightweight notification that SDP is available in DHT
+    struct SDPNotify {
+        originatorId @0 :Text;    # Who created the offer
+        targetId @1 :Text;        # Who should receive it
+        sessionId @2 :Text;       # Unique session identifier
+        timestamp @3 :Int64;      # For deduplication and TTL
+        nonce @4 :Data;           # Replay prevention (8 bytes)
+    }
+    
+    # Full SDP relay (for direct peer forwarding when DHT unavailable)
+    struct SDPRelay {
+        originatorId @0 :Text;
+        targetId @1 :Text;
+        sessionId @2 :Text;
+        sdp @3 :Data;             # Encrypted SDP payload
+        hopCount @4 :UInt8;
+        maxHops @5 :UInt8;
+        timestamp @6 :Int64;
+        signature @7 :Data;       # Ed25519 signature from originator
+    }
+    
+    # ICE candidate relay
+    struct ICERelay {
+        originatorId @0 :Text;
+        targetId @1 :Text;
+        sessionId @2 :Text;
+        candidate @3 :Text;       # ICE candidate string
+        sdpMLineIndex @4 :UInt16;
+        timestamp @5 :Int64;
+    }
 }
+
