@@ -5,7 +5,7 @@ declare const self: DedicatedWorkerGlobalScope;
 let isRunning = false;
 let isVisible = true;
 let targetFPS = 60;
-const backgroundFPS = 1;
+const backgroundFPS = 30; // 30 FPS when backgrounded - prevents severe throttling on mobile
 let lastPulseTime = 0;
 let flags: Int32Array | null = null;
 
@@ -52,7 +52,10 @@ self.onmessage = (event: MessageEvent<PulseMessage>) => {
       break;
 
     case 'SET_VISIBILITY':
-      if (payload.visible !== undefined) isVisible = payload.visible;
+      if (payload.visible !== undefined) {
+        console.log('[PulseWorker] Visibility changed:', payload.visible);
+        isVisible = payload.visible;
+      }
       if (flags) {
         Atomics.store(flags, IDX_SYSTEM_VISIBILITY, isVisible ? 1 : 0);
         Atomics.notify(flags, IDX_SYSTEM_VISIBILITY);

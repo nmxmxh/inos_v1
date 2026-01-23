@@ -72,20 +72,29 @@ const pulseManager = {
       payload: { sab },
     });
 
-    // Handle visibility changes for the entire system
-    document.addEventListener('visibilitychange', () => {
-      const visible = document.visibilityState === 'visible';
+    // Helper to update visibility state
+    const setVisibility = (visible: boolean, source: string) => {
+      console.log(`[PulseManager] Visibility: ${visible} (source: ${source})`);
       pulseWorker?.postMessage({
         type: 'SET_VISIBILITY',
         payload: { visible },
       });
+    };
+
+    // Handle visibility changes - multiple events for robust mobile support
+    document.addEventListener('visibilitychange', () => {
+      setVisibility(document.visibilityState === 'visible', 'visibilitychange');
     });
 
+    // Additional events for iOS Safari robustness
+    window.addEventListener('focus', () => setVisibility(true, 'focus'));
+    window.addEventListener('blur', () => setVisibility(false, 'blur'));
+    window.addEventListener('pageshow', () => setVisibility(true, 'pageshow'));
+
     // Initial visibility state
-    pulseWorker.postMessage({
-      type: 'SET_VISIBILITY',
-      payload: { visible: document.visibilityState === 'visible' },
-    });
+    const initialVisibility = document.visibilityState === 'visible';
+    console.log('[PulseManager] Initial visibility state:', initialVisibility);
+    setVisibility(initialVisibility, 'init');
 
     console.log('[PulseManager] Pulse worker initialized successfully');
   },
