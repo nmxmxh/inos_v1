@@ -62,29 +62,53 @@ self.onmessage = (event: MessageEvent<PulseMessage>) => {
 };
 
 /**
+ * Check if Atomics.waitAsync is available (Safari 16.4+, Chrome 87+)
+ */
+const hasWaitAsync =
+  typeof Atomics !== 'undefined' && typeof (Atomics as any).waitAsync === 'function';
+
+/**
  * Microsecond-latency watcher using non-blocking Atomics.waitAsync
+ * Falls back to polling on older browsers (iOS Safari < 16.4)
  */
 function watchIndex(index: number) {
   if (!isRunning || !flags) return;
 
   const current = Atomics.load(flags, index);
 
-  // @ts-ignore - Atomics.waitAsync is available in modern browsers/workers
-  const result = Atomics.waitAsync(flags, index, current);
+  if (hasWaitAsync) {
+    // Modern path: use Atomics.waitAsync for zero-CPU waiting
+    const result = (Atomics as any).waitAsync(flags, index, current);
 
-  if (result.async) {
-    result.value.then(() => {
-      if (isRunning && flags) {
-        const newValue = Atomics.load(flags, index);
-        self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
-        watchIndex(index); // Re-arm
-      }
-    });
+    if (result.async) {
+      result.value.then(() => {
+        if (isRunning && flags) {
+          const newValue = Atomics.load(flags, index);
+          self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+          watchIndex(index); // Re-arm
+        }
+      });
+    } else {
+      // Value already changed synchronously
+      const newValue = Atomics.load(flags, index);
+      self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+      setTimeout(() => watchIndex(index), 0); // Avoid stack overflow
+    }
   } else {
-    // Value already changed
-    const newValue = Atomics.load(flags, index);
-    self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
-    setTimeout(() => watchIndex(index), 0); // Avoid stack overflow
+    // Fallback path for older browsers: poll at 60Hz
+    // This is less efficient but ensures compatibility with iOS Safari < 16.4
+    const pollInterval = 16; // ~60fps
+    const poll = () => {
+      if (!isRunning || !flags) return;
+      const newValue = Atomics.load(flags, index);
+      if (newValue !== current) {
+        self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+        watchIndex(index); // Re-arm with new current value
+      } else {
+        setTimeout(poll, pollInterval);
+      }
+    };
+    setTimeout(poll, pollInterval);
   }
 }
 

@@ -1,8 +1,38 @@
 import PulseWorkerUrl from './pulse.worker.ts?worker&url';
+import { IDX_SYSTEM_PULSE } from './layout';
 
 let pulseWorker: Worker | null = null;
+let mainThreadPulseId: number | null = null;
+let mainThreadFlags: Int32Array | null = null;
 
 const epochHandlers = new Map<number, Set<(value: number, index: number) => void>>();
+
+/**
+ * Fallback: Main-thread pulse loop for browsers where workers fail
+ * Less efficient but ensures compatibility
+ */
+function startMainThreadPulse(sab: SharedArrayBuffer) {
+  console.log('[PulseManager] Starting main-thread pulse fallback...');
+  mainThreadFlags = new Int32Array(sab, 0, 128);
+  let lastPulseTime = 0;
+  const targetFPS = 60;
+  const interval = 1000 / targetFPS;
+
+  const pulse = () => {
+    const now = performance.now();
+    const delta = now - lastPulseTime;
+
+    if (delta >= interval && mainThreadFlags) {
+      Atomics.add(mainThreadFlags, IDX_SYSTEM_PULSE, 1);
+      Atomics.notify(mainThreadFlags, IDX_SYSTEM_PULSE);
+      lastPulseTime = now - (delta % interval);
+    }
+
+    mainThreadPulseId = requestAnimationFrame(pulse);
+  };
+
+  mainThreadPulseId = requestAnimationFrame(pulse);
+}
 
 const pulseManager = {
   /**
@@ -12,7 +42,19 @@ const pulseManager = {
     if (pulseWorker) return;
 
     console.log('[PulseManager] Starting high-precision pulse worker...');
-    pulseWorker = new Worker(PulseWorkerUrl, { type: 'module' });
+
+    try {
+      pulseWorker = new Worker(PulseWorkerUrl, { type: 'module' });
+    } catch (err) {
+      console.error('[PulseManager] Failed to create pulse worker:', err);
+      console.warn('[PulseManager] Falling back to main-thread pulse (degraded performance)');
+      startMainThreadPulse(sab);
+      return;
+    }
+
+    pulseWorker.onerror = event => {
+      console.error('[PulseManager] Worker error:', event.message, event);
+    };
 
     pulseWorker.onmessage = event => {
       const { type, payload } = event.data;
@@ -44,6 +86,8 @@ const pulseManager = {
       type: 'SET_VISIBILITY',
       payload: { visible: document.visibilityState === 'visible' },
     });
+
+    console.log('[PulseManager] Pulse worker initialized successfully');
   },
 
   /**
@@ -100,6 +144,11 @@ const pulseManager = {
       pulseWorker.terminate();
       pulseWorker = null;
     }
+    if (mainThreadPulseId !== null) {
+      cancelAnimationFrame(mainThreadPulseId);
+      mainThreadPulseId = null;
+    }
+    mainThreadFlags = null;
   },
 };
 
