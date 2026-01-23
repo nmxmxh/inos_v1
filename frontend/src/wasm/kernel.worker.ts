@@ -37,7 +37,6 @@ import {
   IDX_OUTBOX_KERNEL_DIRTY,
   IDX_ECONOMY_EPOCH,
 } from './layout';
-import pulseManager from './pulse-manager';
 
 // Worker-scoped globals (no window.*)
 let _sab: SharedArrayBuffer | null = null;
@@ -267,6 +266,8 @@ async function injectSAB(sabOffset: number, sabSize: number): Promise<void> {
   }
 }
 
+let epochWatchersRunning = true;
+
 /**
  * Shutdown the kernel
  */
@@ -279,7 +280,24 @@ function shutdownKernel(): void {
   }
 }
 
-function startEpochWatchers(_sab: SharedArrayBuffer, _sabOffset: number): void {
+/**
+ * Stop epoch watchers
+ */
+function stopEpochWatchers(): void {
+  epochWatchersRunning = false;
+}
+
+/**
+ * Check if Atomics.waitAsync is available (Safari 16.4+, Chrome 87+)
+ */
+const hasWaitAsync =
+  typeof Atomics !== 'undefined' && typeof (Atomics as any).waitAsync === 'function';
+
+/**
+ * Start epoch watchers that notify Go kernel when epochs change.
+ * Uses Atomics.waitAsync when available, falls back to polling otherwise.
+ */
+function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
   const indices = [
     IDX_SYSTEM_EPOCH,
     IDX_BIRD_EPOCH,
@@ -290,18 +308,64 @@ function startEpochWatchers(_sab: SharedArrayBuffer, _sabOffset: number): void {
     IDX_ECONOMY_EPOCH,
   ];
 
-  pulseManager.watchEpochs(indices, (value, index) => {
-    const notify = (self as any).notifyEpochChange;
-    if (typeof notify === 'function') {
-      notify(index, value);
-    }
+  const flags = new Int32Array(sab, sabOffset, 128);
+  console.log('[KernelWorker] Starting epoch watchers (hasWaitAsync:', hasWaitAsync, ')');
+
+  indices.forEach(index => {
+    watchEpochIndex(flags, index);
   });
 }
 
-function stopEpochWatchers(): void {
-  // pulseManager is a singleton, we don't necessarily want to shut it down here
-  // but we could unwatch if we kept track of the handler.
-  // For now, kernel worker is usually long-lived.
+/**
+ * Watch a single epoch index and notify Go when it changes.
+ * Uses Atomics.waitAsync for zero-CPU idling when available.
+ */
+function watchEpochIndex(flags: Int32Array, index: number): void {
+  if (!epochWatchersRunning) return;
+
+  const current = Atomics.load(flags, index);
+
+  if (hasWaitAsync) {
+    // Modern path: non-blocking async wait
+    const result = (Atomics as any).waitAsync(flags, index, current);
+    if (result.async) {
+      result.value.then(() => {
+        if (!epochWatchersRunning) return;
+        const newValue = Atomics.load(flags, index);
+        notifyGoEpochChange(index, newValue);
+        watchEpochIndex(flags, index); // Re-arm
+      });
+    } else {
+      // Value already changed
+      const newValue = Atomics.load(flags, index);
+      notifyGoEpochChange(index, newValue);
+      setTimeout(() => watchEpochIndex(flags, index), 0);
+    }
+  } else {
+    // Fallback: poll at 60Hz for older browsers
+    const pollInterval = 16;
+    const poll = () => {
+      if (!epochWatchersRunning) return;
+      const newValue = Atomics.load(flags, index);
+      if (newValue !== current) {
+        notifyGoEpochChange(index, newValue);
+        watchEpochIndex(flags, index); // Re-arm with new value
+      } else {
+        setTimeout(poll, pollInterval);
+      }
+    };
+    setTimeout(poll, pollInterval);
+  }
+}
+
+/**
+ * Notify Go kernel of epoch change
+ */
+function notifyGoEpochChange(index: number, value: number): void {
+  const notify = (self as any).notifyEpochChange;
+  if (typeof notify === 'function') {
+    notify(index, value);
+  }
 }
 
 // =============================================================================
