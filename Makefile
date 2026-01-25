@@ -41,7 +41,7 @@ CARGO=cargo +nightly
 RUST_TARGET=wasm32-unknown-unknown
 # Enable shared memory with atomics - requires nightly + build-std
 RUST_BUILD_FLAGS=--target $(RUST_TARGET) --release -Z build-std=std,panic_abort
-RUSTFLAGS=-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=1073741824
+RUSTFLAGS=-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=1073741824 --cfg getrandom_backend=\"custom\"
 
 # Cap'n Proto parameters (consumer-relative outputs)
 CAPNP_PATH=protocols/schemas

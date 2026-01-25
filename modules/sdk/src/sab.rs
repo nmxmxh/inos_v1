@@ -125,16 +125,14 @@ impl SafeSAB {
     pub fn with_size(size: usize) -> Self {
         #[cfg(target_arch = "wasm32")]
         {
-            let buffer = js_sys::SharedArrayBuffer::new(size as u32);
-            let buffer_js: JsValue = buffer.into();
+            let buffer_js = crate::js_interop::create_sab(size as u32);
             Self::new(&buffer_js)
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let data = vec![0u8; size];
-            let handle = crate::js_interop::native_mock::register_buffer(data);
-            let buffer = BufferHandle(handle);
-            let barrier_view = crate::js_interop::JsValue(handle);
+            let buffer_js = crate::js_interop::create_sab(size as u32);
+            let buffer = BufferHandle(buffer_js.0);
+            let barrier_view = buffer_js;
             Self {
                 buffer,
                 base_offset: 0,

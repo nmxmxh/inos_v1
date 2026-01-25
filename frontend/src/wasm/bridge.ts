@@ -99,6 +99,10 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       return addHeapObject(new Int32Array(buffer, offset, len)); // Not cached
     },
 
+    inos_create_sab: (len: number) => {
+      return addHeapObject(new SharedArrayBuffer(len));
+    },
+
     // Global access
     inos_get_global: () => addHeapObject(globalThis),
 
@@ -179,6 +183,18 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
 
     // Math
     inos_math_random: () => Math.random(),
+
+    inos_fill_random: (ptr: number, len: number) => {
+      const view = getCachedView(Uint8Array, ptr, len);
+      const cryptoObj = (globalThis as any).crypto;
+      if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
+        cryptoObj.getRandomValues(view);
+      } else {
+        for (let i = 0; i < len; i++) {
+          view[i] = Math.floor(Math.random() * 256);
+        }
+      }
+    },
 
     // Memory operations
     inos_copy_to_sab: (

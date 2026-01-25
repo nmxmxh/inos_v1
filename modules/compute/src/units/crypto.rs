@@ -1,12 +1,13 @@
 use crate::engine::{ComputeError, ResourceLimits, UnitProxy};
 use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
+    aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Key, Nonce,
 };
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
 use chacha20poly1305::ChaCha20Poly1305;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256, Sha512};
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 use zeroize::Zeroizing;
@@ -15,6 +16,33 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+
+struct HostRng;
+
+impl RngCore for HostRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut buf = [0u8; 4];
+        sdk::js_interop::fill_random(&mut buf);
+        u32::from_le_bytes(buf)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut buf = [0u8; 8];
+        sdk::js_interop::fill_random(&mut buf);
+        u64::from_le_bytes(buf)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        sdk::js_interop::fill_random(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        sdk::js_interop::fill_random(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for HostRng {}
 /// Production-grade cryptographic operations library
 ///
 /// Security features:
@@ -358,7 +386,8 @@ impl CryptoUnit {
         self.track_key_usage(key_id)?;
 
         // Generate random nonce
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let mut rng = HostRng;
+        let nonce = Aes256Gcm::generate_nonce(&mut rng);
 
         // Create cipher
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
@@ -429,7 +458,8 @@ impl CryptoUnit {
         let key = self.decode_key_secure(key_b64, 32)?;
 
         let cipher = ChaCha20Poly1305::new(Key::<ChaCha20Poly1305>::from_slice(&key));
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let mut rng = HostRng;
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut rng);
 
         let ciphertext = cipher
             .encrypt(&nonce, plaintext)
@@ -542,7 +572,9 @@ impl CryptoUnit {
 
     /// Ed25519 keypair generation
     fn ed25519_keygen(&self) -> Result<Zeroizing<Vec<u8>>, ComputeError> {
-        let signing_key = SigningKey::from_bytes(&rand::random::<[u8; 32]>());
+        let mut seed = [0u8; 32];
+        sdk::js_interop::fill_random(&mut seed);
+        let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
 
         let mut output = Zeroizing::new(signing_key.to_bytes().to_vec());
@@ -562,7 +594,7 @@ impl CryptoUnit {
 
         let their_public_bytes = self.decode_key_secure(their_public_b64, 32)?;
 
-        let our_secret = EphemeralSecret::random_from_rng(OsRng);
+        let our_secret = EphemeralSecret::random_from_rng(HostRng);
         let our_public = X25519PublicKey::from(&our_secret);
 
         let their_public_array: [u8; 32] = their_public_bytes[..32]
@@ -629,7 +661,7 @@ impl CryptoUnit {
             .decode(password_b64)
             .map_err(|_| ComputeError::InvalidParams("Invalid password encoding".to_string()))?;
 
-        let salt = SaltString::generate(&mut OsRng);
+        let salt = SaltString::generate(&mut HostRng);
 
         let argon2 = Argon2::new(
             Algorithm::Argon2id,

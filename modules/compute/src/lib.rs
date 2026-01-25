@@ -1,6 +1,9 @@
 pub mod engine;
 pub mod executor;
-mod units;
+pub mod units;
+
+#[cfg(target_arch = "wasm32")]
+getrandom::register_custom_getrandom!(sdk::js_interop::getrandom_custom);
 
 #[cfg(test)]
 pub mod benchmarks;
@@ -99,7 +102,7 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
             sdk::js_interop::console_log("[compute] Init: SAB is defined and not null", 3);
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
-            let module_id = id.as_f64().unwrap_or(0.0) as u32;
+            let module_id = sdk::js_interop::as_f64(&id).unwrap_or(0.0) as u32;
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data (offset-based)

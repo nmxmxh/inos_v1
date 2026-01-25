@@ -56,6 +56,7 @@ use automerge::transaction::Transactable; // Key import for put/get/etc.
 impl LedgerState {
     /// Create a new empty ledger
     pub fn new() -> Self {
+        crate::js_interop::ensure_getrandom();
         let mut doc = AutoCommit::new();
 
         // Initialize CRDT document structure
@@ -92,7 +93,7 @@ impl LedgerState {
             public_key: public_key.clone(),
             balance: initial_balance,
             nonce: 0,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: (crate::js_interop::get_now() / 1000.0) as i64,
         };
 
         // Robust CRDT Update Logic
@@ -169,7 +170,7 @@ impl LedgerState {
 
         // Create transaction
         let nonce = from_wallet.nonce + 1;
-        let timestamp = chrono::Utc::now().timestamp();
+        let timestamp = (crate::js_interop::get_now() / 1000.0) as i64;
 
         let tx_data = Self::serialize_transaction_data(
             &from_id, &to_id, amount, fee, nonce, timestamp, &payload,

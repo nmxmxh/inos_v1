@@ -22,4 +22,4 @@ pub use gpu::GpuUnit;
 pub use image::ImageUnit;
 pub use math::MathUnit;
 pub use physics::PhysicsEngine;
-// pub use storage::StorageUnit;
+pub use storage::StorageUnit;

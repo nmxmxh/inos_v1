@@ -466,3 +466,217 @@ export function exposeBrowserApis(target: any, logPrefix: string): void {
     isProxy: target.RTCPeerConnection === WebRTCProxyPeerConnection,
   });
 }
+
+type HostCallRequest = {
+  kind?: 'inline' | 'sab';
+  data?: Uint8Array;
+  offset?: number;
+  size?: number;
+  custom?: Uint8Array;
+};
+
+type HostCallResponse = {
+  data?: Uint8Array;
+  custom?: Uint8Array;
+  offset?: number;
+  size?: number;
+};
+
+const hostTextDecoder = new TextDecoder();
+const hostTextEncoder = new TextEncoder();
+let storageDbPromise: Promise<IDBDatabase> | null = null;
+
+function decodeCustom(custom?: Uint8Array): any | null {
+  if (!custom || custom.byteLength === 0) return null;
+  try {
+    return JSON.parse(hostTextDecoder.decode(custom));
+  } catch {
+    return null;
+  }
+}
+
+function encodeCustom(value: any): Uint8Array {
+  return hostTextEncoder.encode(JSON.stringify(value));
+}
+
+function getSAB(target: any): SharedArrayBuffer | null {
+  return (
+    (target as any).__INOS_SAB__ ||
+    (globalThis as any).__INOS_SAB__ ||
+    null
+  );
+}
+
+function getRequestData(req: HostCallRequest, sab: SharedArrayBuffer | null): Uint8Array {
+  if (req.kind === 'sab' && sab && typeof req.offset === 'number' && typeof req.size === 'number') {
+    return new Uint8Array(sab, req.offset, req.size);
+  }
+  if (req.data instanceof Uint8Array) {
+    return req.data;
+  }
+  return new Uint8Array();
+}
+
+async function openStorageDb(): Promise<IDBDatabase> {
+  if (storageDbPromise) return storageDbPromise;
+  storageDbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open('inos_storage', 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('chunks')) {
+        const store = db.createObjectStore('chunks', { keyPath: 'hash' });
+        store.createIndex('priority', 'priority', { unique: false });
+        store.createIndex('last_accessed', 'last_accessed', { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  return storageDbPromise;
+}
+
+async function storageStoreChunk(meta: any, data: Uint8Array): Promise<void> {
+  const db = await openStorageDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('chunks', 'readwrite');
+    const store = tx.objectStore('chunks');
+    const record = {
+      hash: meta.hash,
+      priority: meta.priority || 'medium',
+      size: data.byteLength,
+      last_accessed: Date.now(),
+      access_count: 0,
+      model_id: meta.model_id || null,
+      data: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    };
+    store.put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function storageLoadChunk(meta: any): Promise<Uint8Array | null> {
+  const db = await openStorageDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('chunks', 'readonly');
+    const store = tx.objectStore('chunks');
+    const req = store.get(meta.hash);
+    req.onsuccess = () => {
+      const record = req.result;
+      if (!record || !record.data) {
+        resolve(null);
+        return;
+      }
+      resolve(new Uint8Array(record.data));
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function storageDeleteChunk(meta: any): Promise<void> {
+  const db = await openStorageDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('chunks', 'readwrite');
+    const store = tx.objectStore('chunks');
+    store.delete(meta.hash);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function storageQueryIndex(): Promise<Uint8Array> {
+  const db = await openStorageDb();
+  const results: any[] = [];
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('chunks', 'readonly');
+    const store = tx.objectStore('chunks');
+    const req = store.openCursor();
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (cursor) {
+        const record = cursor.value;
+        results.push({
+          hash: record.hash,
+          size: record.size,
+          priority: record.priority,
+          last_accessed: record.last_accessed,
+          access_count: record.access_count,
+          model_id: record.model_id,
+        });
+        cursor.continue();
+      } else {
+        resolve();
+      }
+    };
+    req.onerror = () => reject(req.error);
+  });
+  return encodeCustom(results);
+}
+
+async function apiRequest(meta: any, body: Uint8Array): Promise<HostCallResponse> {
+  const baseUrlMap: Record<string, string> = {
+    openai: 'https://api.openai.com/v1',
+    anthropic: 'https://api.anthropic.com/v1',
+    huggingface: 'https://api-inference.huggingface.co',
+  };
+
+  const baseUrl = baseUrlMap[meta.provider] || meta.provider || '';
+  const url = meta.endpoint?.startsWith('http') ? meta.endpoint : `${baseUrl}/${meta.endpoint}`;
+
+  const headers = new Headers(meta.headers || {});
+  const init: RequestInit = {
+    method: meta.method || 'GET',
+    headers,
+  };
+  if (body.byteLength > 0 && init.method !== 'GET') {
+    init.body = body;
+  }
+
+  const response = await fetch(url, init);
+  const buffer = await response.arrayBuffer();
+  const responseHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    responseHeaders[key] = value;
+  });
+
+  return {
+    data: new Uint8Array(buffer),
+    custom: encodeCustom({ status: response.status, headers: responseHeaders }),
+  };
+}
+
+export function registerHostCall(target: any, logPrefix: string): void {
+  if (typeof target.inosHostCall === 'function') return;
+
+  target.inosHostCall = async (service: string, request: HostCallRequest | Uint8Array) => {
+    const sab = getSAB(target);
+    const req = request instanceof Uint8Array ? { kind: 'inline', data: request } : request;
+    const meta = decodeCustom(req.custom) || {};
+    const data = getRequestData(req, sab);
+
+    try {
+      switch (service) {
+        case 'storage.store_chunk':
+          await storageStoreChunk(meta, data);
+          return new Uint8Array();
+        case 'storage.load_chunk': {
+          const loaded = await storageLoadChunk(meta);
+          return loaded || new Uint8Array();
+        }
+        case 'storage.delete_chunk':
+          await storageDeleteChunk(meta);
+          return new Uint8Array();
+        case 'storage.query_index':
+          return await storageQueryIndex();
+        case 'api.request':
+          return await apiRequest(meta, data);
+        default:
+          console.warn(`${logPrefix} Unknown host service`, service);
+          return new Uint8Array();
+      }
+    } catch (err) {
+      console.error(`${logPrefix} Host call failed`, service, err);
+      throw err;
+    }
+  };
+}

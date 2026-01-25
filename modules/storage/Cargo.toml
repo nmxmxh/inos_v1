@@ -8,15 +8,13 @@ crate-type = ["cdylib"]
 
 [dependencies]
 sdk = { path = "../sdk" }
+getrandom = { version = "0.2", features = ["custom"] }
 blake3 = "1.5" # The Hashing Engine
 serde = { version = "1.0", features = ["derive"] }
 chacha20poly1305 = "0.10" # The Encryption Engine (matching compute module)
-js-sys = "0.3"
-rand = { version = "0.8", features = ["std_rng"] }
-getrandom = { version = "0.2", features = ["js"] }
+rand_core = "0.6"
 base64 = "0.21"
 thiserror = "1.0"
 log = "0.4"
 hex = "0.4"
-console_error_panic_hook = "0.1"
 capnp = "0.19"

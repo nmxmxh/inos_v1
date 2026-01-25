@@ -615,7 +615,7 @@ pub fn signal_registry_change(sab: &SafeSAB) {
 }
 
 fn get_timestamp_ms() -> u64 {
-    crate::js_interop::get_now()
+    crate::js_interop::get_now() as u64
 }
 
 // ========== TESTS ==========

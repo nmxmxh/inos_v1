@@ -24,6 +24,7 @@ import { INOSBridge } from './bridge-state';
 import {
   checkSharedMemoryCapability,
   exposeBrowserApis,
+  registerHostCall,
   fetchWasmWithFallback,
   instantiateWasm,
   loadGoRuntime,
@@ -118,6 +119,7 @@ async function initializeKernel(
   await loadGoRuntime(self, '/wasm_exec.js', '[KernelWorker]');
 
   exposeBrowserApis(self, '[KernelWorker]');
+  registerHostCall(self, '[KernelWorker]');
 
   const config = MEMORY_PAGES[tier];
 

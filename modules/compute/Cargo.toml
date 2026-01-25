@@ -8,61 +8,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 sdk = { path = "../sdk" }
-js-sys = "0.3"
 async-trait = "0.1"
-web-sys = { version = "0.3", features = [
-    "Window",
-    "Document",
-    "Navigator",
-    "Storage",
-    "Blob",
-    "IdbFactory",
-    "IdbDatabase",
-    "IdbObjectStore",
-    "IdbIndex",
-    "IdbRequest",
-    "IdbTransaction",
-    "IdbTransactionMode",
-    "IdbVersionChangeEvent",
-    "IdbCursorWithValue",
-    "IdbKeyRange",
-    "IdbOpenDbRequest",
-    "IdbObjectStoreParameters",
-    "IdbIndexParameters",
-    "DomStringList",
-    "Event",
-    # File System Access API (OPFS)
-    "FileSystemDirectoryHandle",
-    "FileSystemFileHandle",
-    "FileSystemWritableFileStream",
-    "FileSystemGetDirectoryOptions",
-    "FileSystemGetFileOptions",
-    "WritableStream",
-    "WritableStreamDefaultWriter",
-    "RtcPeerConnection",
-    "RtcDataChannel",
-    "RtcConfiguration",
-    "RtcIceServer",
-    "RtcSdpType",
-    "RtcSessionDescription",
-    "RtcSessionDescriptionInit",
-    "RtcIceCandidate",
-    "RtcIceCandidateInit",
-    "RtcDataChannelInit",
-    "WebSocket",
-    "BinaryType",
-    "MessageEvent",
-    "ErrorEvent",
-    "CloseEvent",
-] }
-gloo-net = "0.6"
-wasm-bindgen-futures = "0.4"
+getrandom = { version = "0.2", features = ["custom"] }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 blake3 = { version = "1.5", features = ["rayon"] }
 thiserror = "2.0"
 log = "0.4"
-getrandom = { version = "0.3", features = ["wasm_js"] }
 tokio = { version = "1.0", features = ["sync", "macros", "rt", "time"] }
 futures = "0.3"
 once_cell = "1.18"
@@ -102,7 +55,7 @@ subtle = { version = "2.5", features = ["std"] }
 zeroize = { version = "1.7", features = ["zeroize_derive"] }
 
 # Randomness
-rand = { version = "0.8", features = ["std_rng"] }
+rand_core = "0.6"
 
 # Data processing (Arrow ecosystem - WASM-compatible, SIMD built-in)
 arrow = { version = "53.3", default-features = false, features = [

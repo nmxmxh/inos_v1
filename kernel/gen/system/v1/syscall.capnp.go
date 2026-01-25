@@ -281,10 +281,11 @@ const (
 	Syscall_Body_Which_spawnThread Syscall_Body_Which = 3
 	Syscall_Body_Which_killThread  Syscall_Body_Which = 4
 	Syscall_Body_Which_sendMessage Syscall_Body_Which = 5
+	Syscall_Body_Which_hostCall    Syscall_Body_Which = 6
 )
 
 func (w Syscall_Body_Which) String() string {
-	const s = "noopfetchChunkstoreChunkspawnThreadkillThreadsendMessage"
+	const s = "noopfetchChunkstoreChunkspawnThreadkillThreadsendMessagehostCall"
 	switch w {
 	case Syscall_Body_Which_noop:
 		return s[0:4]
@@ -298,6 +299,8 @@ func (w Syscall_Body_Which) String() string {
 		return s[35:45]
 	case Syscall_Body_Which_sendMessage:
 		return s[45:56]
+	case Syscall_Body_Which_hostCall:
+		return s[56:64]
 
 	}
 	return "Syscall_Body_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
@@ -443,6 +446,39 @@ func (s Syscall_Body) NewSendMessage() (Syscall_SendMessageRequest, error) {
 	return ss, err
 }
 
+func (s Syscall_Body) HostCall() (Syscall_HostCallRequest, error) {
+	if s.Struct.Uint16(0) != 6 {
+		panic("Which() != hostCall")
+	}
+	p, err := s.Struct.Ptr(0)
+	return Syscall_HostCallRequest{Struct: p.Struct()}, err
+}
+
+func (s Syscall_Body) HasHostCall() bool {
+	if s.Struct.Uint16(0) != 6 {
+		return false
+	}
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Syscall_Body) SetHostCall(v Syscall_HostCallRequest) error {
+	s.Struct.SetUint16(0, 6)
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewHostCall sets the hostCall field to a newly
+// allocated Syscall_HostCallRequest struct, preferring placement in s's segment.
+func (s Syscall_Body) NewHostCall() (Syscall_HostCallRequest, error) {
+	s.Struct.SetUint16(0, 6)
+	ss, err := NewSyscall_HostCallRequest(s.Struct.Segment())
+	if err != nil {
+		return Syscall_HostCallRequest{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
 // Syscall_Body_List is a list of Syscall_Body.
 type Syscall_Body_List struct{ capnp.List }
 
@@ -481,6 +517,10 @@ func (p Syscall_Body_Promise) SendMessage() Syscall_SendMessageRequest_Promise {
 	return Syscall_SendMessageRequest_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
 }
 
+func (p Syscall_Body_Promise) HostCall() Syscall_HostCallRequest_Promise {
+	return Syscall_HostCallRequest_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
 type Syscall_Opcode uint16
 
 // Syscall_Opcode_TypeID is the unique identifier for the type Syscall_Opcode.
@@ -494,6 +534,7 @@ const (
 	Syscall_Opcode_spawnThread Syscall_Opcode = 3
 	Syscall_Opcode_killThread  Syscall_Opcode = 4
 	Syscall_Opcode_sendMessage Syscall_Opcode = 5
+	Syscall_Opcode_hostCall    Syscall_Opcode = 6
 )
 
 // String returns the enum's constant name.
@@ -511,6 +552,8 @@ func (c Syscall_Opcode) String() string {
 		return "killThread"
 	case Syscall_Opcode_sendMessage:
 		return "sendMessage"
+	case Syscall_Opcode_hostCall:
+		return "hostCall"
 
 	default:
 		return ""
@@ -533,6 +576,8 @@ func Syscall_OpcodeFromString(c string) Syscall_Opcode {
 		return Syscall_Opcode_killThread
 	case "sendMessage":
 		return Syscall_Opcode_sendMessage
+	case "hostCall":
+		return Syscall_Opcode_hostCall
 
 	default:
 		return 0
@@ -838,6 +883,109 @@ func (p Syscall_SendMessageRequest_Promise) Struct() (Syscall_SendMessageRequest
 	return Syscall_SendMessageRequest{s}, err
 }
 
+type Syscall_HostCallRequest struct{ capnp.Struct }
+
+// Syscall_HostCallRequest_TypeID is the unique identifier for the type Syscall_HostCallRequest.
+const Syscall_HostCallRequest_TypeID = 0x8f45adafe3ffa65b
+
+func NewSyscall_HostCallRequest(s *capnp.Segment) (Syscall_HostCallRequest, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Syscall_HostCallRequest{st}, err
+}
+
+func NewRootSyscall_HostCallRequest(s *capnp.Segment) (Syscall_HostCallRequest, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return Syscall_HostCallRequest{st}, err
+}
+
+func ReadRootSyscall_HostCallRequest(msg *capnp.Message) (Syscall_HostCallRequest, error) {
+	root, err := msg.RootPtr()
+	return Syscall_HostCallRequest{root.Struct()}, err
+}
+
+func (s Syscall_HostCallRequest) String() string {
+	str, _ := text.Marshal(0x8f45adafe3ffa65b, s.Struct)
+	return str
+}
+
+func (s Syscall_HostCallRequest) Service() (string, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.Text(), err
+}
+
+func (s Syscall_HostCallRequest) HasService() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Syscall_HostCallRequest) ServiceBytes() ([]byte, error) {
+	p, err := s.Struct.Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Syscall_HostCallRequest) SetService(v string) error {
+	return s.Struct.SetText(0, v)
+}
+
+func (s Syscall_HostCallRequest) Payload() (Resource, error) {
+	p, err := s.Struct.Ptr(1)
+	return Resource{Struct: p.Struct()}, err
+}
+
+func (s Syscall_HostCallRequest) HasPayload() bool {
+	p, err := s.Struct.Ptr(1)
+	return p.IsValid() || err != nil
+}
+
+func (s Syscall_HostCallRequest) SetPayload(v Resource) error {
+	return s.Struct.SetPtr(1, v.Struct.ToPtr())
+}
+
+// NewPayload sets the payload field to a newly
+// allocated Resource struct, preferring placement in s's segment.
+func (s Syscall_HostCallRequest) NewPayload() (Resource, error) {
+	ss, err := NewResource(s.Struct.Segment())
+	if err != nil {
+		return Resource{}, err
+	}
+	err = s.Struct.SetPtr(1, ss.Struct.ToPtr())
+	return ss, err
+}
+
+// Syscall_HostCallRequest_List is a list of Syscall_HostCallRequest.
+type Syscall_HostCallRequest_List struct{ capnp.List }
+
+// NewSyscall_HostCallRequest creates a new list of Syscall_HostCallRequest.
+func NewSyscall_HostCallRequest_List(s *capnp.Segment, sz int32) (Syscall_HostCallRequest_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return Syscall_HostCallRequest_List{l}, err
+}
+
+func (s Syscall_HostCallRequest_List) At(i int) Syscall_HostCallRequest {
+	return Syscall_HostCallRequest{s.List.Struct(i)}
+}
+
+func (s Syscall_HostCallRequest_List) Set(i int, v Syscall_HostCallRequest) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Syscall_HostCallRequest_List) String() string {
+	str, _ := text.MarshalList(0x8f45adafe3ffa65b, s.List)
+	return str
+}
+
+// Syscall_HostCallRequest_Promise is a wrapper for a Syscall_HostCallRequest promised by a client call.
+type Syscall_HostCallRequest_Promise struct{ *capnp.Pipeline }
+
+func (p Syscall_HostCallRequest_Promise) Struct() (Syscall_HostCallRequest, error) {
+	s, err := p.Pipeline.Struct()
+	return Syscall_HostCallRequest{s}, err
+}
+
+func (p Syscall_HostCallRequest_Promise) Payload() Resource_Promise {
+	return Resource_Promise{Pipeline: p.Pipeline.GetPipeline(1)}
+}
+
 type Syscall_Response struct{ capnp.Struct }
 
 // Syscall_Response_TypeID is the unique identifier for the type Syscall_Response.
@@ -1043,10 +1191,11 @@ const (
 	Syscall_Result_Which_storeChunk  Syscall_Result_Which = 1
 	Syscall_Result_Which_sendMessage Syscall_Result_Which = 2
 	Syscall_Result_Which_generic     Syscall_Result_Which = 3
+	Syscall_Result_Which_hostCall    Syscall_Result_Which = 4
 )
 
 func (w Syscall_Result_Which) String() string {
-	const s = "fetchChunkstoreChunksendMessagegeneric"
+	const s = "fetchChunkstoreChunksendMessagegenerichostCall"
 	switch w {
 	case Syscall_Result_Which_fetchChunk:
 		return s[0:10]
@@ -1056,6 +1205,8 @@ func (w Syscall_Result_Which) String() string {
 		return s[20:31]
 	case Syscall_Result_Which_generic:
 		return s[31:38]
+	case Syscall_Result_Which_hostCall:
+		return s[38:46]
 
 	}
 	return "Syscall_Result_Which(" + strconv.FormatUint(uint64(w), 10) + ")"
@@ -1191,6 +1342,39 @@ func (s Syscall_Result) SetGeneric() {
 
 }
 
+func (s Syscall_Result) HostCall() (Syscall_HostCallResult, error) {
+	if s.Struct.Uint16(0) != 4 {
+		panic("Which() != hostCall")
+	}
+	p, err := s.Struct.Ptr(0)
+	return Syscall_HostCallResult{Struct: p.Struct()}, err
+}
+
+func (s Syscall_Result) HasHostCall() bool {
+	if s.Struct.Uint16(0) != 4 {
+		return false
+	}
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Syscall_Result) SetHostCall(v Syscall_HostCallResult) error {
+	s.Struct.SetUint16(0, 4)
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewHostCall sets the hostCall field to a newly
+// allocated Syscall_HostCallResult struct, preferring placement in s's segment.
+func (s Syscall_Result) NewHostCall() (Syscall_HostCallResult, error) {
+	s.Struct.SetUint16(0, 4)
+	ss, err := NewSyscall_HostCallResult(s.Struct.Segment())
+	if err != nil {
+		return Syscall_HostCallResult{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
 // Syscall_Result_List is a list of Syscall_Result.
 type Syscall_Result_List struct{ capnp.List }
 
@@ -1227,6 +1411,10 @@ func (p Syscall_Result_Promise) StoreChunk() Syscall_StoreChunkResult_Promise {
 
 func (p Syscall_Result_Promise) SendMessage() Syscall_SendMessageResult_Promise {
 	return Syscall_SendMessageResult_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+func (p Syscall_Result_Promise) HostCall() Syscall_HostCallResult_Promise {
+	return Syscall_HostCallResult_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
 }
 
 type Syscall_SendMessageResult struct{ capnp.Struct }
@@ -1450,126 +1638,224 @@ func (p Syscall_StoreChunkResult_Promise) Struct() (Syscall_StoreChunkResult, er
 	return Syscall_StoreChunkResult{s}, err
 }
 
-const schema_de4f1a7b7c4a2b19 = "x\xda\x9cV\x7f\x88\x1cg\x19~\x9f\xef\xdb\x1fw\xc9" +
-	"\xad\xbb\xe3\x9e\xd8+j\xdaRi.rm.\xd7\x80" +
-	"]Z\xd7\x9c\xa6$\x813\xf7]\xee\x94;\x12pn" +
-	"\xe7\xbb\xddIfg63\xb3I\xf7\x9a\xb2\xb1*H" +
-	"\x10\x85 J\xc5B\x84\x16\x05\x1b\xdaj\x0b\x8d4\x10" +
-	"\xa5g\x93`\xa0\x8d\xd5\xa2hA\xa3-\x05k\xff\xb1" +
-	"\x88\xc68\xf2\xcd\xec\xee\xccn\x03\xe9\xe5\x8f\xe3v\xbf" +
-	"\xef\xd9\x99\xe7}\xdf\xe7}\xdew+O}\x96M\xa6" +
-	"_O\x11\x89O\xa73\xc1\xc4\xb1\xe3\xe5\xe1\x97_\xfb" +
-	":\x89\xcd@\xf0\xc0\xf8\x9b3\xbf\xf2\xe5\xd3\xb4\x13\xd9" +
-	"\x14\xd1\x94`\xab(J\x96%*\xea\xec-B0\xfa" +
-	"\xdc\x93\x1f}\xa7\xfa\x97o\x90\xb69\x81N+\xc4\xd4" +
-	"\x0e\xfe(\x8a\x0b\\\x81\x05?J\xb8:~\xe5\xa9s" +
-	"c\x0b\xdf\xea\x7fr\x84=\xcd\xff\x80\xe2\x85\x10\xbb\xc6" +
-	"\x9f&\x04\xdf=_\xde\xfe\xcf\xdfM?\xa6x\xb0\x04" +
-	"\x1a\x0a-S\x97Q\xfcJJ\xa1\x1fI)\x1aW\xf8" +
-	"[\xbe\xf5\xf7[O)4\x1fD/\xa4WQ4\xd3" +
-	"\xe1\x0f\xd3\xdf\x06%^\xae\xdd\xc6\x83\xb1O\xed9\xf6" +
-	"\xf0\xad{\xdf \xc2\xd4{\x99i\x14\xd3\xd9\xd7\x89\x8a" +
-	"\xaff\xb3\xea\x8f(\xc0/\x1f\x18\xde\xd6.\xac\x0dR" +
-	"\x09\x89\x9f\xc9\x9e@\x84+^\xca**\x1fz\xfb\xea" +
-	"O?\xb1va\xed\xba\xc4\x7f8t\x19\xc5\xb3C\x0a" +
-	"}fH\xa1\xc7\x7f\xe3\x15J;\x96~O\xda\xe6\x04" +
-	"\x980\xf5\xf8\xf0*\x8a\xcf\x0e+\xe4\xe9\xe16!\xb8" +
-	"\xe3\xd9;\xc7\xc7\x7f\xf2\xd5\xf7#\xdfV\xc8k!\xf2" +
-	"\xdf\xc3\xdf#\x04\xef^\xa8\x8c\xec\xdf\x7f\xfb_\x07\x92" +
-	"\xa1\xd25%6\\D\xb1\xbeA\x81\xcd\x0d\x8a\xc0\xa5" +
-	"\xb4\xb5x\xd7\x95\xcb\xef\xbe\xbf\xde\x19\x95\xba\x8d\x07Q" +
-	"47\x86\xa9\xdb\xf8%\x95\xba\x7fL\xfa\x7f\xfb\xd9\xb5" +
-	"'\xde\x1b\xc0\x87\x0f_\x1b\xb9\x88\xe2\x9fG\xd4\xc3\xff" +
-	"4R&\x04\xef|\xe6\xe7\xbb\xde\xbc?\xf8\xd7\xf5\xc0" +
-	"\xc8]F\xf1\xe39\x05\x1e\xcb\x1d%\x04^\xcb\xf3e" +
-	"\xfd\x9e#\xa9\xc9{\xbc\x96W\xd1-k\xa2\xeaL\xf8" +
-	"\xb2\xde\xb8\xbb\xa27\xecFi_tzwyNz" +
-	"M\xcb\x9f\x05D\x81\xa7F\x82 \x05\"M_\"\x12" +
-	"_\xe6\x10\x16C\x0e\xff\x0bF\xa1NMuZ\xe3\x10" +
-	">C\x8e]\x0bF\xc1\x88\xb4\xc3\xcbD\xa2\xc1!\x8e" +
-	"1\xe4\xf8\x7f\x83Qp\"\xad5M$|\x0eq\x9c" +
-	"!X\x91~\xa5\xf6\xb9Z\x93\xb8}\x08\x858\xa7\x04" +
-	"\x14\x14Y\xdfqe|\xdd\xcbJ\xf7Z\xda\xc6\x8c\xf4" +
-	"<\xca\xeaU\x89B\x9c\x88\xe8\xbe]\x95\xb6t\xcd\x0a" +
-	"ezQ\xa7o\x14\xb5z\x9c^\x95\xa4\xc2\x1e\xe2)" +
-	"\xa20\xea\xf1\x12\x91\xb8\x93Cle\xd0\x80(\xe8\x89" +
-	"-Db3\x87\xb8\x97\xa1\\\x93\xba!]\x14\xe2\x1e" +
-	"\x898\xe4\x97\x1d\xa3\x85B,\x80.\xf5\x0e\xa1\xcc\x8d" +
-	"\x08\xed\xeb\xc4\xa8W\xe5\x9c<\xdc\x94\xdc\x0bK2\xd2" +
-	"\xe3\xb6s\x0f\x91\xf8<\x87\x98Mp\x9bQI\xde\xc5" +
-	"!\xe6\x19\xc0\xa2r\x08\x05\x9c\xe5\x10\xfb\x19\x02_w" +
-	"\xab\xd2\xdfm\x10\x11F\x88a\x84\xd0n\xe8-\xcb\xd1" +
-	"\x0d\xe4\x88!G\x08\x1a\xae\xe9\xb8\xa6\xdfR\x98\x0c1" +
-	"d\xd6\xc5\xbbS:\xfbPH\xdbCWI\x1d\xda\xba" +
-	"\xca\xde~\x0eQc\xe8\xb2\x96\x07\x89\x84\xc1!\x1a\x0c" +
-	"\x1a\xeb\xd0\xaeo\x89\xb5\xa5q\x1e\x89\xe8\xf0\x1dD\xc2" +
-	"\xe2\x10\x0f1\xe4k\xbaW\xeb\x91\xf6\x9c\xa6[\x91{" +
-	"W(\xbf\xe2I\x1f\xc3\xc40L\xc8{\xe6\xaa\xc4\x10" +
-	"1\x0c\x11\xb2\xbeou?\xaf\xa3\x1fv\x85%VQ" +
-	"|\xac\x17\xc5\xf3\xdb\x88\xc43\x1c\xe2E\x95\xfcT\x14" +
-	"\xc6\x19\x95\xfc\xe78\xc49\x15F:\x0a\xe3\xacB\xbe" +
-	"\xc0!^Ra\xb0(\x8c_\xac\x12\x89s\x1c\xe2\xd7" +
-	"\x0cZ\x8a\x8d\"E\xa4]Pb{\x89C\xbc\xc2\xa0" +
-	"\xa5\xf9(\xd2D\xda%ux\x9eC\xbc\xc6\x80\xcc(" +
-	"2D\xda\xab\xaa\xa0\xafp\x88?2l\xaa\xebU\xb3" +
-	"\xd2\x8d\xaa}D\xba\x9e\xe9\xd8\xdd\xb2mZ\xb1\xf4\xaa" +
-	"\x17\x171\xcc\xd1\x8cCe\xa3i\xc9\xddF\xf7ge" +
-	"\x15\xe8n\xa3\x9b\xb4\xb2\xd3\xa88\x86D>vE\x02" +
-	"\xf2\x84\xa0.}\xdd\xd0}])\xa3\x10\x8c}\xf8\xe5" +
-	"S\x1b\xcf=\xfc\xc6\xa0\xb6o\x94R\x12\xf7\"9\xdb" +
-	"\xf4\xe9\xb8{\xb4\x03\xa5\xb8g\xb4\xc5-\x09c^(" +
-	"\xc5\xee\xaf\x89\x93\xf1\x0c\xd3\x16Nv\x87\x9f\xb6\xf8\xfd" +
-	"x\xa0h\x07\xf6$&\xc0\x81R<}\xb5\xc5Rl" +
-	"\x1a\xda\xc2\xc9\xd8\x80\xb4\xc5\x13\xb1\xddh\x07N\xb4;" +
-	"=\xd8QA~\xda1Z\xe5\xbda~\x82\x07;&" +
-	"\x86X\xebAW\xfe}g\x9dVF\xa2\x97\x839\xe9" +
-	"5\x1c\xdb\x93DT\xde\xe7\xeb~\xd3\xeb\x18\xef\x00\xdc" +
-	"kZ\xf0\xfb_\xa5PD\xfd\xaf\x8a\xcefyz\x16" +
-	"\xf8\xe0\xae\x17\x93\x18h\xd2R\xdc\xa4=y\xcbR<" +
-	"\x02\xba\xdeb\x96\x12\x9d\xcb\x11\xa9\xbb\xbe-\xee\xdcA" +
-	"iya\xa8\xc8\xc7\x85\x89\xa4Uv\xc3\x10P\x88\x8b" +
-	"\x14\xa9j\x93t]G\x19\xac\xfb\xa3\xbb>r\xdf\xc5" +
-	"\xc2o\xd7\xed\xa4\xdd\xdc\xad\xcb\x91\xf6$\x1d\x09\x1dG" +
-	":\x19\xcf\xb5^\xb0\xadG\x89\xc4C\x1c\xe2k\x83\x8e" +
-	"t=\x1b5\xa4\xe7\x9b\xb6\xee\xc3t\xec\xbd++\x9e" +
-	"D\xcf\xaa\xfa\xee\xf6\x99\xab\x92n\xc2\xab\"%\xa9\xf8" +
-	"\"\xca\xdb\xa7U\xba\xb4\x09\xf5\x8fi\x9f\\%\x02\xd7" +
-	"nW\xdfR\xda\x98K\xd4\xf6\x9a\x95\x8a\xf4\xbcvC" +
-	"\xda\x86iW\x03\xd3>\xa2[\xa61G\xe50W~" +
-	"\xdb7\xeb\xd2i\xfa\x81i\xfb\xd2\xb5u\x8b6\xedT" +
-	"\x05Y\x07\xa7\xa8[\x14\xa7[BN;\xb6\x84\x9c\xee" +
-	"[\x0a9m_\x0a9M.\x87\x9c&\xd4\xb7\xb46" +
-	"\xbeL\x94\xb7\x1d\xa7\xd1\xb7(\xf4\xad\x05\x81\xd7\xd0\x8f" +
-	"\xda\xf35\x97\xb2R7\x82C\xa6e\xcd\xd7\\I\\" +
-	"7\xfa\xf7\x83\x9b\x13J\xa7\x9f\xfa\x85r\"!\x8a\xae" +
-	"R\xeaK\xf1D\xd2\xd8mQ\xda\x9b\x07\xe3]G\xe3" +
-	"\xa9H)\x8f(\xf9\x1c\xe7\x10\xdfd\x08\x96[\xbe\xf4" +
-	"\xe6]\x1d\xb6\xb7\"]W\x1a\x14\x97{\xc5u\xea\xb3" +
-	"R\xba\xc4\xe3\xc6\x09\x94\xb4\xbe(]\x93\xf2+\xa64" +
-	"\x00bP\x0b\xa3*\xcf\xbc\xf3\xa0\x09\xd7\xf3\xa7[\xbe" +
-	"\xfc\x02\xbc\xf5\xcb&t\xb5\xb0@\xf1\xc2\xf7\x98\xea\x8a" +
-	"\xefp\x88S\xc9\x85\xefq\x15\xed\x0f8\xc4\x8f\x93\x0b" +
-	"\xdf\x93\xea\xf4\x09\x0e\xf1Lr\xe1;\xad\xd6\xc0\xa78" +
-	"\xc4\x0b\x0c\xb9\xd4\xd5 \x9ar\xcf/\xc5C2\x97\xfe" +
-	"O\x10\x8d\xb9\xb3\x0a\xfb\"\x878\xcf\x10\x16\x9e2\x83" +
-	";b\xcf\xfb\xaf\xbf#\xf6\xa6A\xf7:)\x0f\xca\xf4" +
-	"\x09D-\x86\xfd+dw~\xac{KKl;\xb1" +
-	"dR=\xc9\xe4\x94\x8f\x8cp\x88[\x18\x02W6," +
-	"\xb3\xa2{7\xb7W%\xf7\xc1p(\x0c\xac\xaas\xf1" +
-	"V\xda\x13\xe7\xa4:\xdc\xca!\xeeg\xca_,\xf3\x88" +
-	"t%!\x96\x8f\xa5\xfb\xd2\xae\xb4f\x08\x1e\xb2\xc4\x90" +
-	"%\xfc?\x00\x00\xff\xff\xd4\x15#\xca"
+type Syscall_HostCallResult struct{ capnp.Struct }
+
+// Syscall_HostCallResult_TypeID is the unique identifier for the type Syscall_HostCallResult.
+const Syscall_HostCallResult_TypeID = 0xcdde9ee81a3d0a51
+
+func NewSyscall_HostCallResult(s *capnp.Segment) (Syscall_HostCallResult, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Syscall_HostCallResult{st}, err
+}
+
+func NewRootSyscall_HostCallResult(s *capnp.Segment) (Syscall_HostCallResult, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Syscall_HostCallResult{st}, err
+}
+
+func ReadRootSyscall_HostCallResult(msg *capnp.Message) (Syscall_HostCallResult, error) {
+	root, err := msg.RootPtr()
+	return Syscall_HostCallResult{root.Struct()}, err
+}
+
+func (s Syscall_HostCallResult) String() string {
+	str, _ := text.Marshal(0xcdde9ee81a3d0a51, s.Struct)
+	return str
+}
+
+func (s Syscall_HostCallResult) Payload() (Resource, error) {
+	p, err := s.Struct.Ptr(0)
+	return Resource{Struct: p.Struct()}, err
+}
+
+func (s Syscall_HostCallResult) HasPayload() bool {
+	p, err := s.Struct.Ptr(0)
+	return p.IsValid() || err != nil
+}
+
+func (s Syscall_HostCallResult) SetPayload(v Resource) error {
+	return s.Struct.SetPtr(0, v.Struct.ToPtr())
+}
+
+// NewPayload sets the payload field to a newly
+// allocated Resource struct, preferring placement in s's segment.
+func (s Syscall_HostCallResult) NewPayload() (Resource, error) {
+	ss, err := NewResource(s.Struct.Segment())
+	if err != nil {
+		return Resource{}, err
+	}
+	err = s.Struct.SetPtr(0, ss.Struct.ToPtr())
+	return ss, err
+}
+
+// Syscall_HostCallResult_List is a list of Syscall_HostCallResult.
+type Syscall_HostCallResult_List struct{ capnp.List }
+
+// NewSyscall_HostCallResult creates a new list of Syscall_HostCallResult.
+func NewSyscall_HostCallResult_List(s *capnp.Segment, sz int32) (Syscall_HostCallResult_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return Syscall_HostCallResult_List{l}, err
+}
+
+func (s Syscall_HostCallResult_List) At(i int) Syscall_HostCallResult {
+	return Syscall_HostCallResult{s.List.Struct(i)}
+}
+
+func (s Syscall_HostCallResult_List) Set(i int, v Syscall_HostCallResult) error {
+	return s.List.SetStruct(i, v.Struct)
+}
+
+func (s Syscall_HostCallResult_List) String() string {
+	str, _ := text.MarshalList(0xcdde9ee81a3d0a51, s.List)
+	return str
+}
+
+// Syscall_HostCallResult_Promise is a wrapper for a Syscall_HostCallResult promised by a client call.
+type Syscall_HostCallResult_Promise struct{ *capnp.Pipeline }
+
+func (p Syscall_HostCallResult_Promise) Struct() (Syscall_HostCallResult, error) {
+	s, err := p.Pipeline.Struct()
+	return Syscall_HostCallResult{s}, err
+}
+
+func (p Syscall_HostCallResult_Promise) Payload() Resource_Promise {
+	return Resource_Promise{Pipeline: p.Pipeline.GetPipeline(0)}
+}
+
+const schema_de4f1a7b7c4a2b19 = "x\xda\xa4V]l\x1c\xd5\x15>\xe7\xde\xfd\xf1\xdfz" +
+	"w\xbaFm\xa2\x0a\x03\xa2\"Ne\x88\xe3\xe6\x01+" +
+	"\xe9\x82\xa9Qb\xc9\x8d\xafc*\xe1\x06\xa9\xe3\x9d\xeb" +
+	"\xdd!\xb3;\xeb\x99Y\x87]\x826J\x89J\xa3P" +
+	"h\xa4VPU\x15\x0f\xb4U\xd5\xa2\x94\x16\xa4\x06\x15" +
+	")A\xa4\xe0\xa8\x91 \x85\xaanK\xd44\xfc\x14\x89" +
+	"\x94\x87\x16\xa14Mougv\xf6\xcen,\x05\x87" +
+	"\x07K\xde;\xdf\xdc9\xe7;\xdf9\xdf\xd9t0v" +
+	"\x07\x19\x89\x7f+\x0e\xc0\xee\x88'\xc4\xf0\xbe\xfd\xb9\xee" +
+	"W\xde8\x08l\x03\xa2\xd86\xf4\xee\xd4\xef<~\x14" +
+	"&0\x19\x07\x18\xfd\x19\xa9c\xf6E\x92\x04\x18=F" +
+	"\x06\x11P\x0c<\xf7\xe3\xcf^(\xfc\xfd\x11\xd06D" +
+	"\xe0q\x1f\xb2B\x0f`\xf6\x02M\x02d\xdf\xa7{\x01" +
+	"/\x0d\x9d\xff\xc5\xf1u\xf7|\xa7\xfd\xea\x00;\x11\xfb" +
+	"3f\xf5\x98\xc4\xde\x17;\x0a(\xbe\xfe\x13q\xfe\xe8" +
+	"3\x13\x8f\xadv\xf1\xe5\xd8K\x98\xbd..\xc1Z|" +
+	"/\xa0\xf8\xfe\xab\xb9-\xff\xfe\xe3\xf8\x932j\x12A" +
+	"\xa3D\x97\xe2g0\xfbm\x1f}0\xfe\x1e\xa08O" +
+	"\xdf\xf3\xac\x0f\xd6?%\xd1\xb4\x13}_\xa2\x8e\xd9\xc5" +
+	"\x84\xffb\xe21\x99b\x0b\xa0\xdd@\xc5\xba/N\xee" +
+	"{p\xfd\xce\xb3\x008z99\x8e\xd9T\xd7\xc7\x00" +
+	"\xd9\x8b]I\xf9\x07 \xf0\xa5m\xdd\x9b\x1b\x99\x93\x9d" +
+	"\xa1\xf8\x81\x9f\xeb:\x84\x01.\xfbQ\x97\x0c\xa5\xff\xfd" +
+	"K\xbf\xba\xfe\xe4\xf2\xc9U\x03_\xee>\x83\xd9w\xba" +
+	"%\xfa\\\xb7D\xb3\x9em\xeb\xff\xf1\xa3\xb3\xa7;8" +
+	"\xf1\xc1'{^\xc0\xec[=\x12\xbc\xd2\x93\x03\x14C" +
+	"\x7fp3cw\xce\xad\x80\xb6!r3\xe0\xe8\xc5\x9e" +
+	":fS\xbd\x12\xd9\xdd\xdb\x00\x147={\xf3\xd0\xd0" +
+	"\xcf\xbfy%r\xa2\xb7\x8e\xd9{}\xe4=\xbd\xb2(" +
+	"\x1f.\xe7\xfbv\xef\xbe\xf1\xed\x0e\xe6d\xd9FO\xf4" +
+	"\x9e\xc2\xec[>x\xa5WF{:n\xdd{\xcb\xf9" +
+	"3\x1f^)%?\xde\xbe\xfb1\xbb\xd2'\xff}\xb3" +
+	"\xcf\xe7\xf9\x9f#\xde;\xbf\xbe\xfc\xf4G\x1dx\xff\xf2" +
+	"j\xff)\xcc~\xb7_^\xfeh\xbf\xcc\xee\xc2\x97_" +
+	"\xd8\xfe\xeeV\xf1\xf1j\xe0g\xfb\xcf`\xf6\xb4\x0f^" +
+	"\xee\x97\xf2pk\xae\xc7K\xb7-\xc5Fnskn" +
+	"^\xb7\xac\xe1\x82=\xec\xf1R\xe5\xd6\xbc^)W\xc6" +
+	"v\x05\xa7\xb7\xe6f\xb8[\xb5\xbciD6@c}" +
+	"B\xc4\x10@{h\x0e\x80\xed\xa3\xc8\x1e!\x98\xc2\xff" +
+	"\x89\x01\x94\xa7\x07\xe5\xe9\xc3\x14\xd9\xe3\x04S\xe4\xb2\x18" +
+	"@\x02\xa0=:\x0f\xc0\x0eSdO\x10L\xd1\xff\x8a" +
+	"\x01\xa4\x00\xda\xf7\xc6\x01\xd8\xe3\x14\xd9\x0f\x09\xa6b\x97" +
+	"\xc4\x00\xc6\x00\xb4''\x01\xd8\x13\x14\xd9\xd3\x04\xc5\x02" +
+	"\xf7\xf2\xc5\xbb\x8aU\xa0\xe5=\x98QL\x03bF\xa6" +
+	"\xe0\xd9\x0eW\x8f[\\\x85\x8fy\xd9\x98\xe2\xae\x0bI" +
+	"\xbd\xc01\xa3\xe8\x09\x9e7\x0a\xbc\xcc\x1d3\x0f\x09Q" +
+	"\xb4]\xef.\xdd\xb2\x00\x003JQ\xe1=M\xa6\xe2" +
+	"WcJ~L/p\x90Tu\xd1\x18\x80\xcf\xd4\xd0" +
+	"\x18\x00\xbb\x99\"\xdbDPC\x0c\x88\x1a\xde\x08\xc06" +
+	"Pd_\"\x98+r\xdd\xe0\x0efT\x13\x06_N" +
+	"\xcf\xdbF\x0d3J4\x1d\x01%\xae\x16\xd0\xae&\x03" +
+	"z\x81\xcf\xf0\xc5*\xa7\xae_\xc6\xbeVl\x13\x92\xed" +
+	"\xafPd\xd3\x91\xd8\xa6da\xb6Sd\xb3\x04\x91\x04" +
+	"%d\x128M\x91\xed&(<\xdd)po\x87!" +
+	"\xe9\xea\x03\x82}\x80\x8d\x8a^\xb3l\xdd\xc0\x14\x10L" +
+	"\x01\x8a\x8ac\xda\x8e\xe9\xd5$&\x01\x04\x13k\x89{" +
+	"{\xb3\x1e~\xd0\xae\xd7I\xe8\xf8j\x84\x8e+B\x1b" +
+	".w\x96\xcc<\xbf\"\xb8\x8c\xf0\x86\xff\xb2\xf5_\x87" +
+	"\xaf\x7ff\xedT6\xb5V\xde\x13\x04\x85>\x93\x99V" +
+	"P\xba,\xe8n\x8a\xacH0\x8c\x89\xdf\x0f\xc0\x0c\x8a" +
+	"\xacBP#M&K\x12X\xa4\xc8<\x82\x1a\xa5A" +
+	"/,\xde\x04\xc0,\x8a\xec\x01\x82\xe9\xa2\xee\x16[<" +
+	"\xbav\xd5\xc9\xf3\x9d\x0b\x90^p\xb9\x87\xdd@\xb0\x1b" +
+	"0\xed\x9au\x8e]@\xb0\x0b0\xe9yV\xf8\xff\x1a" +
+	"\xdaz\xbb\xaf:\x99\xc5\xe7[Y<\xbf\x19\x80\xfd\x92" +
+	"\"\xfb\xad\xa46\x16\xa4qLR\xfb\x1cEv\\\xa6" +
+	"\x11\x0f\xd2xQ\"\x7fC\x91\xbd,\xd3 A\x1a'" +
+	"\xea\x00\xec8E\xf6{\x82Z\x8c\x04\x1d\xbd,\xf5\xff" +
+	"2E\xf6\x1aA-N\x070\x0e\xa0\x9d\x96\x87\xafR" +
+	"do\x10\xc4\xc4\x00&\x00\xb4\xd7\xa5\xc6^\xa3\xc8\xfe" +
+	"Jp\xb0\xa4\x17\xcc|\x98Uc\x89;\xaei\x97C" +
+	"%\x0d.Xz\xc1U\xba\xf29\x9a\xb2!gT-" +
+	"\xbe\xc3\x08_\xcb\xc9Dw\x18!i9\xbb\x92\xb7\x0d" +
+	"\x8ei5\xdc\x011\x0d(J\xdc\xd3\x0d\xdd\xd3\x83\xfe" +
+	"_\xf7\x99W\x9e\xea=\xfe\xe0\xd9N\x8d\\\x8dR`" +
+	"[1j\xfe\x8b\xe3\xaa\xa1\xb5\xd2\x98jc\xcd\xdc\x18" +
+	"\xf1\x17>\xa6\x1cO\xd3\x8f(\xdf\xd6\xf8\x91p;\xd0" +
+	"\xcc\x1fD\xcc\xbft@9\xaaV\x9a\x8c\xb8ZiL" +
+	"-+\x9a9\xa6F\x9e\xc6\x8f\xa8\xf1\xa9\x99\x87\xd4\xb0" +
+	"\xd4J\x87\"\x1e\xbaXo4\x07FS\x1f\xe9q\xdb" +
+	"\xa8\xe5v\xfa\xcc\x89\xbb\x9b\xf3\x18U\x17\x88\xb01\xda" +
+	"\xce\x9as\x07#\x83G\x84MM\xc2\xae\x9e\xe1n\xc5" +
+	".\xbb\x1c \xb7\xcb\xd3\xbd\xaa\xdbt\x9a\x8e\xd7\xdd\xaa" +
+	"\x85^\xfb\xa7%\x0a\xa0\xfd\xd3\xcd\xb3\xf0+\x10\xda\x16" +
+	"\x8dO\xe3\x1af\xb8\x0a\xaa\xa3\xbf\xc7T\x7f\xb7:\x83" +
+	"\xcb\xc3oPd\x96\x9a\x94\xe6X\xa4\xe9)\x06\x8dQ" +
+	"\xda\xac\x9a\xbeS\x95\xae\x9f;\xa6U\x19\x03U\xe6\x1c" +
+	"?\x01\xcc\xa8\x92\x06\x82\x1c\xe4\x8ecK\xbbp~z" +
+	"\xcbu\xb7\x9f\xca\xbc\xb9\xe6a\x16\x92\xb9\xa6a6\x19" +
+	"\x1df\xd8\x1cfG\x00X\x85\"\xdb\x17I\xb6v\x00" +
+	"\x80=@\x91=\xdc9\xccV3\x05\x83\xbb\x9eY\xd6" +
+	"=4\xed\xf2\xce\x85\x05\x97ck\xca\xb5=\xdbe\xd6" +
+	"9\\1\xe6\xe2\x9f\xd4J\"[L\xac\x95gJN" +
+	"\xb6.\x8al\x80|\x12\x93\xb8\xfaL\x0dt\xec\xafJ" +
+	">?[\xc6\xe5\x1d\xbe9!\xd1\xbeP\x07@\xaa\xdd" +
+	"(\x7f\xc5\xb4u\x0e@\xc3\xad\xe6\xf3\xdcu\x1b\x15^" +
+	"6\xccrA\x98\xe5%\xdd2\x8d\x19\xc8\x05M\xd2\xf0" +
+	"\xcc\x12\xb7\xab\x9e0\xcb\x1ew\xca\xba\x05\x83\x13\xb2\xfa" +
+	"k\x88)\xe8]\x7f\xce\xfb1Mm\xf4c\x9a\x98\xf3" +
+	"c\xbas\xce\x8fi\xdb\xbc\x1f\xd3\xed\xf2W\\\xdb\"" +
+	"\x7f%\xb4\x91I\x80t\xd9\xb6+m\x8bX\xdb\xda%" +
+	"\xdc\x8a\xbe\xb7<[t \xc9uC\xec1-k\xb6" +
+	"\xe8p\xa0\xba\xd1\xbe\x7fEw\xack\x13j\xd0\xe0\x1d" +
+	"B=\x14\x11e\xa8\xd4\xd2\x9c2S\x8d\xdc\x10T\xa2" +
+	"*\xbd\xd8\xa3\xc8\xf6K\xa5\xc6\x02\xa5>$\xe5\xbb\x9f" +
+	"\";LP\xcc\xd7<\xee\xce::\x96\xdd\x05\xee8" +
+	"\xdc\x00%\xb7\x05\xc7.Ms\xee\x00U\x8d+\xa4\xb4" +
+	"\xbf\xc6\x1d\x13\xd2\x0b&7\x10\x81\xa0\\\xd9e\xc5f" +
+	"\xed\xbbMt\\o\xbc\xe6\xf1\xaf\xa2\xbbvw\xf6\xc7" +
+	"n\xd3\x9b\xc3\x95\xfb\xf9\x8d\xca\x9c\xd5\xca}lN\x19" +
+	"\xb1Z\xb9O\xcc)'V+\xf7\xf2\xbcr]\xb5r" +
+	"\xbf>\xa7|7\x15\xff\x8f\x08\x1czEb\xffD\x91" +
+	"\xbdM0\x95\xb8(\x02\x8f>'\xa7\xc0\xdf(\xb2\x0f" +
+	"\x08\xfa\xd2\x80D\xe7\x96\xde2\xb3\xd5\xb7\xf4\x96\xbd\x85" +
+	"\x8f\xa3\x02\x82D\x9b\x84 \xd1\xb9\xc4\x87\x86\xd8|\xb9" +
+	"}qo9\xe4\xa7Y\xee\x94\xcc\"sBf\xddG" +
+	"\x91}\x8e\xa0px\xc52\xf3\xba{M\x9bm\xdbF" +
+	"\xee;[\xc7n;\xa3\xd6\xd8\x96\xa0G\xe4\xe1&\x8a" +
+	"l+\x913\xd12\x97\xb8\xc3\x01\x95\xe4,\xdd\xe3\xe5" +
+	"|m\x0a\xd0\xc5$\x10L\x02\xfe?\x00\x00\xff\xff\x00" +
+	"\xc5\xcb\xf9"
 
 func init() {
 	schemas.Register(schema_de4f1a7b7c4a2b19,
 		0x85d4c7093f807c2d,
 		0x88e267ed17a5b414,
 		0x8e5519c0ac00e329,
+		0x8f45adafe3ffa65b,
 		0x9942d6f4353fc896,
 		0xa01aec6c74e703e3,
 		0xaf6574c64de6293d,
 		0xc5107f32093dc201,
 		0xc5c9c51eb2fbe90e,
+		0xcdde9ee81a3d0a51,
 		0xd95a413a1073d329,
 		0xd983ab292924b122,
 		0xe4215c5c0c63c9ef,

@@ -4,7 +4,9 @@ package threads
 
 import (
 	"context"
+	"errors"
 	"io"
+	"syscall/js"
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh"
@@ -242,6 +244,27 @@ func (s *Supervisor) handleSyscall(ctx context.Context, m *mesh.MeshCoordinator,
 			s.sendSendMessageResponse(callId, true)
 		}()
 
+	case syscall.Syscall_Body_Which_hostCall:
+		req, _ := body.HostCall()
+		service, _ := req.Service()
+		payload, _ := req.Payload()
+
+		go func() {
+			requestValue, err := resourceToJS(payload, s.bridge)
+			if err != nil {
+				s.sendErrorResponse(callId, "Invalid host payload: "+err.Error())
+				return
+			}
+
+			responseValue, err := callHost(service, requestValue)
+			if err != nil {
+				s.sendErrorResponse(callId, "Host call failed: "+err.Error())
+				return
+			}
+
+			s.sendHostCallResponse(callId, responseValue)
+		}()
+
 	default:
 		s.logger.Warn("Unknown Syscall Body", utils.String("which", body.Which().String()))
 	}
@@ -277,6 +300,22 @@ func (s *Supervisor) sendStoreChunkResponse(callId uint64, replicas uint8) {
 		res, _ := resp.Result()
 		storeRes, _ := res.NewStoreChunk()
 		storeRes.SetReplicas(replicas)
+		return nil
+	})
+}
+
+func (s *Supervisor) sendHostCallResponse(callId uint64, response js.Value) {
+	s.sendResponse(callId, func(resp syscall.Syscall_Response) error {
+		resp.SetStatus(syscall.Syscall_Status_success)
+		res, _ := resp.Result()
+		hostRes, _ := res.NewHostCall()
+		payload, err := hostRes.NewPayload()
+		if err != nil {
+			return err
+		}
+		if err := fillResourceFromJS(payload, response); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -328,6 +367,225 @@ func (s *Supervisor) sendResponse(callId uint64, builder func(syscall.Syscall_Re
 
 	// Signal Module
 	s.bridge.SignalInbox()
+}
+
+func callHost(service string, request js.Value) (js.Value, error) {
+	fn := js.Global().Get("inosHostCall")
+	if !fn.Truthy() {
+		return js.Value{}, errors.New("inosHostCall is not available")
+	}
+
+	res := fn.Invoke(service, request)
+	if res.Type() == js.TypeObject && res.InstanceOf(js.Global().Get("Promise")) {
+		var err error
+		res, err = awaitPromise(res)
+		if err != nil {
+			return js.Value{}, err
+		}
+	}
+
+	return res, nil
+}
+
+func awaitPromise(promise js.Value) (js.Value, error) {
+	done := make(chan struct{})
+	var result js.Value
+	var err error
+
+	then := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if len(args) > 0 {
+			result = args[0]
+		}
+		close(done)
+		return nil
+	})
+	catchFn := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+		if len(args) > 0 {
+			err = errors.New(args[0].String())
+		} else {
+			err = errors.New("promise rejected")
+		}
+		close(done)
+		return nil
+	})
+
+	promise.Call("then", then).Call("catch", catchFn)
+	<-done
+	then.Release()
+	catchFn.Release()
+
+	if err != nil {
+		return js.Value{}, err
+	}
+	return result, nil
+}
+
+func resourceToJS(payload syscall.Resource, bridge *supervisor.SABBridge) (js.Value, error) {
+	switch payload.Which() {
+	case syscall.Resource_Which_inline:
+		data, err := payload.Inline()
+		if err != nil {
+			return js.Value{}, err
+		}
+		array := js.Global().Get("Uint8Array").New(len(data))
+		js.CopyBytesToJS(array, data)
+		custom := resourceCustomBytes(payload)
+		if len(custom) == 0 {
+			return array, nil
+		}
+		customArray := js.Global().Get("Uint8Array").New(len(custom))
+		js.CopyBytesToJS(customArray, custom)
+		return js.ValueOf(map[string]interface{}{
+			"kind":   "inline",
+			"data":   array,
+			"custom": customArray,
+		}), nil
+	case syscall.Resource_Which_sabRef:
+		ref, err := payload.SabRef()
+		if err != nil {
+			return js.Value{}, err
+		}
+		if err := bridge.ValidateArenaOffset(ref.Offset(), ref.Size()); err != nil {
+			return js.Value{}, err
+		}
+		custom := resourceCustomBytes(payload)
+		req := map[string]interface{}{
+			"kind":   "sab",
+			"offset": ref.Offset(),
+			"size":   ref.Size(),
+		}
+		if len(custom) > 0 {
+			customArray := js.Global().Get("Uint8Array").New(len(custom))
+			js.CopyBytesToJS(customArray, custom)
+			req["custom"] = customArray
+		}
+		return js.ValueOf(req), nil
+	case syscall.Resource_Which_shards:
+		return js.Value{}, errors.New("sharded payloads not supported for host calls")
+	default:
+		return js.Value{}, errors.New("unknown resource payload")
+	}
+}
+
+func fillResourceFromJS(payload syscall.Resource, val js.Value) error {
+	initResourceDefaults(payload)
+
+	if !val.Truthy() {
+		payload.SetInline([]byte{})
+		return nil
+	}
+
+	if val.Type() == js.TypeString {
+		payload.SetInline([]byte(val.String()))
+		payload.SetRawSize(uint32(len(val.String())))
+		payload.SetWireSize(uint32(len(val.String())))
+		return nil
+	}
+
+	if val.Type() == js.TypeObject {
+		offset := val.Get("offset")
+		size := val.Get("size")
+		if offset.Truthy() && size.Truthy() {
+			ref, err := payload.NewSabRef()
+			if err != nil {
+				return err
+			}
+			ref.SetOffset(uint32(offset.Int()))
+			ref.SetSize(uint32(size.Int()))
+			payload.SetRawSize(uint32(size.Int()))
+			payload.SetWireSize(uint32(size.Int()))
+			if alloc, err := payload.Allocation(); err == nil {
+				alloc.SetType(syscall.Resource_Allocation_Type_sab)
+			}
+			setResourceCustom(payload, val.Get("custom"))
+			return nil
+		}
+		data := val.Get("data")
+		if data.Truthy() {
+			bytes, err := jsValueToBytes(data)
+			if err != nil {
+				return err
+			}
+			payload.SetInline(bytes)
+			payload.SetRawSize(uint32(len(bytes)))
+			payload.SetWireSize(uint32(len(bytes)))
+			setResourceCustom(payload, val.Get("custom"))
+			return nil
+		}
+	}
+
+	bytes, err := jsValueToBytes(val)
+	if err != nil {
+		return err
+	}
+	payload.SetInline(bytes)
+	payload.SetRawSize(uint32(len(bytes)))
+	payload.SetWireSize(uint32(len(bytes)))
+	return nil
+}
+
+func resourceCustomBytes(payload syscall.Resource) []byte {
+	meta, err := payload.Metadata()
+	if err != nil {
+		return nil
+	}
+	custom, err := meta.Custom()
+	if err != nil {
+		return nil
+	}
+	return custom
+}
+
+func initResourceDefaults(payload syscall.Resource) {
+	payload.SetCompression(syscall.Resource_Compression_none)
+	payload.SetEncryption(syscall.Resource_Encryption_none)
+	alloc, err := payload.NewAllocation()
+	if err != nil {
+		return
+	}
+	alloc.SetType(syscall.Resource_Allocation_Type_heap)
+	alloc.SetLifetime(syscall.Resource_Allocation_Lifetime_ephemeral)
+}
+
+func setResourceCustom(payload syscall.Resource, val js.Value) {
+	if !val.Truthy() {
+		return
+	}
+	bytes, err := jsValueToBytes(val)
+	if err != nil {
+		return
+	}
+	meta, err := payload.NewMetadata()
+	if err != nil {
+		return
+	}
+	meta.SetCustom(bytes)
+}
+
+func jsValueToBytes(val js.Value) ([]byte, error) {
+	if !val.Truthy() {
+		return []byte{}, nil
+	}
+	if val.Type() == js.TypeString {
+		return []byte(val.String()), nil
+	}
+
+	uint8Array := js.Global().Get("Uint8Array")
+	if val.InstanceOf(uint8Array) {
+		out := make([]byte, val.Length())
+		js.CopyBytesToGo(out, val)
+		return out, nil
+	}
+
+	arrayBuffer := js.Global().Get("ArrayBuffer")
+	if val.InstanceOf(arrayBuffer) {
+		buf := uint8Array.New(val)
+		out := make([]byte, buf.Length())
+		js.CopyBytesToGo(out, buf)
+		return out, nil
+	}
+
+	return nil, errors.New("unsupported host response type")
 }
 
 // SABWriter implements io.Writer for direct SAB writing (Zero-Copy Return Path)

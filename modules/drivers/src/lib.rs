@@ -14,6 +14,9 @@ pub mod perception;
 pub mod positioning; // Generic command system
 pub mod ros2;
 
+#[cfg(target_arch = "wasm32")]
+getrandom::register_custom_getrandom!(sdk::js_interop::getrandom_custom);
+
 use actor::{Actor, ActorDriver};
 use log::{error, info};
 use sdk::{Epoch, IDX_ACTOR_EPOCH, IDX_SENSOR_EPOCH};
@@ -514,7 +517,7 @@ pub extern "C" fn drivers_init_with_sab() -> i32 {
         if !val.is_undefined() && !val.is_null() {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
-            let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+            let module_id = id_val.ok().and_then(|v| sdk::js_interop::as_f64(&v)).unwrap_or(0.0) as u32;
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data

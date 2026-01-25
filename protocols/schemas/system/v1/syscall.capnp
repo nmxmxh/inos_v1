@@ -1,6 +1,7 @@
 @0xde4f1a7b7c4a2b19;
 
 using Base = import "/base/v1/base.capnp";
+using Resource = import "/system/v1/resource.capnp";
 
 # INOS Kernel Syscall Interface
 # Defines the ABI for Modules to request Kernel services via SAB.
@@ -39,6 +40,7 @@ interface Syscall {
       spawnThread @3 :Void; # Placeholder
       killThread @4 :Void;  # Placeholder
       sendMessage @5 :SendMessageRequest;
+      hostCall @6 :HostCallRequest;
     }
   }
 
@@ -49,6 +51,7 @@ interface Syscall {
     spawnThread @3;
     killThread @4;
     sendMessage @5;
+    hostCall @6;
   }
 
   # =================================================================
@@ -75,6 +78,11 @@ interface Syscall {
     targetId @0 :Text;
     payload @1 :Data;
     priority @2 :UInt8;
+  }
+
+  struct HostCallRequest {
+    service @0 :Text;           # e.g. "storage.put", "api.request"
+    payload @1 :Resource.Resource;
   }
 
   # =================================================================
@@ -106,6 +114,7 @@ interface Syscall {
       storeChunk @1 :StoreChunkResult;
       sendMessage @2 :SendMessageResult;
       generic @3 :Void;
+      hostCall @4 :HostCallResult;
     }
   }
 
@@ -123,5 +132,9 @@ interface Syscall {
 
   struct StoreChunkResult {
     replicas @0 :UInt8;
+  }
+
+  struct HostCallResult {
+    payload @0 :Resource.Resource;
   }
 }

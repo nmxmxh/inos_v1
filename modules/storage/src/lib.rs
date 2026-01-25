@@ -2,11 +2,41 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305, Key, Nonce,
 };
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand_core::{CryptoRng, RngCore};
 
 use log::{error, info};
 
 // Storage module bare-metal (no wasm-bindgen macros)
+
+#[cfg(target_arch = "wasm32")]
+getrandom::register_custom_getrandom!(sdk::js_interop::getrandom_custom);
+
+struct HostRng;
+
+impl RngCore for HostRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut buf = [0u8; 4];
+        self.fill_bytes(&mut buf);
+        u32::from_le_bytes(buf)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut buf = [0u8; 8];
+        self.fill_bytes(&mut buf);
+        u64::from_le_bytes(buf)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        sdk::js_interop::fill_random(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for HostRng {}
 #[derive(Debug)]
 pub struct StorageEngine {
     encryption_key: Key,
@@ -43,7 +73,10 @@ pub extern "C" fn vault_init_with_sab() -> i32 {
         if !val.is_undefined() && !val.is_null() {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
-            let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+            let module_id = id_val
+                .ok()
+                .and_then(|v| sdk::js_interop::as_f64(&v))
+                .unwrap_or(0.0) as u32;
 
             // Create TWO SafeSAB references:
             // 1. Scoped view for module data
@@ -128,7 +161,7 @@ impl StorageEngine {
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        let mut rng = StdRng::from_entropy(); // seeded from OS RNG (getrandom)
+        let mut rng = HostRng;
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 

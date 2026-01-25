@@ -1,802 +1,262 @@
-#[cfg(target_arch = "wasm32")]
-mod wasm_send_safe {
-    use js_sys::{Int32Array as RawInt32Array, Uint8Array as RawUint8Array};
-    use std::ops::{Deref, DerefMut};
-    use web_sys::wasm_bindgen::JsValue as RawJsValue;
-
-    /// A transparent wrapper that implements Send and Sync for WASM interop types.
-    /// This is safe in our architecture as long as we don't access these objects
-    /// from multiple threads simultaneously without external synchronization.
-    #[repr(transparent)]
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct SendWrap<T>(pub T);
-
-    unsafe impl<T> Send for SendWrap<T> {}
-    unsafe impl<T> Sync for SendWrap<T> {}
-
-    impl<T> Deref for SendWrap<T> {
-        type Target = T;
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl<T> DerefMut for SendWrap<T> {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.0
-        }
-    }
-
-    impl<T> From<T> for SendWrap<T> {
-        fn from(val: T) -> Self {
-            SendWrap(val)
-        }
-    }
-
-    pub type JsValue = SendWrap<RawJsValue>;
-    pub type Uint8Array = SendWrap<RawUint8Array>;
-    pub type Int32Array = SendWrap<RawInt32Array>;
-
-    // Identity conversions for JsValue, Uint8Array, and Int32Array are handled by the blanket
-    // From<T> for SendWrap<T> implementation in line 30.
-
-    impl From<JsValue> for RawJsValue {
-        fn from(val: JsValue) -> Self {
-            val.0
-        }
-    }
-
-    // Specialized "downcasting" conversions for bridge return types.
-    // Since our bridge functions return RawJsValue, we need these to cast into our wrapped aliases.
-    impl From<RawJsValue> for Uint8Array {
-        fn from(val: RawJsValue) -> Self {
-            use web_sys::wasm_bindgen::JsCast;
-            SendWrap(val.unchecked_into())
-        }
-    }
-
-    impl From<RawJsValue> for Int32Array {
-        fn from(val: RawJsValue) -> Self {
-            use web_sys::wasm_bindgen::JsCast;
-            SendWrap(val.unchecked_into())
-        }
-    }
-
-    // Cross-type conversions (Raw -> Wrapped)
-    impl From<RawUint8Array> for JsValue {
-        fn from(val: RawUint8Array) -> Self {
-            SendWrap(val.into())
-        }
-    }
-
-    impl From<RawInt32Array> for JsValue {
-        fn from(val: RawInt32Array) -> Self {
-            SendWrap(val.into())
-        }
-    }
-
-    // Wrapped Cross-type conversions (Wrapped -> Wrapped)
-    impl From<Uint8Array> for JsValue {
-        fn from(val: Uint8Array) -> Self {
-            SendWrap(val.0.clone().into())
-        }
-    }
-
-    impl From<Int32Array> for JsValue {
-        fn from(val: Int32Array) -> Self {
-            SendWrap(val.0.clone().into())
-        }
-    }
-
-    impl From<js_sys::SharedArrayBuffer> for JsValue {
-        fn from(val: js_sys::SharedArrayBuffer) -> Self {
-            SendWrap(val.into())
-        }
-    }
-
-    impl From<js_sys::JsString> for JsValue {
-        fn from(val: js_sys::JsString) -> Self {
-            SendWrap(val.into())
-        }
-    }
-
-    impl From<js_sys::Object> for JsValue {
-        fn from(val: js_sys::Object) -> Self {
-            SendWrap(val.into())
-        }
-    }
-
-    impl From<js_sys::Promise> for JsValue {
-        fn from(val: js_sys::Promise) -> Self {
-            SendWrap(val.into())
-        }
-    }
-}
-
 use crate::layout;
 
 #[cfg(target_arch = "wasm32")]
-pub use wasm_send_safe::{Int32Array, JsValue, SendWrap, Uint8Array};
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct JsValue(pub u32);
+
+#[cfg(target_arch = "wasm32")]
+impl JsValue {
+    pub const UNDEFINED: JsValue = JsValue(0);
+    pub const NULL: JsValue = JsValue(1);
+
+    pub fn is_null(&self) -> bool {
+        self.0 == Self::NULL.0
+    }
+
+    pub fn is_undefined(&self) -> bool {
+        self.0 == Self::UNDEFINED.0
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub type Uint8Array = JsValue;
+#[cfg(target_arch = "wasm32")]
+pub type Int32Array = JsValue;
 
 #[cfg(not(target_arch = "wasm32"))]
-mod native_types {
-    #[derive(Debug, Clone, PartialEq, Default)]
-    pub struct JsValue(pub u32);
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct JsValue(pub u32);
 
-    impl JsValue {
-        pub const NULL: JsValue = JsValue(0);
-        pub const UNDEFINED: JsValue = JsValue(1);
-        pub fn is_null(&self) -> bool {
-            self.0 == 0
-        }
-        pub fn is_undefined(&self) -> bool {
-            self.0 == 1
-        }
-        pub fn is_string(&self) -> bool {
-            false
-        }
-        pub fn as_f64(&self) -> Option<f64> {
-            None
-        }
-        pub fn as_string(&self) -> Option<String> {
-            None
-        }
+#[cfg(not(target_arch = "wasm32"))]
+impl JsValue {
+    pub const NULL: JsValue = JsValue(0);
+    pub const UNDEFINED: JsValue = JsValue(1);
+    pub fn is_null(&self) -> bool {
+        self.0 == 0
     }
-
-    impl From<&str> for JsValue {
-        fn from(_s: &str) -> Self {
-            JsValue::UNDEFINED
-        }
+    pub fn is_undefined(&self) -> bool {
+        self.0 == 1
     }
-
-    impl From<String> for JsValue {
-        fn from(_s: String) -> Self {
-            JsValue::UNDEFINED
-        }
+    pub fn is_string(&self) -> bool {
+        false
     }
-
-    pub type Uint8Array = JsValue;
-    pub type Int32Array = JsValue;
-    pub type SendWrap<T> = T;
+    pub fn as_f64(&self) -> Option<f64> {
+        None
+    }
+    pub fn as_string(&self) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native_types::{Int32Array, JsValue, SendWrap, Uint8Array};
-
-#[cfg(target_arch = "wasm32")]
-use web_sys::wasm_bindgen::JsValue as RawJsValue;
-
+pub type Uint8Array = JsValue;
 #[cfg(not(target_arch = "wasm32"))]
-type RawJsValue = native_types::JsValue;
+pub type Int32Array = JsValue;
 
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
-#[allow(improper_ctypes)]
 extern "C" {
-    // Stable name: inos_create_u8_array
-    #[link_name = "inos_create_u8_array"]
-    fn create_u8_array_raw(ptr: *const u8, len: u32) -> RawJsValue;
-
-    // Stable name: inos_wrap_u8_array
-    #[link_name = "inos_wrap_u8_array"]
-    fn wrap_u8_array_raw(val: RawJsValue) -> RawJsValue;
-
-    // Stable name: inos_create_u8_view
-    #[link_name = "inos_create_u8_view"]
-    fn create_u8_view_raw(buffer: RawJsValue, offset: u32, len: u32) -> RawJsValue;
-
-    // Stable name: inos_create_i32_view
-    #[link_name = "inos_create_i32_view"]
-    fn create_i32_view_raw(buffer: RawJsValue, offset: u32, len: u32) -> RawJsValue;
-
-    // Stable name: inos_get_global
-    #[link_name = "inos_get_global"]
-    fn get_global_raw() -> RawJsValue;
-
-    // Stable name: inos_reflect_get
-    #[link_name = "inos_reflect_get"]
-    fn reflect_get_raw(target: RawJsValue, key: RawJsValue) -> RawJsValue;
-
-    // Stable name: inos_as_f64
-    #[link_name = "inos_as_f64"]
-    fn as_f64_raw(val: RawJsValue) -> f64;
-
-    // Stable name: inos_log
-    #[link_name = "inos_log"]
-    fn log_raw(ptr: *const u8, len: u32, level: u8);
-
-    // Stable name: inos_create_string
-    #[link_name = "inos_create_string"]
-    fn create_string_raw(ptr: *const u8, len: u32) -> RawJsValue;
-
-    // Stable name: inos_get_now
-    #[link_name = "inos_get_now"]
-    fn get_now_raw() -> f64;
-
-    // Stable name: inos_get_performance_now (high-resolution timer)
-    #[link_name = "inos_get_performance_now"]
-    fn get_performance_now_raw() -> f64;
-
-    // Stable name: inos_atomic_add
-    #[link_name = "inos_atomic_add"]
-    fn atomic_add_raw(typed_array: RawJsValue, index: u32, value: i32) -> i32;
-
-    // Stable name: inos_atomic_load
-    #[link_name = "inos_atomic_load"]
-    fn atomic_load_raw(typed_array: RawJsValue, index: u32) -> i32;
-
-    // Stable name: inos_atomic_store
-    #[link_name = "inos_atomic_store"]
-    fn atomic_store_raw(typed_array: RawJsValue, index: u32, value: i32) -> i32;
-
-    // Stable name: inos_atomic_wait
-    #[link_name = "inos_atomic_wait"]
-    fn atomic_wait_raw(typed_array: RawJsValue, index: u32, value: i32, timeout: f64) -> i32;
-
-    // Stable name: inos_atomic_notify
-    #[link_name = "inos_atomic_notify"]
-    fn atomic_notify_raw(typed_array: RawJsValue, index: u32, count: i32) -> i32;
-
-    // Stable name: inos_atomic_compare_exchange
-    #[link_name = "inos_atomic_compare_exchange"]
-    fn atomic_compare_exchange_raw(
-        typed_array: RawJsValue,
+    fn inos_create_u8_array(ptr: *const u8, len: u32) -> u32;
+    fn inos_wrap_u8_array(val: u32) -> u32;
+    fn inos_create_u8_view(buffer: u32, offset: u32, len: u32) -> u32;
+    fn inos_create_i32_view(buffer: u32, offset: u32, len: u32) -> u32;
+    fn inos_create_string(ptr: *const u8, len: u32) -> u32;
+    fn inos_get_global() -> u32;
+    fn inos_reflect_get(target: u32, key: u32) -> u32;
+    fn inos_as_f64(val: u32) -> f64;
+    fn inos_log(ptr: *const u8, len: u32, level: u8);
+    fn inos_get_now() -> f64;
+    fn inos_get_performance_now() -> f64;
+    fn inos_math_random() -> f64;
+    fn inos_atomic_add(typed_array: u32, index: u32, value: i32) -> i32;
+    fn inos_atomic_load(typed_array: u32, index: u32) -> i32;
+    fn inos_atomic_store(typed_array: u32, index: u32, value: i32) -> i32;
+    fn inos_atomic_wait(typed_array: u32, index: u32, value: i32, timeout: f64) -> i32;
+    fn inos_atomic_notify(typed_array: u32, index: u32, count: i32) -> i32;
+    fn inos_atomic_compare_exchange(
+        typed_array: u32,
         index: u32,
         expected: i32,
         replacement: i32,
     ) -> i32;
-
-    // Stable name: inos_math_random
-    #[link_name = "inos_math_random"]
-    fn math_random_raw() -> f64;
-
-    // Stable name: inos_copy_to_sab
-    #[link_name = "inos_copy_to_sab"]
-    fn copy_to_sab_raw(target_buffer: RawJsValue, target_offset: u32, src_ptr: *const u8, len: u32);
-
-    // Stable name: inos_copy_from_sab
-    #[link_name = "inos_copy_from_sab"]
-    fn copy_from_sab_raw(src_buffer: RawJsValue, src_offset: u32, dest_ptr: *mut u8, len: u32);
-
-    // Stable name: inos_get_byte_length
-    #[link_name = "inos_get_byte_length"]
-    fn get_byte_length_raw(val: RawJsValue) -> u32;
-
-    // Stable name: inos_js_to_string
-    #[link_name = "inos_js_to_string"]
-    fn js_to_string_raw(val: RawJsValue, ptr: *mut u8, max_len: u32) -> u32;
-
-    // Stable name: inos_sab_read_i32
-    // Read a signed 32-bit integer from SAB at given byte offset (relative to kernel offset)
-    #[link_name = "inos_sab_read_i32"]
-    fn sab_read_i32_raw(byte_offset: u32) -> i32;
-
-    // Stable name: inos_sab_read_u32
-    // Read an unsigned 32-bit integer from SAB at given byte offset
-    #[link_name = "inos_sab_read_u32"]
-    fn sab_read_u32_raw(byte_offset: u32) -> u32;
-
-    // Stable name: inos_sab_read_f32
-    // Read a 32-bit float from SAB at given byte offset
-    #[link_name = "inos_sab_read_f32"]
-    fn sab_read_f32_raw(byte_offset: u32) -> f32;
-
-    // Stable name: inos_sab_atomic_load
-    // Atomically load a value from SAB flags region
-    #[link_name = "inos_sab_atomic_load"]
-    fn sab_atomic_load_raw(index: u32) -> i32;
+    fn inos_copy_to_sab(target_buffer: u32, target_offset: u32, src_ptr: *const u8, len: u32);
+    fn inos_copy_from_sab(src_buffer: u32, src_offset: u32, dest_ptr: *mut u8, len: u32);
+    fn inos_get_byte_length(val: u32) -> u32;
+    fn inos_js_to_string(val: u32, ptr: *mut u8, max_len: u32) -> u32;
+    fn inos_create_sab(len: u32) -> u32;
+    fn inos_fill_random(ptr: *mut u8, len: u32);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod native_mock {
-    use super::*;
-    use once_cell::sync::Lazy;
+    use super::JsValue;
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
-    // A mock registry of buffers. JsValue::from(u32) will be treated as an index.
-    static BUFFERS: Lazy<Mutex<Vec<Vec<u8>>>> = Lazy::new(|| Mutex::new(vec![]));
+    use once_cell::sync::Lazy;
 
-    #[allow(dead_code)]
+    static BUFFERS: Lazy<Mutex<HashMap<u32, Vec<u8>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+
     pub fn register_buffer(data: Vec<u8>) -> u32 {
-        let mut buffers = BUFFERS.lock().unwrap();
-        buffers.push(data);
-        (buffers.len() - 1) as u32
-    }
-
-    fn get_buffer_index_raw(val: &RawJsValue) -> usize {
-        val.0 as usize
-    }
-
-    fn ensure_buffer_exists(index: usize) {
-        let mut buffers = BUFFERS.lock().unwrap();
-        while buffers.len() <= index {
-            buffers.push(vec![0u8; 16 * 1024 * 1024]);
-        }
-    }
-
-    pub fn create_u8_array(_data: &[u8]) -> Uint8Array {
-        JsValue::UNDEFINED
-    }
-    pub fn wrap_u8_array(_val: &JsValue) -> Uint8Array {
-        JsValue::UNDEFINED
-    }
-    pub fn create_u8_view(_buffer: &JsValue, _offset: u32, _len: u32) -> Uint8Array {
-        JsValue::UNDEFINED
-    }
-    pub fn create_i32_view(_buffer: &JsValue, _offset: u32, _len: u32) -> Int32Array {
-        JsValue::UNDEFINED
-    }
-    pub fn log(msg: &str, level: u8) {
-        println!("[LOG {}] {}", level, msg);
-    }
-    pub fn create_string(_s: &str) -> JsValue {
-        JsValue::UNDEFINED
-    }
-    pub fn get_now() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64
-    }
-    pub fn get_performance_now() -> f64 {
-        0.0
-    }
-
-    pub fn _get_global() -> JsValue {
-        JsValue::UNDEFINED
-    }
-
-    pub fn _reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
-        Ok(JsValue::UNDEFINED)
-    }
-
-    pub fn js_to_string(_val: &JsValue) -> Option<String> {
-        None
+        let mut guard = BUFFERS.lock().unwrap();
+        let next = guard.len() as u32 + 2;
+        guard.insert(next, data);
+        next
     }
 
     pub fn get_byte_length(val: &JsValue) -> u32 {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let buffers = BUFFERS.lock().unwrap();
-        buffers[idx].len() as u32
-    }
-
-    pub fn atomic_add(val: &JsValue, index: u32, value: i32) -> i32 {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[idx];
-        let byte_idx = (index * 4) as usize;
-        if byte_idx + 4 > buf.len() {
-            return 0;
+        let guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get(&val.0) {
+            return buf.len() as u32;
         }
-
-        let old = i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap());
-        let new = old.wrapping_add(value);
-        buf[byte_idx..byte_idx + 4].copy_from_slice(&new.to_le_bytes());
-        old
-    }
-
-    pub fn atomic_load(val: &JsValue, index: u32) -> i32 {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[idx];
-        let byte_idx = (index * 4) as usize;
-        if byte_idx + 4 > buf.len() {
-            return 0;
-        }
-        i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap())
-    }
-
-    pub fn atomic_store(val: &JsValue, index: u32, value: i32) -> i32 {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[idx];
-        let byte_idx = (index * 4) as usize;
-        if byte_idx + 4 > buf.len() {
-            return 0;
-        }
-
-        buf[byte_idx..byte_idx + 4].copy_from_slice(&value.to_le_bytes());
-        value
-    }
-
-    pub fn atomic_wait(_typed_array: &JsValue, _index: u32, _value: i32, _timeout_ms: f64) -> i32 {
         0
     }
 
-    pub fn atomic_notify(_typed_array: &JsValue, _index: u32, _count: i32) -> i32 {
-        0 // No-op in native tests
-    }
-
-    pub fn atomic_compare_exchange(
-        val: &JsValue,
-        index: u32,
-        expected: i32,
-        replacement: i32,
-    ) -> i32 {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[idx];
-        let byte_idx = (index * 4) as usize;
-        if byte_idx + 4 > buf.len() {
-            return 0;
-        }
-
-        let old = i32::from_le_bytes(buf[byte_idx..byte_idx + 4].try_into().unwrap());
-        if old == expected {
-            buf[byte_idx..byte_idx + 4].copy_from_slice(&replacement.to_le_bytes());
-        }
-        old
-    }
-
-    pub fn math_random() -> f64 {
-        0.5
-    }
-
     pub fn copy_to_sab(val: &JsValue, target_offset: u32, src: &[u8]) {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let mut buffers = BUFFERS.lock().unwrap();
-        let buf = &mut buffers[idx];
-        let offset = target_offset as usize;
-        if offset + src.len() <= buf.len() {
-            buf[offset..offset + src.len()].copy_from_slice(src);
+        let mut guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get_mut(&val.0) {
+            let start = target_offset as usize;
+            let end = start + src.len();
+            if end <= buf.len() {
+                buf[start..end].copy_from_slice(src);
+            }
         }
     }
 
     pub fn copy_from_sab(val: &JsValue, src_offset: u32, dest: &mut [u8]) {
-        let idx = get_buffer_index_raw(val);
-        ensure_buffer_exists(idx);
-        let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[idx];
-        let offset = src_offset as usize;
-        if offset + dest.len() <= buf.len() {
-            dest.copy_from_slice(&buf[offset..offset + dest.len()]);
+        let guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get(&val.0) {
+            let start = src_offset as usize;
+            let end = start + dest.len();
+            if end <= buf.len() {
+                dest.copy_from_slice(&buf[start..end]);
+            }
         }
     }
+}
 
-    pub fn sab_read_i32(byte_offset: u32) -> i32 {
-        ensure_buffer_exists(0);
-        let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[0];
-        let offset = byte_offset as usize;
-        if offset + 4 <= buf.len() {
-            i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
-        } else {
-            0
-        }
-    }
-
-    pub fn sab_read_u32(byte_offset: u32) -> u32 {
-        ensure_buffer_exists(0);
-        let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[0];
-        let offset = byte_offset as usize;
-        if offset + 4 <= buf.len() {
-            u32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
-        } else {
-            0
-        }
-    }
-
-    pub fn sab_read_f32(byte_offset: u32) -> f32 {
-        ensure_buffer_exists(0);
-        let buffers = BUFFERS.lock().unwrap();
-        let buf = &buffers[0];
-        let offset = byte_offset as usize;
-        if offset + 4 <= buf.len() {
-            f32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap())
-        } else {
-            0.0
-        }
-    }
-
-    pub fn sab_atomic_load(index: u32) -> i32 {
-        // In native tests, just use normal read since we don't have atomics
-        sab_read_i32(index * 4)
+pub fn console_log(_msg: &str, _level: u8) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        inos_log(_msg.as_ptr(), _msg.len() as u32, _level);
     }
 }
 
 pub fn create_string(s: &str) -> JsValue {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        create_string_raw(s.as_ptr(), s.len() as u32).into()
+        return JsValue(inos_create_string(s.as_ptr(), s.len() as u32));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::create_string(s)
+    {
+        let _ = s;
+        JsValue::UNDEFINED
+    }
 }
 
 pub fn create_u8_array(data: &[u8]) -> Uint8Array {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        create_u8_array_raw(data.as_ptr(), data.len() as u32).into()
+        return JsValue(inos_create_u8_array(data.as_ptr(), data.len() as u32));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::create_u8_array(data)
+    {
+        let _ = data;
+        JsValue::UNDEFINED
+    }
 }
 
 pub fn wrap_u8_array(val: &JsValue) -> Uint8Array {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        wrap_u8_array_raw(val.0.clone()).into()
+        return JsValue(inos_wrap_u8_array(val.0));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::wrap_u8_array(val)
+    {
+        let _ = val;
+        JsValue::UNDEFINED
+    }
 }
 
 pub fn create_u8_view(buffer: &JsValue, offset: u32, len: u32) -> Uint8Array {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        create_u8_view_raw(buffer.0.clone(), offset, len).into()
+        return JsValue(inos_create_u8_view(buffer.0, offset, len));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::create_u8_view(buffer, offset, len)
+    {
+        let _ = (buffer, offset, len);
+        JsValue::UNDEFINED
+    }
 }
 
 pub fn create_i32_view(buffer: &JsValue, offset: u32, len: u32) -> Int32Array {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        create_i32_view_raw(buffer.0.clone(), offset, len).into()
+        return JsValue(inos_create_i32_view(buffer.0, offset, len));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::create_i32_view(buffer, offset, len)
-}
-
-pub fn console_log(msg: &str, level: u8) {
-    #[cfg(target_arch = "wasm32")]
-    unsafe {
-        log_raw(msg.as_ptr(), msg.len() as u32, level);
+    {
+        let _ = (buffer, offset, len);
+        JsValue::UNDEFINED
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::log(msg, level)
-}
-
-pub fn console_error(msg: &str) {
-    console_log(msg, 0);
 }
 
 pub fn get_global() -> JsValue {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        get_global_raw().into()
+        return JsValue(inos_get_global());
     }
     #[cfg(not(target_arch = "wasm32"))]
-    JsValue::UNDEFINED
-}
-
-pub fn reflect_get(_target: &JsValue, _key: &JsValue) -> Result<JsValue, JsValue> {
-    #[cfg(target_arch = "wasm32")]
-    return Ok(unsafe { reflect_get_raw(_target.0.clone(), _key.0.clone()).into() });
-    #[cfg(not(target_arch = "wasm32"))]
-    Ok(JsValue::UNDEFINED)
-}
-
-pub fn as_f64(_val: &JsValue) -> Option<f64> {
-    #[cfg(target_arch = "wasm32")]
     {
-        let res = unsafe { as_f64_raw(_val.0.clone()) };
-        if res.is_nan() {
-            if _val.is_undefined() || _val.is_null() {
-                None
-            } else {
-                Some(res)
-            }
-        } else {
-            Some(res)
+        JsValue::UNDEFINED
+    }
+}
+
+pub fn reflect_get(target: &JsValue, key: &JsValue) -> Result<JsValue, JsValue> {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return Ok(JsValue(inos_reflect_get(target.0, key.0)));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (target, key);
+        Ok(JsValue::UNDEFINED)
+    }
+}
+
+pub fn as_f64(val: &JsValue) -> Option<f64> {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        if val.is_null() || val.is_undefined() {
+            return None;
         }
+        return Some(inos_as_f64(val.0));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    None
-}
-
-pub fn get_now() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    return unsafe { get_now_raw() as u64 };
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::get_now()
-}
-
-pub fn get_performance_now() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    return unsafe { get_performance_now_raw() };
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::get_performance_now()
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_add<T>(typed_array: &SendWrap<T>, index: u32, value: i32) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    let raw: RawJsValue = typed_array.clone().0.into();
-    let old = unsafe { atomic_add_raw(raw.clone(), index, value) };
-    maybe_bump_system_epoch_raw(raw, index);
-    old
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_add(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    let old = native_mock::atomic_add(typed_array, index, value);
-    maybe_bump_system_epoch_native(typed_array, index);
-    old
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_load<T>(typed_array: &SendWrap<T>, index: u32) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    unsafe { atomic_load_raw(typed_array.clone().0.into(), index) }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_load(typed_array: &JsValue, index: u32) -> i32 {
-    native_mock::atomic_load(typed_array, index)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_store<T>(typed_array: &SendWrap<T>, index: u32, value: i32) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    let raw: RawJsValue = typed_array.clone().0.into();
-    let stored = unsafe { atomic_store_raw(raw.clone(), index, value) };
-    maybe_bump_system_epoch_raw(raw, index);
-    stored
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_store(typed_array: &JsValue, index: u32, value: i32) -> i32 {
-    let stored = native_mock::atomic_store(typed_array, index, value);
-    maybe_bump_system_epoch_native(typed_array, index);
-    stored
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_wait<T>(typed_array: &SendWrap<T>, index: u32, value: i32, timeout_ms: f64) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    unsafe { atomic_wait_raw(typed_array.0.clone().into(), index, value, timeout_ms) }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_wait(typed_array: &JsValue, index: u32, value: i32, timeout_ms: f64) -> i32 {
-    native_mock::atomic_wait(typed_array, index, value, timeout_ms)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_notify<T>(typed_array: &SendWrap<T>, index: u32, count: i32) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    unsafe { atomic_notify_raw(typed_array.0.clone().into(), index, count) }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_notify(typed_array: &JsValue, index: u32, count: i32) -> i32 {
-    native_mock::atomic_notify(typed_array, index, count)
-}
-
-#[cfg(target_arch = "wasm32")]
-#[cfg(target_arch = "wasm32")]
-pub fn atomic_compare_exchange<T>(
-    typed_array: &SendWrap<T>,
-    index: u32,
-    expected: i32,
-    replacement: i32,
-) -> i32
-where
-    T: Clone + Into<web_sys::wasm_bindgen::JsValue>,
-{
-    let raw: RawJsValue = typed_array.clone().0.into();
-    let old = unsafe { atomic_compare_exchange_raw(raw.clone(), index, expected, replacement) };
-    if old == expected {
-        maybe_bump_system_epoch_raw(raw, index);
-    }
-    old
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn atomic_compare_exchange(
-    typed_array: &JsValue,
-    index: u32,
-    expected: i32,
-    replacement: i32,
-) -> i32 {
-    let old = native_mock::atomic_compare_exchange(typed_array, index, expected, replacement);
-    if old == expected {
-        maybe_bump_system_epoch_native(typed_array, index);
-    }
-    old
-}
-
-#[cfg(target_arch = "wasm32")]
-fn maybe_bump_system_epoch_raw(typed_array: RawJsValue, index: u32) {
-    if index == layout::IDX_SYSTEM_EPOCH || !layout::should_signal_system_epoch(index) {
-        return;
-    }
-    unsafe {
-        // ALWAYS notify the specific index first so dedicated watchers wake up!
-        atomic_notify_raw(typed_array.clone(), index, i32::MAX);
-
-        // Then bump and notify the system pulse for general listeners
-        atomic_add_raw(typed_array.clone(), layout::IDX_SYSTEM_EPOCH, 1);
-        atomic_notify_raw(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
+    {
+        let _ = val;
+        None
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn maybe_bump_system_epoch_native(typed_array: &JsValue, index: u32) {
-    if index == layout::IDX_SYSTEM_EPOCH || !layout::should_signal_system_epoch(index) {
-        return;
-    }
-    // Specific index notification
-    native_mock::atomic_notify(typed_array, index, i32::MAX);
-
-    // System epoch pulse
-    native_mock::atomic_add(typed_array, layout::IDX_SYSTEM_EPOCH, 1);
-    native_mock::atomic_notify(typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
-}
-
-pub fn math_random() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    return unsafe { math_random_raw() };
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::math_random()
-}
-
-pub fn copy_to_sab(target_buffer: &JsValue, target_offset: u32, data: &[u8]) {
+pub fn js_to_string(val: &JsValue) -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     unsafe {
-        copy_to_sab_raw(
-            target_buffer.0.clone(),
-            target_offset,
-            data.as_ptr(),
-            data.len() as u32,
-        );
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::copy_to_sab(target_buffer, target_offset, data);
-}
-
-pub fn copy_from_sab(src_buffer: &JsValue, src_offset: u32, dest: &mut [u8]) {
-    #[cfg(target_arch = "wasm32")]
-    unsafe {
-        copy_from_sab_raw(
-            src_buffer.0.clone(),
-            src_offset,
-            dest.as_mut_ptr(),
-            dest.len() as u32,
-        );
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::copy_from_sab(src_buffer, src_offset, dest);
-}
-
-pub fn get_byte_length(_val: &JsValue) -> u32 {
-    #[cfg(target_arch = "wasm32")]
-    return unsafe { get_byte_length_raw(_val.0.clone()) };
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::get_byte_length(_val)
-}
-
-pub fn js_to_string(_val: &JsValue) -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    unsafe {
-        let mut buf = [0u8; 128]; // Context IDs are short
-        let len = js_to_string_raw(_val.0.clone(), buf.as_mut_ptr(), 128);
+        let mut buf = vec![0u8; 1024];
+        let len = inos_js_to_string(val.0, buf.as_mut_ptr(), buf.len() as u32) as usize;
         if len == 0 {
             return None;
         }
-        Some(String::from_utf8_lossy(&buf[..len as usize]).to_string())
+        buf.truncate(len);
+        return String::from_utf8(buf).ok();
     }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::js_to_string(_val)
+    {
+        let _ = val;
+        None
+    }
 }
 
 pub fn get_global_string(key: &str) -> Option<String> {
@@ -806,40 +266,215 @@ pub fn get_global_string(key: &str) -> Option<String> {
     js_to_string(&value)
 }
 
-// =============================================================================
-// TYPED SAB ACCESSORS (Zero-Copy)
-// =============================================================================
-
-/// Read a signed 32-bit integer from SAB at given byte offset (relative to kernel offset).
-/// This uses the centralized INOSBridge on the JS side for zero-allocation access.
-pub fn sab_read_i32(byte_offset: u32) -> i32 {
+pub fn get_now() -> f64 {
     #[cfg(target_arch = "wasm32")]
-    return unsafe { sab_read_i32_raw(byte_offset) };
+    unsafe {
+        return inos_get_now();
+    }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::sab_read_i32(byte_offset)
+    {
+        0.0
+    }
 }
 
-/// Read an unsigned 32-bit integer from SAB at given byte offset.
-pub fn sab_read_u32(byte_offset: u32) -> u32 {
+pub fn get_performance_now() -> f64 {
     #[cfg(target_arch = "wasm32")]
-    return unsafe { sab_read_u32_raw(byte_offset) };
+    unsafe {
+        return inos_get_performance_now();
+    }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::sab_read_u32(byte_offset)
+    {
+        0.0
+    }
 }
 
-/// Read a 32-bit float from SAB at given byte offset.
-pub fn sab_read_f32(byte_offset: u32) -> f32 {
-    #[cfg(target_arch = "wasm32")]
-    return unsafe { sab_read_f32_raw(byte_offset) };
-    #[cfg(not(target_arch = "wasm32"))]
-    native_mock::sab_read_f32(byte_offset)
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "Rust" fn __getrandom_v03_custom(
+    dest: *mut u8,
+    len: usize,
+) -> Result<(), getrandom03::Error> {
+    if dest.is_null() || len == 0 {
+        return Ok(());
+    }
+
+    unsafe {
+        let slice = core::slice::from_raw_parts_mut(dest, len);
+        fill_random(slice);
+    }
+    Ok(())
 }
 
-/// Atomically load a value from the SAB flags region.
-/// Index is in i32 units (not bytes), matching Atomics.load semantics.
-pub fn sab_atomic_load(index: u32) -> i32 {
+pub fn ensure_getrandom() {
     #[cfg(target_arch = "wasm32")]
-    return unsafe { sab_atomic_load_raw(index) };
+    {
+        // getrandom 0.2 custom backend is registered at the module crate root.
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn getrandom_custom(dest: &mut [u8]) -> Result<(), getrandom::Error> {
+    fill_random(dest);
+    Ok(())
+}
+
+pub fn fill_random(_dest: &mut [u8]) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        inos_fill_random(_dest.as_mut_ptr(), _dest.len() as u32);
+    }
+}
+
+pub fn math_random() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_math_random();
+    }
     #[cfg(not(target_arch = "wasm32"))]
-    native_mock::sab_atomic_load(index)
+    {
+        0.0
+    }
+}
+
+pub fn atomic_add(typed_array: &JsValue, index: u32, value: i32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_add(typed_array.0, index, value);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index, value);
+        0
+    }
+}
+
+pub fn atomic_load(typed_array: &JsValue, index: u32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_load(typed_array.0, index);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index);
+        0
+    }
+}
+
+pub fn atomic_store(typed_array: &JsValue, index: u32, value: i32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_store(typed_array.0, index, value);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index, value);
+        0
+    }
+}
+
+pub fn atomic_wait(typed_array: &JsValue, index: u32, value: i32, timeout_ms: f64) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_wait(typed_array.0, index, value, timeout_ms);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index, value, timeout_ms);
+        2
+    }
+}
+
+pub fn atomic_notify(typed_array: &JsValue, index: u32, count: i32) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_notify(typed_array.0, index, count);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index, count);
+        0
+    }
+}
+
+pub fn atomic_compare_exchange(
+    typed_array: &JsValue,
+    index: u32,
+    expected: i32,
+    replacement: i32,
+) -> i32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_atomic_compare_exchange(typed_array.0, index, expected, replacement);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = (typed_array, index, expected, replacement);
+        0
+    }
+}
+
+pub fn copy_to_sab(target_buffer: &JsValue, target_offset: u32, data: &[u8]) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        inos_copy_to_sab(
+            target_buffer.0,
+            target_offset,
+            data.as_ptr(),
+            data.len() as u32,
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        native_mock::copy_to_sab(target_buffer, target_offset, data);
+    }
+}
+
+pub fn copy_from_sab(src_buffer: &JsValue, src_offset: u32, dest: &mut [u8]) {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        inos_copy_from_sab(
+            src_buffer.0,
+            src_offset,
+            dest.as_mut_ptr(),
+            dest.len() as u32,
+        );
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        native_mock::copy_from_sab(src_buffer, src_offset, dest);
+    }
+}
+
+pub fn get_byte_length(val: &JsValue) -> u32 {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return inos_get_byte_length(val.0);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        native_mock::get_byte_length(val)
+    }
+}
+
+pub fn create_sab(len: u32) -> JsValue {
+    #[cfg(target_arch = "wasm32")]
+    unsafe {
+        return JsValue(inos_create_sab(len));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let handle = native_mock::register_buffer(vec![0u8; len as usize]);
+        JsValue(handle)
+    }
+}
+
+pub fn console_log_buffered(msg: &str, level: u8) {
+    console_log(msg, level);
+}
+
+pub fn maybe_bump_system_epoch(_typed_array: &JsValue, index: u32) {
+    if index == layout::IDX_SYSTEM_EPOCH {
+        let _ = atomic_add(_typed_array, index, 1);
+        let _ = atomic_notify(_typed_array, index, i32::MAX);
+    }
 }

@@ -7,6 +7,9 @@ use sdk::protocols::diagnostics::{diagnostics_request, diagnostics_response};
 use sdk::sab::SafeSAB;
 use sdk::Reactor;
 
+#[cfg(target_arch = "wasm32")]
+getrandom::register_custom_getrandom!(sdk::js_interop::getrandom_custom);
+
 /// Diagnostics Module (The Watchdog)
 ///
 /// Responsibilities:
@@ -161,7 +164,7 @@ pub extern "C" fn diagnostics_init_with_sab() -> i32 {
         if !val.is_undefined() && !val.is_null() {
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
-            let module_id = id_val.ok().and_then(|v| v.as_f64()).unwrap_or(0.0) as u32;
+            let module_id = id_val.ok().and_then(|v| sdk::js_interop::as_f64(&v)).unwrap_or(0.0) as u32;
 
             sdk::set_module_id(module_id);
             sdk::identity::init_identity_from_js();

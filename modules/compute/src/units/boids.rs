@@ -884,13 +884,11 @@ impl BoidUnit {
         let offspring_count = parents.len(); // Default to 1:1 for simplicity in this shard
 
         let mut offspring = Vec::with_capacity(offspring_count);
-        let mut rng = rand::thread_rng();
-
         for _i in 0..offspring_count {
-            let p1 = tournament_select(&parents, &mut rng);
-            let p2 = tournament_select(&parents, &mut rng);
-            let mut child = crossover(&p1, &p2, &mut rng);
-            mutate(&mut child, &mut rng);
+            let p1 = tournament_select(&parents);
+            let p2 = tournament_select(&parents);
+            let mut child = crossover(&p1, &p2);
+            mutate(&mut child);
             // BirdID will be reassigned by the supervisor in Go
             offspring.push(child);
         }
@@ -922,10 +920,29 @@ struct RustBirdGenes {
     weights: [f32; 44],
 }
 
-fn tournament_select(population: &[RustBirdGenes], rng: &mut impl rand::Rng) -> RustBirdGenes {
-    let mut best = &population[rng.gen_range(0..population.len())];
+fn rand_f32() -> f32 {
+    sdk::js_interop::math_random() as f32
+}
+
+fn rand_bool(p: f32) -> bool {
+    rand_f32() < p
+}
+
+fn rand_range(min: f32, max: f32) -> f32 {
+    min + (max - min) * rand_f32()
+}
+
+fn rand_index(len: usize) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (rand_f32() * len as f32) as usize % len
+}
+
+fn tournament_select(population: &[RustBirdGenes]) -> RustBirdGenes {
+    let mut best = &population[rand_index(population.len())];
     for _ in 1..3 {
-        let candidate = &population[rng.gen_range(0..population.len())];
+        let candidate = &population[rand_index(population.len())];
         if candidate.fitness > best.fitness {
             best = candidate;
         }
@@ -933,10 +950,10 @@ fn tournament_select(population: &[RustBirdGenes], rng: &mut impl rand::Rng) -> 
     best.clone()
 }
 
-fn crossover(p1: &RustBirdGenes, p2: &RustBirdGenes, rng: &mut impl rand::Rng) -> RustBirdGenes {
+fn crossover(p1: &RustBirdGenes, p2: &RustBirdGenes) -> RustBirdGenes {
     let mut weights = [0.0f32; 44];
     for i in 0..44 {
-        weights[i] = if rng.gen_bool(0.5) {
+        weights[i] = if rand_bool(0.5) {
             p1.weights[i]
         } else {
             p2.weights[i]
@@ -949,10 +966,10 @@ fn crossover(p1: &RustBirdGenes, p2: &RustBirdGenes, rng: &mut impl rand::Rng) -
     }
 }
 
-fn mutate(genes: &mut RustBirdGenes, rng: &mut impl rand::Rng) {
+fn mutate(genes: &mut RustBirdGenes) {
     for i in 0..44 {
-        if rng.gen_bool(0.1) {
-            genes.weights[i] += rng.gen_range(-0.5..0.5);
+        if rand_bool(0.1) {
+            genes.weights[i] += rand_range(-0.5, 0.5);
             genes.weights[i] = genes.weights[i].clamp(-10.0, 10.0);
         }
     }

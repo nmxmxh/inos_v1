@@ -1,7 +1,7 @@
 import { MEMORY_PAGES, type ResourceTier } from './layout';
 import { clearViewCache } from '../../app/features/scenes/SceneWrapper';
 import { initializeBridge, clearBridge, INOSBridge } from './bridge-state';
-import { fetchWasmWithFallback, instantiateWasm, loadGoRuntime } from './kernel.shared';
+import { fetchWasmWithFallback, instantiateWasm, loadGoRuntime, registerHostCall } from './kernel.shared';
 import {
   applyMeshBootstrapConfig,
   exposeBrowserApis,
@@ -118,6 +118,7 @@ export async function initializeKernel(
 
   applyMeshBootstrapConfig(window, meshConfig);
   exposeBrowserApis(window, '[Kernel]');
+  registerHostCall(window, '[Kernel]');
 
   // Reuse existing kernel (avoid dual main-thread + worker execution)
   if (window.__INOS_SAB__ && window.__INOS_KERNEL_MODE__ === 'main') {
@@ -464,6 +465,7 @@ async function initializeKernelOnMainThread(
   // 1. Load Go runtime
   await loadGoRuntime(window, '/wasm_exec.js', '[Kernel]');
   exposeBrowserApis(window, '[Kernel]');
+  registerHostCall(window, '[Kernel]');
 
   // 2. Create shared memory (or fallback to non-shared if unavailable)
   const config = MEMORY_PAGES[tier];

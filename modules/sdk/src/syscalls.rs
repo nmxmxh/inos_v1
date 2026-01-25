@@ -1,3 +1,4 @@
+use crate::protocols::resource;
 use crate::protocols::syscall;
 use crate::sab::SafeSAB;
 
@@ -13,6 +14,23 @@ static CALL_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Production Syscall Client
 pub struct SyscallClient;
+
+pub enum HostPayload<'a> {
+    Inline(&'a [u8]),
+    SabRef { offset: u32, size: u32 },
+}
+
+pub enum HostResponse {
+    Inline {
+        data: Vec<u8>,
+        custom: Vec<u8>,
+    },
+    SabRef {
+        offset: u32,
+        size: u32,
+        custom: Vec<u8>,
+    },
+}
 
 impl SyscallClient {
     /// Send a fetch_chunk request and await the response (Async)
@@ -335,6 +353,130 @@ impl SyscallClient {
             }
         } else {
             Ok(None) // Inbox contains someone else's message or old message
+        }
+    }
+
+    /// Send a host call request (browser API proxy) and await response.
+    pub async fn host_call(
+        sab: &SafeSAB,
+        service: &str,
+        payload: HostPayload<'_>,
+        custom: Option<&[u8]>,
+    ) -> Result<HostResponse, String> {
+        let call_id = CALL_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+
+        let mut message = Builder::new_default();
+        {
+            let mut root = message.init_root::<syscall::syscall::message::Builder>();
+            let mut header = root.reborrow().init_header();
+            header.set_magic(0x53424142);
+            header.set_call_id(call_id);
+            header.set_source_module_id(crate::identity::get_module_id());
+            header.set_opcode(syscall::syscall::Opcode::HostCall);
+
+            let mut meta = header.init_metadata();
+            meta.set_module_id(crate::identity::get_module_id());
+            if let Some(device_id) = crate::identity::get_device_id() {
+                meta.set_device_id(device_id);
+            }
+            if let Some(did) = crate::identity::get_did() {
+                meta.set_user_id(did);
+            } else if let Some(node_id) = crate::identity::get_node_id() {
+                meta.set_user_id(node_id);
+            }
+            meta.set_version(1);
+
+            let body = root.init_body();
+            let mut host_call = body.init_host_call();
+            host_call.set_service(service);
+            let mut req_payload = host_call.init_payload();
+            fill_resource_payload(&mut req_payload, payload, custom)?;
+        }
+
+        let mut request_bytes = Vec::new();
+        serialize_packed::write_message(&mut request_bytes, &message).map_err(|e| e.to_string())?;
+
+        Self::send_raw(sab, &request_bytes)?;
+
+        let response_bytes = Self::poll_response(sab, call_id).await?;
+
+        let reader = serialize_packed::read_message(&mut &response_bytes[..], ReaderOptions::new())
+            .map_err(|e| format!("Invalid response format: {}", e))?;
+
+        let root = reader
+            .get_root::<syscall::syscall::response::Reader>()
+            .map_err(|e| e.to_string())?;
+
+        let result_reader = root.get_result().map_err(|e| e.to_string())?;
+        match result_reader.which().map_err(|e| e.to_string())? {
+            syscall::syscall::result::Which::HostCall(res) => {
+                let reader = res.map_err(|e| e.to_string())?;
+                let payload = reader.get_payload().map_err(|e| e.to_string())?;
+                parse_resource_payload(payload)
+            }
+            _ => Err("Unexpected result type for HostCall".to_string()),
+        }
+    }
+}
+
+fn fill_resource_payload(
+    payload: &mut resource::resource::Builder,
+    data: HostPayload<'_>,
+    custom: Option<&[u8]>,
+) -> Result<(), String> {
+    payload.set_compression(resource::resource::Compression::None);
+    payload.set_encryption(resource::resource::Encryption::None);
+
+    let mut alloc = payload.reborrow().init_allocation();
+    alloc.set_lifetime(resource::resource::allocation::Lifetime::Ephemeral);
+
+    match data {
+        HostPayload::Inline(bytes) => {
+            alloc.set_type(resource::resource::allocation::Type::Heap);
+            payload.set_inline(bytes);
+            payload.set_raw_size(bytes.len() as u32);
+            payload.set_wire_size(bytes.len() as u32);
+        }
+        HostPayload::SabRef { offset, size } => {
+            alloc.set_type(resource::resource::allocation::Type::Sab);
+            let mut sab_ref = payload.reborrow().init_sab_ref();
+            sab_ref.set_offset(offset);
+            sab_ref.set_size(size);
+            payload.set_raw_size(size);
+            payload.set_wire_size(size);
+        }
+    }
+
+    if let Some(custom_bytes) = custom {
+        let mut meta = payload.reborrow().init_metadata();
+        meta.set_custom(custom_bytes);
+    }
+
+    Ok(())
+}
+
+fn parse_resource_payload(payload: resource::resource::Reader) -> Result<HostResponse, String> {
+    let custom = payload
+        .get_metadata()
+        .and_then(|m| m.get_custom())
+        .map(|v| v.to_vec())
+        .unwrap_or_default();
+
+    match payload.which().map_err(|e| e.to_string())? {
+        resource::resource::Which::Inline(data) => Ok(HostResponse::Inline {
+            data: data.map_err(|e| e.to_string())?.to_vec(),
+            custom,
+        }),
+        resource::resource::Which::SabRef(ref_reader) => {
+            let ref_reader = ref_reader.map_err(|e| e.to_string())?;
+            Ok(HostResponse::SabRef {
+                offset: ref_reader.get_offset(),
+                size: ref_reader.get_size(),
+                custom,
+            })
+        }
+        resource::resource::Which::Shards(_) => {
+            Err("HostCall response does not support shards".to_string())
         }
     }
 }

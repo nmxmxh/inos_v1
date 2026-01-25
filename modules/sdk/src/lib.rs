@@ -112,4 +112,3 @@ pub use social_graph::{SocialEntry, SocialGraph};
 
 // Re-export js-sys and JsValue for modules that need JavaScript interop
 pub use crate::js_interop::JsValue;
-pub use js_sys;
