@@ -8,6 +8,7 @@ pub mod image;
 pub mod math;
 pub mod physics;
 pub mod storage;
+pub mod video;
 
 #[cfg(test)]
 mod tests;
@@ -23,3 +24,4 @@ pub use image::ImageUnit;
 pub use math::MathUnit;
 pub use physics::PhysicsEngine;
 pub use storage::StorageUnit;
+pub use video::VideoUnit;

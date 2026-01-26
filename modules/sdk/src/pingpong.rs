@@ -161,14 +161,11 @@ impl PingPongBuffer {
     /// Flip buffers by incrementing epoch (call at frame boundary)
     /// Returns the new epoch value
     pub fn flip(&self) -> i32 {
-        let new_epoch = js_interop::atomic_add(self.sab.barrier_view(), self.epoch_index, 1) + 1;
+        let new_epoch = js_interop::signal_epoch(self.sab.barrier_view(), self.epoch_index);
 
         // Update global active buffer indicator
         let active = if new_epoch % 2 == 0 { 0 } else { 1 };
         js_interop::atomic_store(self.sab.barrier_view(), IDX_PINGPONG_ACTIVE, active);
-
-        // Notify any waiters (workers blocking on Atomics.wait)
-        js_interop::atomic_notify(self.sab.barrier_view(), self.epoch_index, i32::MAX);
 
         new_epoch
     }

@@ -196,6 +196,16 @@ The TSS implementation is a coordinated effort across the INOS stack:
 
 ---
 
+#### 4.6 Memory HAL (Shared Memory Provider)
+
+The kernel abstracts SAB access behind a **MemoryProvider** interface so runtimes can swap between:
+
+- **Browser/WASM**: SharedArrayBuffer + JS bridge (copy boundary)
+- **Native**: memory-mapped shared file (`/dev/shm/inos_sab` on Linux; temp dir fallback elsewhere)
+- **Fallback**: in-memory buffers (tests, non-shared environments)
+
+This avoids duplicated memory-access logic and enables **zero-copy** on native hosts.
+
 #### 4.5 Identity Creation Flow: Advised, Not Forced
 
 **Philosophy**: Lower barrier to entry while maintaining device accountability.
@@ -535,4 +545,3 @@ struct Transaction {
 *   **Anti-Sybil**: QR challenge for device verification, hardware fingerprinting
 *   **Replay Protection**: Timestamp + nonce in all signed messages
 *   **Post-Quantum**: Hybrid signatures (Ed25519 + Dilithium) for future PQC migration
-

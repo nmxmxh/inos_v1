@@ -1447,6 +1447,15 @@ func (g *GossipManager) signatureData(msg *common.GossipMessage) []byte {
 	return h.Sum(nil)
 }
 
+// SignAttestation signs a mesh attestation payload using the gossip identity key.
+func (g *GossipManager) SignAttestation(data []byte) ([]byte, ed25519.PublicKey, error) {
+	if g.signKey == nil {
+		return nil, nil, errors.New("gossip signing key not initialized")
+	}
+	signature := ed25519.Sign(g.signKey, data)
+	return signature, g.publicKey, nil
+}
+
 // isDuplicate checks if we've seen a message
 func (g *GossipManager) isDuplicate(msgID string) bool {
 	g.seenMu.RLock()

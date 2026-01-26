@@ -9,7 +9,7 @@ import styled, { css } from 'styled-components';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { IDX_BIRD_EPOCH } from '../../../src/wasm/layout';
+import { IDX_BIRD_EPOCH, IDX_SYSTEM_EPOCH } from '../../../src/wasm/layout';
 import { INOSBridge } from '../../../src/wasm/bridge-state';
 
 const Style = {
@@ -142,11 +142,12 @@ function useLocalKernelStats() {
       try {
         if (!INOSBridge.isReady()) return;
 
-        const epoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        const birdEpoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        INOSBridge.atomicLoad(IDX_SYSTEM_EPOCH); // Ensure master heartbeat is loaded for bus activity
         const now = performance.now();
-        const deltaEpoch = Math.max(0, epoch - lastEpoch);
+        const deltaEpoch = Math.max(0, birdEpoch - lastEpoch);
         const deltaTime = Math.max(0.001, (now - lastTime) / 1000);
-        lastEpoch = epoch;
+        lastEpoch = birdEpoch;
         lastTime = now;
 
         const instantRate = deltaEpoch / deltaTime;
@@ -161,7 +162,7 @@ function useLocalKernelStats() {
       } catch {
         // SAB not ready
       }
-    }, 250);
+    }, 250); // Balanced polling (4Hz)
 
     return () => clearInterval(interval);
   }, []);

@@ -1,11 +1,13 @@
 package supervisor
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
@@ -33,6 +35,35 @@ const (
 	OFFSET_ECONOMICS_METADATA = 0
 	OFFSET_ECONOMICS_ACCOUNTS = ECONOMICS_METADATA_SIZE
 	OFFSET_ECONOMICS_METRICS  = OFFSET_ECONOMICS_ACCOUNTS + (ECONOMICS_MAX_ACCOUNTS * ECONOMICS_ACCOUNT_SIZE)
+)
+
+const (
+	accountBalanceOffset           = 0
+	accountEarnedTotalOffset       = 8
+	accountSpentTotalOffset        = 16
+	accountLastActivityEpochOffset = 24
+	accountReputationOffset        = 32
+	accountDeviceCountOffset       = 36
+	accountUptimeScoreOffset       = 38
+	accountLastUbiClaimOffset      = 42
+	accountReferrerLockedAtOffset  = 50
+	accountReferrerChangedAtOffset = 58
+	accountFromCreatorOffset       = 66
+	accountFromReferralsOffset     = 74
+	accountFromCloseIdsOffset      = 82
+	accountThresholdOffset         = 90
+	accountTotalSharesOffset       = 91
+	accountTierOffset              = 92
+	accountPendingBalanceOffset    = 96
+	accountPendingEpochOffset      = 104
+	accountPendingEarnedOffset     = 112
+	accountPendingSpentOffset      = 120
+)
+
+const (
+	economicsSealEpochOffset = 0
+	economicsSealHashOffset  = 8
+	economicsSealHashSize    = 32
 )
 
 // CreditSupervisor manages the economic state in SAB
@@ -195,6 +226,7 @@ func (cs *CreditSupervisor) OnEpoch(epoch uint64) error {
 		cs.resetMetrics(metricsOffset)
 	}
 
+	cs.FinalizePending(epoch)
 	return nil
 }
 
@@ -250,22 +282,26 @@ func (cs *CreditSupervisor) readAccount(offset uint32) (*foundation.CreditAccoun
 	ptr := unsafe.Add(cs.sabPtr, offset)
 	data := unsafe.Slice((*byte)(ptr), ECONOMICS_ACCOUNT_SIZE)
 	return &foundation.CreditAccount{
-		Balance:           int64(binary.LittleEndian.Uint64(data[0:8])),
-		EarnedTotal:       binary.LittleEndian.Uint64(data[8:16]),
-		SpentTotal:        binary.LittleEndian.Uint64(data[16:24]),
-		LastActivityEpoch: binary.LittleEndian.Uint64(data[24:32]),
-		ReputationScore:   math.Float32frombits(binary.LittleEndian.Uint32(data[32:36])),
-		DeviceCount:       binary.LittleEndian.Uint16(data[36:38]),
-		UptimeScore:       math.Float32frombits(binary.LittleEndian.Uint32(data[38:42])),
-		LastUbiClaim:      int64(binary.LittleEndian.Uint64(data[42:50])),
-		ReferrerLockedAt:  int64(binary.LittleEndian.Uint64(data[50:58])),
-		ReferrerChangedAt: int64(binary.LittleEndian.Uint64(data[58:66])),
-		FromCreator:       binary.LittleEndian.Uint64(data[66:74]),
-		FromReferrals:     binary.LittleEndian.Uint64(data[74:82]),
-		FromCloseIds:      binary.LittleEndian.Uint64(data[82:90]),
-		Threshold:         data[90],
-		TotalShares:       data[91],
-		Tier:              data[92],
+		Balance:           int64(binary.LittleEndian.Uint64(data[accountBalanceOffset : accountBalanceOffset+8])),
+		EarnedTotal:       binary.LittleEndian.Uint64(data[accountEarnedTotalOffset : accountEarnedTotalOffset+8]),
+		SpentTotal:        binary.LittleEndian.Uint64(data[accountSpentTotalOffset : accountSpentTotalOffset+8]),
+		LastActivityEpoch: binary.LittleEndian.Uint64(data[accountLastActivityEpochOffset : accountLastActivityEpochOffset+8]),
+		ReputationScore:   math.Float32frombits(binary.LittleEndian.Uint32(data[accountReputationOffset : accountReputationOffset+4])),
+		DeviceCount:       binary.LittleEndian.Uint16(data[accountDeviceCountOffset : accountDeviceCountOffset+2]),
+		UptimeScore:       math.Float32frombits(binary.LittleEndian.Uint32(data[accountUptimeScoreOffset : accountUptimeScoreOffset+4])),
+		LastUbiClaim:      int64(binary.LittleEndian.Uint64(data[accountLastUbiClaimOffset : accountLastUbiClaimOffset+8])),
+		ReferrerLockedAt:  int64(binary.LittleEndian.Uint64(data[accountReferrerLockedAtOffset : accountReferrerLockedAtOffset+8])),
+		ReferrerChangedAt: int64(binary.LittleEndian.Uint64(data[accountReferrerChangedAtOffset : accountReferrerChangedAtOffset+8])),
+		FromCreator:       binary.LittleEndian.Uint64(data[accountFromCreatorOffset : accountFromCreatorOffset+8]),
+		FromReferrals:     binary.LittleEndian.Uint64(data[accountFromReferralsOffset : accountFromReferralsOffset+8]),
+		FromCloseIds:      binary.LittleEndian.Uint64(data[accountFromCloseIdsOffset : accountFromCloseIdsOffset+8]),
+		Threshold:         data[accountThresholdOffset],
+		TotalShares:       data[accountTotalSharesOffset],
+		Tier:              data[accountTierOffset],
+		PendingBalance:    int64(binary.LittleEndian.Uint64(data[accountPendingBalanceOffset : accountPendingBalanceOffset+8])),
+		PendingEpoch:      binary.LittleEndian.Uint64(data[accountPendingEpochOffset : accountPendingEpochOffset+8]),
+		PendingEarned:     binary.LittleEndian.Uint64(data[accountPendingEarnedOffset : accountPendingEarnedOffset+8]),
+		PendingSpent:      binary.LittleEndian.Uint64(data[accountPendingSpentOffset : accountPendingSpentOffset+8]),
 	}, nil
 }
 
@@ -276,22 +312,26 @@ func (cs *CreditSupervisor) writeAccount(offset uint32, acc *foundation.CreditAc
 
 	ptr := unsafe.Add(cs.sabPtr, offset)
 	data := unsafe.Slice((*byte)(ptr), ECONOMICS_ACCOUNT_SIZE)
-	binary.LittleEndian.PutUint64(data[0:8], uint64(acc.Balance))
-	binary.LittleEndian.PutUint64(data[8:16], acc.EarnedTotal)
-	binary.LittleEndian.PutUint64(data[16:24], acc.SpentTotal)
-	binary.LittleEndian.PutUint64(data[24:32], acc.LastActivityEpoch)
-	binary.LittleEndian.PutUint32(data[32:36], math.Float32bits(acc.ReputationScore))
-	binary.LittleEndian.PutUint16(data[36:38], acc.DeviceCount)
-	binary.LittleEndian.PutUint32(data[38:42], math.Float32bits(acc.UptimeScore))
-	binary.LittleEndian.PutUint64(data[42:50], uint64(acc.LastUbiClaim))
-	binary.LittleEndian.PutUint64(data[50:58], uint64(acc.ReferrerLockedAt))
-	binary.LittleEndian.PutUint64(data[58:66], uint64(acc.ReferrerChangedAt))
-	binary.LittleEndian.PutUint64(data[66:74], acc.FromCreator)
-	binary.LittleEndian.PutUint64(data[74:82], acc.FromReferrals)
-	binary.LittleEndian.PutUint64(data[82:90], acc.FromCloseIds)
-	data[90] = acc.Threshold
-	data[91] = acc.TotalShares
-	data[92] = acc.Tier
+	binary.LittleEndian.PutUint64(data[accountBalanceOffset:accountBalanceOffset+8], uint64(acc.Balance))
+	binary.LittleEndian.PutUint64(data[accountEarnedTotalOffset:accountEarnedTotalOffset+8], acc.EarnedTotal)
+	binary.LittleEndian.PutUint64(data[accountSpentTotalOffset:accountSpentTotalOffset+8], acc.SpentTotal)
+	binary.LittleEndian.PutUint64(data[accountLastActivityEpochOffset:accountLastActivityEpochOffset+8], acc.LastActivityEpoch)
+	binary.LittleEndian.PutUint32(data[accountReputationOffset:accountReputationOffset+4], math.Float32bits(acc.ReputationScore))
+	binary.LittleEndian.PutUint16(data[accountDeviceCountOffset:accountDeviceCountOffset+2], acc.DeviceCount)
+	binary.LittleEndian.PutUint32(data[accountUptimeScoreOffset:accountUptimeScoreOffset+4], math.Float32bits(acc.UptimeScore))
+	binary.LittleEndian.PutUint64(data[accountLastUbiClaimOffset:accountLastUbiClaimOffset+8], uint64(acc.LastUbiClaim))
+	binary.LittleEndian.PutUint64(data[accountReferrerLockedAtOffset:accountReferrerLockedAtOffset+8], uint64(acc.ReferrerLockedAt))
+	binary.LittleEndian.PutUint64(data[accountReferrerChangedAtOffset:accountReferrerChangedAtOffset+8], uint64(acc.ReferrerChangedAt))
+	binary.LittleEndian.PutUint64(data[accountFromCreatorOffset:accountFromCreatorOffset+8], acc.FromCreator)
+	binary.LittleEndian.PutUint64(data[accountFromReferralsOffset:accountFromReferralsOffset+8], acc.FromReferrals)
+	binary.LittleEndian.PutUint64(data[accountFromCloseIdsOffset:accountFromCloseIdsOffset+8], acc.FromCloseIds)
+	data[accountThresholdOffset] = acc.Threshold
+	data[accountTotalSharesOffset] = acc.TotalShares
+	data[accountTierOffset] = acc.Tier
+	binary.LittleEndian.PutUint64(data[accountPendingBalanceOffset:accountPendingBalanceOffset+8], uint64(acc.PendingBalance))
+	binary.LittleEndian.PutUint64(data[accountPendingEpochOffset:accountPendingEpochOffset+8], acc.PendingEpoch)
+	binary.LittleEndian.PutUint64(data[accountPendingEarnedOffset:accountPendingEarnedOffset+8], acc.PendingEarned)
+	binary.LittleEndian.PutUint64(data[accountPendingSpentOffset:accountPendingSpentOffset+8], acc.PendingSpent)
 	return nil
 }
 
@@ -379,18 +419,116 @@ func (cs *CreditSupervisor) settleAccount(id string, delta int64, isEarned bool)
 		offset = val.(uint32)
 	}
 
-	// Atomic update of balance in SAB
-	ptr := unsafe.Add(cs.sabPtr, offset)
-	// Balance is at offset 0
+	// Atomic update of pending balance in SAB (sealed credits).
+	ptr := unsafe.Add(cs.sabPtr, offset+accountPendingBalanceOffset)
 	atomic.AddInt64((*int64)(ptr), delta)
 
-	if delta > 0 && isEarned {
-		// EarnedTotal is at offset 8
-		atomic.AddUint64((*uint64)(unsafe.Add(ptr, 8)), uint64(delta))
-	} else if delta < 0 {
-		// SpentTotal is at offset 16
-		atomic.AddUint64((*uint64)(unsafe.Add(ptr, 16)), uint64(math.Abs(float64(delta))))
+	// Proper use of isEarned: Bifurcate pending accumulators for accurate metrics
+	if isEarned {
+		earnedPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountPendingEarnedOffset))
+		if delta > 0 {
+			atomic.AddUint64(earnedPtr, uint64(delta))
+		}
+	} else {
+		spentPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountPendingSpentOffset))
+		if delta < 0 {
+			atomic.AddUint64(spentPtr, uint64(-delta))
+		} else if delta > 0 {
+			// Spending a positive adjustment (e.g. refunding a spend)
+			// In production, we'd handle this via the appropriate counter
+			atomic.AddUint64(spentPtr, uint64(delta))
+		}
 	}
+
+	epochPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountPendingEpochOffset))
+	atomic.StoreUint64(epochPtr, uint64(time.Now().Unix()))
+}
+
+// GetAvailableBalance returns balance minus pending spends.
+func (cs *CreditSupervisor) GetAvailableBalance(did string) (int64, error) {
+	acc, err := cs.GetAccount(did)
+	if err != nil {
+		return 0, err
+	}
+	if acc.PendingBalance < 0 {
+		return acc.Balance + acc.PendingBalance, nil
+	}
+	return acc.Balance, nil
+}
+
+// ReservePending locks credits as pending spend.
+func (cs *CreditSupervisor) ReservePending(did string, amount uint64) error {
+	cs.settleAccount(did, -int64(amount), false)
+	return nil
+}
+
+// ReleasePending credits a provider as pending earn.
+func (cs *CreditSupervisor) ReleasePending(did string, amount uint64) error {
+	cs.settleAccount(did, int64(amount), true)
+	return nil
+}
+
+// RefundPending returns escrowed credits to the requester.
+func (cs *CreditSupervisor) RefundPending(did string, amount uint64) error {
+	cs.settleAccount(did, int64(amount), true)
+	return nil
+}
+
+// FinalizePending applies pending credits to balances and writes a seal hash.
+func (cs *CreditSupervisor) FinalizePending(epoch uint64) {
+	cs.accounts.Range(func(key, value any) bool {
+		offset := value.(uint32)
+		pendingPtr := (*int64)(unsafe.Add(cs.sabPtr, offset+accountPendingBalanceOffset))
+		pending := atomic.SwapInt64(pendingPtr, 0)
+		if pending == 0 {
+			return true
+		}
+
+		balancePtr := (*int64)(unsafe.Add(cs.sabPtr, offset+accountBalanceOffset))
+		atomic.AddInt64(balancePtr, pending)
+
+		// Accurate Epoch Finalization: Use dedicated pending counters
+		pePtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountPendingEarnedOffset))
+		psPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountPendingSpentOffset))
+
+		pe := atomic.SwapUint64(pePtr, 0)
+		ps := atomic.SwapUint64(psPtr, 0)
+
+		if pe > 0 {
+			earnedPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountEarnedTotalOffset))
+			atomic.AddUint64(earnedPtr, pe)
+		}
+		if ps > 0 {
+			spentPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountSpentTotalOffset))
+			atomic.AddUint64(spentPtr, ps)
+		}
+
+		lastEpochPtr := (*uint64)(unsafe.Add(cs.sabPtr, offset+accountLastActivityEpochOffset))
+		atomic.StoreUint64(lastEpochPtr, epoch)
+		return true
+	})
+
+	cs.writeSeal(epoch)
+}
+
+func (cs *CreditSupervisor) writeSeal(epoch uint64) {
+	if cs.baseOffset+ECONOMICS_METADATA_SIZE > cs.sabSize {
+		return
+	}
+	accountsOffset := cs.baseOffset + OFFSET_ECONOMICS_ACCOUNTS
+	accountsSize := uint32(ECONOMICS_MAX_ACCOUNTS * ECONOMICS_ACCOUNT_SIZE)
+	if accountsOffset+accountsSize > cs.sabSize {
+		return
+	}
+
+	ptr := unsafe.Add(cs.sabPtr, accountsOffset)
+	data := unsafe.Slice((*byte)(ptr), accountsSize)
+	hash := sha256.Sum256(data)
+
+	metaPtr := unsafe.Add(cs.sabPtr, cs.baseOffset+OFFSET_ECONOMICS_METADATA)
+	meta := unsafe.Slice((*byte)(metaPtr), ECONOMICS_METADATA_SIZE)
+	binary.LittleEndian.PutUint64(meta[economicsSealEpochOffset:economicsSealEpochOffset+8], epoch)
+	copy(meta[economicsSealHashOffset:economicsSealHashOffset+economicsSealHashSize], hash[:])
 }
 
 // economic_tick calculates the delta for an epoch based on metrics

@@ -197,6 +197,18 @@ lib-cov/
 *.lcov
 .grunt/
 .lock-wscript
+playwright-report/
+test-results/
+**/stdout
+**/stderr
+**/*.stdout
+**/*.stderr
+integration/*.log
+integration/*.txt
+!integration/README.md
+!integration/PERFORMANCE.md
+!integration/PHASE2_PROGRESS.md
+!integration/TEST_COVERAGE.md
 
 # TypeScript
 *.tsbuildinfo

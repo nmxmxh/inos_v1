@@ -17,7 +17,7 @@ automerge = "0.5" # Using stable version
 ed25519-dalek = { version = "2.1", features = ["serde", "rand_core"] }
 bincode = "1.3"
 web-time = "1.0"
-wasm-timer = "0.2"
+futures-timer = "3"
 brotli = { version = "3.3", features = ["std"] }
 snap = "1.1" # Snappy
 lz4_flex = "0.11" # Pure Rust LZ4 implementation

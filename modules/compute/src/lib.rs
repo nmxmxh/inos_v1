@@ -13,6 +13,7 @@ use log::{info, warn};
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
 use units::{
     AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MathUnit, PhysicsEngine,
+    VideoUnit,
 };
 
 // --- PERSISTENT SAB CACHE ---
@@ -48,6 +49,7 @@ fn initialize_engine() -> ComputeEngine {
     engine.register(Arc::new(GpuUnit::new()));
     engine.register(Arc::new(PhysicsEngine::new()));
     engine.register(Arc::new(BoidUnit::new()));
+    engine.register(Arc::new(VideoUnit::new()));
     // NOTE: ApiProxy is NOT registered here - it's handled separately
     // due to browser API constraints (HTTP/WebSocket use non-Send types)
     engine.register(Arc::new(MathUnit::new()));

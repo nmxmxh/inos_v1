@@ -1,4 +1,3 @@
-use crate::js_interop::JsValue;
 use crate::sab::SafeSAB;
 use crate::signal::Epoch;
 use std::time::Instant;
@@ -10,8 +9,7 @@ mod benchmarks {
 
     #[test]
     fn benchmark_sab_throughput() {
-        let sab = JsValue::UNDEFINED;
-        let safe_sab = SafeSAB::new(&sab);
+        let safe_sab = SafeSAB::with_size(2 * 1024 * 1024); // 2MB buffer
         let data = vec![0u8; 1024 * 1024]; // 1MB chunk
         let iterations = 1000;
 
@@ -37,8 +35,8 @@ mod benchmarks {
 
     #[test]
     fn benchmark_epoch_latency() {
-        let sab = JsValue::UNDEFINED;
-        let mut epoch = Epoch::new(SafeSAB::new(&sab), 0);
+        let sab = SafeSAB::with_size(1024);
+        let mut epoch = Epoch::new(sab, 0);
         let iterations = 1_000_000;
 
         println!("\n--- Epoch Signaling Latency ---");
@@ -62,8 +60,7 @@ mod benchmarks {
     #[test]
     fn benchmark_ringbuffer_throughput() {
         use crate::ringbuffer::RingBuffer;
-        let sab = JsValue::UNDEFINED;
-        let safe_sab = SafeSAB::new(&sab);
+        let safe_sab = SafeSAB::with_size(128 * 1024); // 128KB buffer
         let rb = RingBuffer::new(safe_sab, 1024, 64 * 1024);
         let msg = vec![0u8; 256];
         let iterations = 100_000;

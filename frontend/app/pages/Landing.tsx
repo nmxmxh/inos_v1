@@ -12,7 +12,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Style as ManuscriptStyle } from '../styles/manuscript';
 import ChapterNav from '../ui/ChapterNav';
 import ScrollReveal from '../ui/ScrollReveal';
-import { IDX_BIRD_EPOCH, IDX_METRICS_EPOCH } from '../../src/wasm/layout';
+import { IDX_BIRD_EPOCH, IDX_SYSTEM_EPOCH } from '../../src/wasm/layout';
 import { INOSBridge } from '../../src/wasm/bridge-state';
 
 import RollingCounter from '../ui/RollingCounter';
@@ -429,24 +429,22 @@ function useLiveStats() {
   useEffect(() => {
     const interval = setInterval(() => {
       try {
-        if (!INOSBridge.isReady()) return;
-
-        const currentEpoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
-        const systemEpoch = INOSBridge.atomicLoad(IDX_METRICS_EPOCH);
+        const currentBirdEpoch = INOSBridge.atomicLoad(IDX_BIRD_EPOCH);
+        const systemHeartbeat = INOSBridge.atomicLoad(IDX_SYSTEM_EPOCH);
         const now = performance.now();
 
-        // Fix initial state logic to prevent delta explosion
+        // Use systemHeartbeat for smoothed state updates
         if (lastEpochRef.current === 0) {
-          lastEpochRef.current = currentEpoch;
+          lastEpochRef.current = currentBirdEpoch;
           lastTimeRef.current = now;
-          setStats(prev => ({ ...prev, systemEpoch }));
+          setStats(prev => ({ ...prev, systemEpoch: systemHeartbeat }));
           return;
         }
 
-        const delta = Math.max(0, currentEpoch - lastEpochRef.current);
+        const delta = Math.max(0, currentBirdEpoch - lastEpochRef.current);
         const deltaTime = Math.max(0.001, (now - lastTimeRef.current) / 1000);
 
-        lastEpochRef.current = currentEpoch;
+        lastEpochRef.current = currentBirdEpoch;
         lastTimeRef.current = now;
 
         const instantRate = delta / deltaTime;
@@ -461,12 +459,12 @@ function useLiveStats() {
         setStats(prev => ({
           ...prev,
           opsPerSecond,
-          systemEpoch,
+          systemEpoch: systemHeartbeat,
         }));
       } catch {
         /* SAB not ready */
       }
-    }, 500);
+    }, 250); // Balanced polling (4Hz)
     return () => clearInterval(interval);
   }, []);
 

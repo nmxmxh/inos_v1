@@ -86,7 +86,7 @@ impl Epoch {
 
     /// Signal a mutation (Increment Epoch)
     pub fn increment(&mut self) -> i32 {
-        crate::js_interop::atomic_add(self.flags.barrier_view(), self.index, 1) + 1
+        crate::js_interop::signal_epoch(self.flags.barrier_view(), self.index)
     }
 
     pub fn current(&self) -> i32 {

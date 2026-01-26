@@ -8,14 +8,14 @@ mod ringbuffer_tests {
 
     #[test]
     fn test_ringbuffer_creation() {
-        let mock_sab = SafeSAB::new(&crate::JsValue::NULL);
+        let mock_sab = SafeSAB::with_size(2048);
         let _rb = RingBuffer::new(mock_sab, 0, 1024);
         // Should not panic
     }
 
     #[test]
     fn test_ringbuffer_write_read() {
-        let mock_sab = SafeSAB::new(&crate::JsValue::NULL);
+        let mock_sab = SafeSAB::with_size(2048);
         let rb = RingBuffer::new(mock_sab, 0, 1024);
 
         let data = b"test message";
@@ -25,7 +25,7 @@ mod ringbuffer_tests {
 
     #[test]
     fn test_ringbuffer_capacity() {
-        let mock_sab = SafeSAB::new(&crate::JsValue::NULL);
+        let mock_sab = SafeSAB::with_size(2048);
         let total_size = 1024u32;
         let _rb = RingBuffer::new(mock_sab, 0, total_size);
 
@@ -76,7 +76,7 @@ mod registry_tests {
 
     #[test]
     fn test_find_slot_double_hashing() {
-        let mock_sab = SafeSAB::new(&crate::JsValue::NULL);
+        let mock_sab = SafeSAB::with_size(64 * 1024); // Need enough space for registry
         let result = find_slot_double_hashing(&mock_sab, "test_module");
 
         // Should return a slot index
@@ -119,27 +119,27 @@ mod signal_tests {
 
     #[test]
     fn test_epoch_creation() {
-        let epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 0);
+        let epoch = Epoch::new(SafeSAB::with_size(1024), 0);
         assert_eq!(epoch.current(), 0);
     }
 
     #[test]
     fn test_epoch_increment() {
-        let mut epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 0);
+        let mut epoch = Epoch::new(SafeSAB::with_size(1024), 0);
         epoch.increment();
         assert_eq!(epoch.current(), 1);
     }
 
     #[test]
     fn test_epoch_wait() {
-        let _epoch = Epoch::new(SafeSAB::new(&crate::JsValue::NULL), 5);
+        let _epoch = Epoch::new(SafeSAB::with_size(1024), 5);
         // wait() method not available in current API
     }
 
     #[test]
     fn test_reactor_creation() {
-        let mock_sab = &crate::JsValue::NULL;
-        let _reactor = Reactor::new(SafeSAB::new(mock_sab));
+        let mock_sab = SafeSAB::with_size(16 * 1024 * 1024);
+        let _reactor = Reactor::new(mock_sab);
         // Should not panic
     }
 }

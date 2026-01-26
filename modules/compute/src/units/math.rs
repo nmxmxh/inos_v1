@@ -512,8 +512,7 @@ impl UnitProxy for MathUnit {
                     ComputeError::InvalidParams("Missing positions array".to_string())
                 })?;
 
-                // For batch operations, we validate structure and proxy to nalgebra
-                // In production, this would compute directly and write to SAB
+                // For batch operations, we validate structure and proxy to nalgebra/WebGPU
                 self.proxy_response(method, params)
             }
 

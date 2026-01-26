@@ -66,6 +66,14 @@ type EconomicLedger struct {
 	settlementsCount uint64
 }
 
+// SealedCreditsVault adds pending credit support for escrow settlement.
+type SealedCreditsVault interface {
+	GetAvailableBalance(did string) (int64, error)
+	ReservePending(did string, amount uint64) error
+	ReleasePending(did string, amount uint64) error
+	RefundPending(did string, amount uint64) error
+}
+
 // NewEconomicLedger creates a new economic ledger for delegation
 func NewEconomicLedger() *EconomicLedger {
 	return &EconomicLedger{
@@ -163,6 +171,11 @@ func (el *EconomicLedger) CreateEscrow(
 
 	// Check if requester has sufficient balance
 	balance := el.balances[requesterID]
+	if sealed, ok := el.vault.(SealedCreditsVault); ok && el.vault != nil {
+		if available, err := sealed.GetAvailableBalance(requesterID); err == nil {
+			balance = available
+		}
+	}
 	if balance < int64(amount) {
 		return nil, fmt.Errorf("insufficient balance: have %d, need %d", balance, amount)
 	}
@@ -173,7 +186,13 @@ func (el *EconomicLedger) CreateEscrow(
 	}
 
 	// Lock the credits
-	el.balances[requesterID] -= int64(amount)
+	if sealed, ok := el.vault.(SealedCreditsVault); ok && el.vault != nil {
+		if err := sealed.ReservePending(requesterID, amount); err != nil {
+			return nil, err
+		}
+	} else {
+		el.balances[requesterID] -= int64(amount)
+	}
 
 	escrow := &DelegationEscrow{
 		ID:          escrowID,
@@ -232,7 +251,13 @@ func (el *EconomicLedger) ReleaseToProvider(escrowID string, verified bool) erro
 	}
 
 	// Transfer credits to provider
-	el.balances[escrow.ProviderID] += int64(escrow.Amount)
+	if sealed, ok := el.vault.(SealedCreditsVault); ok && el.vault != nil {
+		if err := sealed.ReleasePending(escrow.ProviderID, escrow.Amount); err != nil {
+			return err
+		}
+	} else {
+		el.balances[escrow.ProviderID] += int64(escrow.Amount)
+	}
 	escrow.Status = EscrowReleased
 	escrow.SettledAt = time.Now()
 
@@ -257,7 +282,13 @@ func (el *EconomicLedger) RefundToRequester(escrowID string) error {
 	}
 
 	// Return credits to requester
-	el.balances[escrow.RequesterID] += int64(escrow.Amount)
+	if sealed, ok := el.vault.(SealedCreditsVault); ok && el.vault != nil {
+		if err := sealed.RefundPending(escrow.RequesterID, escrow.Amount); err != nil {
+			return err
+		}
+	} else {
+		el.balances[escrow.RequesterID] += int64(escrow.Amount)
+	}
 	escrow.Status = EscrowRefunded
 	escrow.SettledAt = time.Now()
 
@@ -277,7 +308,11 @@ func (el *EconomicLedger) ExpireStaleEscrows() int {
 	for id, escrow := range el.escrows {
 		if escrow.Status == EscrowLocked && now.After(escrow.ExpiresAt) {
 			// Refund automatically
-			el.balances[escrow.RequesterID] += int64(escrow.Amount)
+			if sealed, ok := el.vault.(SealedCreditsVault); ok && el.vault != nil {
+				_ = sealed.RefundPending(escrow.RequesterID, escrow.Amount)
+			} else {
+				el.balances[escrow.RequesterID] += int64(escrow.Amount)
+			}
 			escrow.Status = EscrowExpired
 			escrow.SettledAt = now
 			el.totalRefunded += escrow.Amount

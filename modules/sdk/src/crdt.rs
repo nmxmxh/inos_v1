@@ -6,9 +6,12 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallet {
     pub public_key: Vec<u8>, // Ed25519 public key
-    pub balance: u64,        // Current credit balance
+    pub balance: u64,        // Sealed credit balance (finalized)
+    pub pending_earn: u64,   // Pending earnings awaiting seal
+    pub pending_spend: u64,  // Pending spends awaiting seal
     pub nonce: u64,          // For replay protection
     pub created_at: i64,     // Unix timestamp
+    pub sealed_epoch: u64,   // Last finalized epoch
 }
 
 /// Economic transaction between wallets
@@ -92,8 +95,11 @@ impl LedgerState {
         let wallet = Wallet {
             public_key: public_key.clone(),
             balance: initial_balance,
+            pending_earn: 0,
+            pending_spend: 0,
             nonce: 0,
             created_at: (crate::js_interop::get_now() / 1000.0) as i64,
+            sealed_epoch: 0,
         };
 
         // Robust CRDT Update Logic
@@ -120,6 +126,20 @@ impl LedgerState {
                 .put(&wallet_obj_id, "balance", ScalarValue::Uint(wallet.balance))
                 .unwrap();
             self.doc
+                .put(
+                    &wallet_obj_id,
+                    "pending_earn",
+                    ScalarValue::Uint(wallet.pending_earn),
+                )
+                .unwrap();
+            self.doc
+                .put(
+                    &wallet_obj_id,
+                    "pending_spend",
+                    ScalarValue::Uint(wallet.pending_spend),
+                )
+                .unwrap();
+            self.doc
                 .put(&wallet_obj_id, "nonce", ScalarValue::Uint(wallet.nonce))
                 .unwrap();
             self.doc
@@ -131,6 +151,13 @@ impl LedgerState {
                 .unwrap();
             self.doc
                 .put(&wallet_obj_id, "public_key", ScalarValue::Bytes(public_key))
+                .unwrap();
+            self.doc
+                .put(
+                    &wallet_obj_id,
+                    "sealed_epoch",
+                    ScalarValue::Uint(wallet.sealed_epoch),
+                )
                 .unwrap();
         }
 
@@ -160,10 +187,13 @@ impl LedgerState {
             .get(&from_id)
             .ok_or_else(|| "Sender wallet not found. Ensure wallet is synced.".to_string())?;
 
-        if from_wallet.balance < amount + fee {
+        let available = from_wallet
+            .balance
+            .saturating_sub(from_wallet.pending_spend);
+        if available < amount + fee {
             return Err(format!(
                 "Insufficient balance: {} < {}",
-                from_wallet.balance,
+                available,
                 amount + fee
             ));
         }
@@ -208,10 +238,13 @@ impl LedgerState {
         // Update sender wallet locally
         if let Some(sender) = self.wallets.get_mut(&transaction.from) {
             // Strict check
-            if sender.balance < transaction.amount + transaction.fee {
+            let available = sender.balance.saturating_sub(sender.pending_spend);
+            if available < transaction.amount + transaction.fee {
                 return Err("Insufficient balance during application".to_string());
             }
-            sender.balance -= transaction.amount + transaction.fee;
+            sender.pending_spend = sender
+                .pending_spend
+                .saturating_add(transaction.amount + transaction.fee);
             sender.nonce = transaction.nonce;
 
             // Sync to CRDT
@@ -220,7 +253,11 @@ impl LedgerState {
                 let sender_id = transaction.from.clone();
                 if let Ok(Some((_, sender_obj_id))) = self.doc.get(&wallet_map_id, sender_id) {
                     self.doc
-                        .put(&sender_obj_id, "balance", ScalarValue::Uint(sender.balance))
+                        .put(
+                            &sender_obj_id,
+                            "pending_spend",
+                            ScalarValue::Uint(sender.pending_spend),
+                        )
                         .unwrap();
                     self.doc
                         .put(&sender_obj_id, "nonce", ScalarValue::Uint(sender.nonce))
@@ -231,7 +268,7 @@ impl LedgerState {
 
         // Update receiver wallet locally
         if let Some(receiver) = self.wallets.get_mut(&transaction.to) {
-            receiver.balance += transaction.amount;
+            receiver.pending_earn = receiver.pending_earn.saturating_add(transaction.amount);
             // Sync to CRDT
             if let Ok(Some((_, wallet_map_id))) = self.doc.get(automerge::ROOT, "wallets") {
                 let receiver_id = transaction.to.clone();
@@ -239,8 +276,8 @@ impl LedgerState {
                     self.doc
                         .put(
                             &receiver_obj_id,
-                            "balance",
-                            ScalarValue::Uint(receiver.balance),
+                            "pending_earn",
+                            ScalarValue::Uint(receiver.pending_earn),
                         )
                         .unwrap();
                 }
@@ -309,14 +346,18 @@ impl LedgerState {
 
         // Reward miner locally
         if let Some(miner) = self.wallets.get_mut(&share.miner_id) {
-            miner.balance += share.reward;
+            miner.pending_earn = miner.pending_earn.saturating_add(share.reward);
 
             // Sync to CRDT
             if let Ok(Some((_, wallet_map_id))) = self.doc.get(automerge::ROOT, "wallets") {
                 let miner_id = share.miner_id.clone();
                 if let Ok(Some((_, miner_obj_id))) = self.doc.get(&wallet_map_id, miner_id) {
                     self.doc
-                        .put(&miner_obj_id, "balance", ScalarValue::Uint(miner.balance))
+                        .put(
+                            &miner_obj_id,
+                            "pending_earn",
+                            ScalarValue::Uint(miner.pending_earn),
+                        )
                         .unwrap();
                 }
             }
@@ -445,12 +486,63 @@ impl LedgerState {
         self.wallets.get(wallet_id).map(|w| w.balance)
     }
 
+    pub fn get_pending(&self, wallet_id: &str) -> Option<(u64, u64)> {
+        self.wallets
+            .get(wallet_id)
+            .map(|w| (w.pending_earn, w.pending_spend))
+    }
+
     pub fn get_pending_transactions(&self) -> &[Transaction] {
         &self.pending_transactions
     }
 
     pub fn total_supply(&self) -> u64 {
-        self.wallets.values().map(|w| w.balance).sum()
+        self.wallets
+            .values()
+            .map(|w| w.balance.saturating_add(w.pending_earn))
+            .sum()
+    }
+
+    pub fn finalize_wallet(&mut self, wallet_id: &str, epoch: u64) -> Result<(), String> {
+        let wallet = self
+            .wallets
+            .get_mut(wallet_id)
+            .ok_or_else(|| "Wallet not found".to_string())?;
+
+        if wallet.pending_spend > wallet.balance {
+            return Err("Pending spend exceeds sealed balance".to_string());
+        }
+
+        wallet.balance = wallet
+            .balance
+            .saturating_sub(wallet.pending_spend)
+            .saturating_add(wallet.pending_earn);
+        wallet.pending_earn = 0;
+        wallet.pending_spend = 0;
+        wallet.sealed_epoch = epoch;
+
+        if let Ok(Some((_, wallet_map_id))) = self.doc.get(automerge::ROOT, "wallets") {
+            if let Ok(Some((_, wallet_obj_id))) = self.doc.get(&wallet_map_id, wallet_id) {
+                self.doc
+                    .put(&wallet_obj_id, "balance", ScalarValue::Uint(wallet.balance))
+                    .unwrap();
+                self.doc
+                    .put(&wallet_obj_id, "pending_earn", ScalarValue::Uint(0))
+                    .unwrap();
+                self.doc
+                    .put(&wallet_obj_id, "pending_spend", ScalarValue::Uint(0))
+                    .unwrap();
+                self.doc
+                    .put(
+                        &wallet_obj_id,
+                        "sealed_epoch",
+                        ScalarValue::Uint(wallet.sealed_epoch),
+                    )
+                    .unwrap();
+            }
+        }
+
+        Ok(())
     }
 
     /// Import ledger state from bytes
@@ -469,6 +561,16 @@ impl LedgerState {
                         .unwrap()
                         .and_then(|(v, _)| v.to_u64())
                         .unwrap_or(0);
+                    let pending_earn = doc
+                        .get(&wallet_obj_id, "pending_earn")
+                        .unwrap()
+                        .and_then(|(v, _)| v.to_u64())
+                        .unwrap_or(0);
+                    let pending_spend = doc
+                        .get(&wallet_obj_id, "pending_spend")
+                        .unwrap()
+                        .and_then(|(v, _)| v.to_u64())
+                        .unwrap_or(0);
                     let nonce = doc
                         .get(&wallet_obj_id, "nonce")
                         .unwrap()
@@ -484,12 +586,20 @@ impl LedgerState {
                         .unwrap()
                         .and_then(|(v, _)| v.to_bytes().map(|b| b.to_vec()))
                         .unwrap_or_default();
+                    let sealed_epoch = doc
+                        .get(&wallet_obj_id, "sealed_epoch")
+                        .unwrap()
+                        .and_then(|(v, _)| v.to_u64())
+                        .unwrap_or(0);
 
                     let wallet = Wallet {
                         public_key,
                         balance,
+                        pending_earn,
+                        pending_spend,
                         nonce,
                         created_at,
+                        sealed_epoch,
                     };
                     wallets.insert(key, wallet);
                 }
@@ -501,6 +611,58 @@ impl LedgerState {
             pending_transactions: Vec::new(),
             mining_shares: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pending_settlement() {
+        let mut ledger = LedgerState::new();
+        let alice_key = vec![1, 2, 3, 4];
+        let bob_key = vec![5, 6, 7, 8];
+
+        let alice_id = ledger.create_wallet(alice_key, 100);
+        let bob_id = ledger.create_wallet(bob_key, 0);
+
+        let amount = 25;
+        let fee = 5;
+        let nonce = 1;
+        let timestamp = 0;
+        let payload = None;
+        let tx_data = LedgerState::serialize_transaction_data(
+            &alice_id, &bob_id, amount, fee, nonce, timestamp, &payload,
+        );
+        let tx_id = crate::hashing::hash_data(&tx_data);
+        let tx = Transaction {
+            id: tx_id,
+            from: alice_id.clone(),
+            to: bob_id.clone(),
+            amount,
+            fee,
+            nonce,
+            signature: vec![],
+            timestamp,
+            payload,
+        };
+
+        ledger.apply_transaction(&tx).unwrap();
+
+        let (alice_pending_earn, alice_pending_spend) = ledger.get_pending(&alice_id).unwrap();
+        assert_eq!(alice_pending_spend, 30);
+        assert_eq!(alice_pending_earn, 0);
+
+        let (bob_pending_earn, bob_pending_spend) = ledger.get_pending(&bob_id).unwrap();
+        assert_eq!(bob_pending_earn, 25);
+        assert_eq!(bob_pending_spend, 0);
+
+        ledger.finalize_wallet(&alice_id, 1).unwrap();
+        ledger.finalize_wallet(&bob_id, 1).unwrap();
+
+        assert_eq!(ledger.get_balance(&alice_id).unwrap(), 70);
+        assert_eq!(ledger.get_balance(&bob_id).unwrap(), 25);
     }
 }
 

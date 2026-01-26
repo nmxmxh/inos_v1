@@ -34,6 +34,8 @@ type SABWriter interface {
 	SignalEpoch(index uint32)
 	// GetAddress returns the SAB offset of the data if it's backed by the SAB
 	GetAddress(data []byte) (uint32, bool)
+	// Size returns the SAB capacity in bytes.
+	Size() uint32
 	// Atomic operations (flags region only)
 	AtomicLoad(index uint32) uint32
 	AtomicAdd(index uint32, delta uint32) uint32
@@ -108,6 +110,12 @@ type MeshCoordinator struct {
 	// Load tracking for delegation optimization
 	activeJobs   map[string]int32
 	activeJobsMu sync.RWMutex
+
+	// Attestation state
+	attestedPeers   map[string]AttestationRecord
+	attestationMu   sync.RWMutex
+	attestingPeers  map[string]struct{}
+	attestingPeersMu sync.Mutex
 }
 
 // CoordinatorConfig holds mesh coordinator settings
@@ -131,6 +139,8 @@ type CoordinatorConfig struct {
 	CacheTTL            time.Duration `json:"cache_ttl"`
 	HealthCheckPeriod   time.Duration `json:"health_check_period"`
 	MetricsUpdatePeriod time.Duration `json:"metrics_update_period"`
+	AttestationEnabled  bool          `json:"attestation_enabled"`
+	AttestationTimeout  time.Duration `json:"attestation_timeout"`
 }
 
 // PeerCacheEntry caches peer information
@@ -169,6 +179,8 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 		CacheTTL:            5 * time.Minute,
 		HealthCheckPeriod:   30 * time.Second,
 		MetricsUpdatePeriod: 10 * time.Second,
+		AttestationEnabled:  true,
+		AttestationTimeout:  5 * time.Second,
 	}
 
 	config.PeerSelectionWeights.Reputation = 0.40
@@ -209,6 +221,8 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 		config:          config,
 		logger:          logger.With("component", "mesh_coordinator", "node_id", getShortID(nodeID)),
 		activeJobs:      make(map[string]int32),
+		attestedPeers:   make(map[string]AttestationRecord),
+		attestingPeers:  make(map[string]struct{}),
 	}
 
 	// Initialize subsystems
@@ -420,16 +434,15 @@ func (m *MeshCoordinator) handleTransportPeerEvent(peerID string, connected bool
 	}
 
 	if connected {
-		_ = m.dht.AddPeer(PeerInfo{ID: peerID})
-		m.gossip.AddPeer(peerID)
-		m.emitPeerUpdateEvent(&PeerCapability{
-			PeerID:          peerID,
-			ConnectionState: ConnectionStateConnected,
-			LastSeen:        time.Now().UnixNano(),
-		})
+		if m.config.AttestationEnabled {
+			m.startPeerAttestation(peerID)
+			return
+		}
+		m.acceptConnectedPeer(peerID)
 		return
 	}
 
+	m.clearPeerAttestation(peerID)
 	m.dht.RemovePeer(peerID)
 	m.gossip.RemovePeer(peerID)
 	m.emitPeerUpdateEvent(&PeerCapability{
@@ -1505,6 +1518,7 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 }
 
 func (m *MeshCoordinator) registerRPCHandlers() {
+	m.registerAttestationHandler()
 	m.transport.RegisterRPCHandler("mesh.DelegateCompute", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
 		if m.dispatcher == nil {
 			return nil, errors.New("local dispatcher not initialized")

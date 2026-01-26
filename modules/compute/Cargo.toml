@@ -84,5 +84,8 @@ capnp = "0.19"
 naga = { version = "0.19", default-features = false, features = ["wgsl-in"] }
 regex = { version = "1.10", default-features = false, features = ["std", "perf", "unicode-case", "unicode-bool", "unicode-gencat"] }
 
+# Multimedia Toolkit (General Compute Proxy)
+ffmpreg = { git = "https://github.com/yazaldefilimone/ffmpreg" }
+
 # Module Bridges
 # All modules removed - compute is now self-contained

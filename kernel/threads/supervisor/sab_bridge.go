@@ -115,6 +115,11 @@ func (sb *SABBridge) IsReady() bool {
 	return sb.sabSize > 0
 }
 
+// Size returns the SAB capacity in bytes.
+func (sb *SABBridge) Size() uint32 {
+	return sb.sabSize
+}
+
 // initJSCache initializes cached JS values (called once)
 func (sb *SABBridge) initJSCache() {
 	sb.mu.Lock()
@@ -170,6 +175,9 @@ func (sb *SABBridge) initJSCache() {
 		}
 	}
 
+	// Cache result string values for comparisons
+	initJsResultValues()
+
 	// Cache worker context status
 	sb.isWorker = sb.detectWorkerContext()
 	if sb.isWorker {
@@ -187,33 +195,24 @@ func (sb *SABBridge) initJSCache() {
 
 func (sb *SABBridge) startEpochLogger() {
 	sb.epochLoggerOnce.Do(func() {
-		if !sb.profilingEnabled {
-			return
-		}
-		console := js.Global().Get("console")
-		if console.IsUndefined() {
-			return
-		}
+		// Startup Trace: Log epochs for the first 30 seconds to debug initial stalling
 		go func() {
-			ticker := time.NewTicker(1 * time.Second)
+			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
+			stopTime := time.Now().Add(30 * time.Second)
+
 			for range ticker.C {
+				if time.Now().After(stopTime) && !sb.profilingEnabled {
+					return
+				}
 				birdEpoch := sb.ReadAtomicI32(sab_layout.IDX_BIRD_EPOCH)
 				evoEpoch := sb.ReadAtomicI32(sab_layout.IDX_EVOLUTION_EPOCH)
 				systemEpoch := sb.ReadAtomicI32(sab_layout.IDX_SYSTEM_EPOCH)
-				int32Offset := int64(-1)
-				if !sb.jsInt32View.IsUndefined() {
-					byteOffset := sb.jsInt32View.Get("byteOffset")
-					if byteOffset.Type() == js.TypeNumber {
-						int32Offset = int64(byteOffset.Int())
-					}
-				}
-				utils.Info("SABBridge epoch snapshot",
+
+				utils.Info("[TRACE] Initial Heartbeat State",
 					utils.Int("bird_epoch", int(birdEpoch)),
 					utils.Int("evolution_epoch", int(evoEpoch)),
-					utils.Int("system_epoch", int(systemEpoch)),
-					utils.Uint64("sab_offset", uint64(sb.jsSabOffset)),
-					utils.Int("int32_view_byte_offset", int(int32Offset)))
+					utils.Int("system_epoch", int(systemEpoch)))
 			}
 		}()
 	})
@@ -1033,34 +1032,10 @@ func (sb *SABBridge) atomicCASDirect(index uint32, old, new uint32) bool {
 }
 
 func shouldSignalSystemEpoch(index uint32) bool {
-	switch index {
-	case sab_layout.IDX_KERNEL_READY,
-		sab_layout.IDX_INBOX_DIRTY,
-		sab_layout.IDX_OUTBOX_HOST_DIRTY,
-		sab_layout.IDX_OUTBOX_KERNEL_DIRTY,
-		sab_layout.IDX_PANIC_STATE,
-		sab_layout.IDX_SENSOR_EPOCH,
-		sab_layout.IDX_ACTOR_EPOCH,
-		sab_layout.IDX_STORAGE_EPOCH,
-		sab_layout.IDX_ARENA_ALLOCATOR,
-		sab_layout.IDX_METRICS_EPOCH,
-		sab_layout.IDX_BIRD_EPOCH,
-		sab_layout.IDX_MATRIX_EPOCH,
-		sab_layout.IDX_REGISTRY_EPOCH,
-		sab_layout.IDX_EVOLUTION_EPOCH,
-		sab_layout.IDX_HEALTH_EPOCH,
-		sab_layout.IDX_LEARNING_EPOCH,
-		sab_layout.IDX_ECONOMY_EPOCH,
-		sab_layout.IDX_BIRD_COUNT,
-		sab_layout.IDX_GLOBAL_METRICS_EPOCH,
-		sab_layout.IDX_DELEGATED_JOB_EPOCH,
-		sab_layout.IDX_USER_JOB_EPOCH,
-		sab_layout.IDX_DELEGATED_CHUNK_EPOCH,
-		sab_layout.IDX_MESH_EVENT_EPOCH:
-		return true
-	default:
-		return false
-	}
+	// Universal Heartbeat: Signal system epoch for ANY change in the flags region
+	// except for the system epoch itself (index 7) or pulse (index 8).
+	// This ensures IDX_SYSTEM_EPOCH is the master frequency of the entire OS.
+	return index != sab_layout.IDX_SYSTEM_EPOCH && index != sab_layout.IDX_SYSTEM_PULSE
 }
 
 // AtomicLoad exposes atomic read for custom SAB indices (flags region only).

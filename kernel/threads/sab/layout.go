@@ -163,6 +163,9 @@ const (
 	IDX_ACTOR_EPOCH       = system.IdxActorEpoch
 	IDX_STORAGE_EPOCH     = system.IdxStorageEpoch
 	IDX_SYSTEM_EPOCH      = system.IdxSystemEpoch
+	IDX_SYSTEM_PULSE      = system.IdxSystemPulse
+	IDX_SYSTEM_VISIBILITY = system.IdxSystemVisibility
+	IDX_SYSTEM_POWER      = system.IdxSystemPowerState
 
 	// Phase 16: Extended System Epochs
 	IDX_ARENA_ALLOCATOR = system.IdxArenaAllocator

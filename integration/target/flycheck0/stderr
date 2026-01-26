@@ -1,16 +1,12 @@
-    Blocking waiting for file lock on package cache
-    Updating crates.io index
-error: failed to select a version for `wasm-timer`.
-    ... required by package `sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk)`
-    ... which satisfies path dependency `sdk` of package `integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)`
-versions that meet the requirements `^0.2` are: 0.2.5, 0.2.4, 0.2.3, 0.2.2, 0.2.1, 0.2.0
-
-all possible versions conflict with previously selected packages.
-
-  previously selected package `web-time v1.0.0`
-    ... which satisfies dependency `web-time = "^1.0"` of package `sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk)`
-    ... which satisfies path dependency `sdk` of package `integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)`
-
-  previously selected package `integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)`
-
-failed to select a version for `wasm-timer` which could resolve this conflict
+   0.068377500s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint: stale: changed "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk/src/signal.rs"
+   0.068397958s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint:           (vs) "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration/target/debug/.fingerprint/sdk-6452046fd04866c1/dep-lib-sdk"
+   0.068401750s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 1769457953, nanos: 49225288 } < FileTime { seconds: 1769457954, nanos: 867579316 }
+   0.068559458s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("integration_tests", ["rlib"], "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration/src/lib.rs", Edition2021) }
+   0.068574083s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sdk" })
+   0.069019541s  INFO prepare_target{force=false package_id=sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk) target="sdk"}: cargo::core::compiler::fingerprint: fingerprint dirty for sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("sdk", ["lib"], "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk/src/lib.rs", Edition2021) }
+   0.069033583s  INFO prepare_target{force=false package_id=sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk) target="sdk"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration/target/debug/.fingerprint/sdk-6452046fd04866c1/dep-lib-sdk", reference_mtime: FileTime { seconds: 1769457953, nanos: 49225288 }, stale: "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk/src/signal.rs", stale_mtime: FileTime { seconds: 1769457954, nanos: 867579316 } }))
+   0.078686958s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint: fingerprint dirty for integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("integration_tests", ["rlib"], "/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration/src/lib.rs", Edition2021) }
+   0.078707416s  INFO prepare_target{force=false package_id=integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration) target="integration_tests"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { name: "sdk" })
+    Checking sdk v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/modules/sdk)
+    Checking integration-tests v0.1.0 (/Users/okhai/Desktop/OVASABI STUDIOS/inos_v1/integration)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.86s

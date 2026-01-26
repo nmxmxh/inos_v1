@@ -426,10 +426,10 @@ impl SABRwLock {
                 return Err("Lock timeout".to_string());
             }
 
-            // Exponential backoff with jitter (max 16ms)
+            // Exponential backoff with jitter (max 16ms -> 16000us)
             // Simple pseudo-random for delay without js_sys::Math
-            let delay = (backoff + 1).min(16);
-            let _ = wasm_timer::Delay::new(std::time::Duration::from_millis(delay as u64)).await;
+            let delay = (backoff + 1).min(16) * 1000;
+            let _ = futures_timer::Delay::new(std::time::Duration::from_micros(delay as u64)).await;
             backoff = (backoff * 2).min(16);
         }
     }
@@ -449,10 +449,11 @@ impl SABRwLock {
                 return Err("Lock timeout".to_string());
             }
 
-            // Exponential backoff with jitter (max 16ms)
+            // Exponential backoff with jitter (max 16ms -> 16000us)
             let delay = (backoff as f64 + (crate::js_interop::math_random() * backoff as f64))
-                .min(16.0) as u32;
-            let _ = wasm_timer::Delay::new(std::time::Duration::from_millis(delay as u64)).await;
+                .min(16.0)
+                * 1000.0;
+            let _ = futures_timer::Delay::new(std::time::Duration::from_micros(delay as u64)).await;
             backoff = (backoff * 2).min(16);
         }
     }

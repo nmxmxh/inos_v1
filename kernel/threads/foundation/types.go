@@ -273,8 +273,14 @@ type CreditAccount struct {
 	TotalShares uint8 // 1
 	Tier        uint8 // 1
 
+	// Pending credits (written by modules, finalized by supervisor)
+	PendingBalance int64  // 8 (Net change)
+	PendingEpoch   uint64 // 8
+	PendingEarned  uint64 // 8 (Cumulative earned in epoch)
+	PendingSpent   uint64 // 8 (Cumulative spent in epoch)
+
 	// Alignment & Padding for 128 bytes
-	Reserved [45]byte
+	Reserved [13]byte
 }
 
 // SocialEntry for the Social Graph region (maps to economy.capnp CloseIdentity fields)

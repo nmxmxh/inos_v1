@@ -74,6 +74,30 @@ func TestCreditSupervisor_OnEpoch(t *testing.T) {
 	assert.Equal(t, uint64(0), binary.LittleEndian.Uint64(sab[metricsOffset:metricsOffset+8]))
 }
 
+func TestCreditSupervisor_PendingCredits(t *testing.T) {
+	sabSize := uint32(1024 * 1024)
+	sab := make([]byte, sabSize)
+	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), sabSize, 0)
+
+	id := "user1"
+	_, err := cs.RegisterAccount(id)
+	require.NoError(t, err)
+
+	err = cs.GrantBonus(id, 100)
+	require.NoError(t, err)
+
+	acc, err := cs.GetAccount(id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), acc.Balance)
+	assert.Equal(t, int64(100), acc.PendingBalance)
+
+	cs.FinalizePending(42)
+	acc, err = cs.GetAccount(id)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), acc.Balance)
+	assert.Equal(t, int64(0), acc.PendingBalance)
+}
+
 func TestCreditSupervisor_Bounds(t *testing.T) {
 	sab := make([]byte, 100) // Too small
 	cs := supervisor.NewCreditSupervisor(unsafe.Pointer(&sab[0]), 100, 0)
@@ -141,6 +165,7 @@ func TestCreditSupervisor_ProtocolFee(t *testing.T) {
 	// Distribute 1000 credits
 	err := cs.DistributePoUWYield(worker, referrer, nil, 1000)
 	assert.NoError(t, err)
+	cs.FinalizePending(1)
 
 	// Verify Splits:
 	// Worker: 95% = 950

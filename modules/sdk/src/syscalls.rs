@@ -5,9 +5,9 @@ use crate::sab::SafeSAB;
 use capnp::message::{Builder, ReaderOptions};
 use capnp::serialize_packed;
 
+use futures_timer::Delay;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use wasm_timer::Delay;
 
 /// Global atomic counter for unique Call IDs within this module instance
 static CALL_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -280,8 +280,8 @@ impl SyscallClient {
     /// Uses exponential backoff to be friendly to the CPU/Runtime.
     async fn poll_response(sab: &SafeSAB, expected_call_id: u64) -> Result<Vec<u8>, String> {
         let mut attempts = 0;
-        let max_attempts = 100; // 100 * ~50ms = 5s timeout
-        let base_delay_ms = 10;
+        let max_attempts = 5000; // 5000 * 1ms = 5s timeout
+        let base_delay_micros = 1000;
 
         loop {
             if attempts >= max_attempts {
@@ -300,9 +300,7 @@ impl SyscallClient {
             }
 
             // 2. Wait
-            Delay::new(Duration::from_millis(base_delay_ms))
-                .await
-                .map_err(|e| e.to_string())?;
+            Delay::new(Duration::from_micros(base_delay_micros)).await;
             attempts += 1;
         }
     }

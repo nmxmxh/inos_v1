@@ -134,6 +134,68 @@ pub(crate) mod native_mock {
             }
         }
     }
+
+    /// Atomic load from a mocked buffer (treats buffer as i32 array, index is i32 offset)
+    pub fn atomic_load(val: &JsValue, index: u32) -> i32 {
+        let guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get(&val.0) {
+            let byte_offset = (index as usize) * 4;
+            if byte_offset + 4 <= buf.len() {
+                return i32::from_le_bytes(buf[byte_offset..byte_offset + 4].try_into().unwrap());
+            }
+        }
+        0
+    }
+
+    /// Atomic store to a mocked buffer (returns old value)
+    pub fn atomic_store(val: &JsValue, index: u32, value: i32) -> i32 {
+        let mut guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get_mut(&val.0) {
+            let byte_offset = (index as usize) * 4;
+            if byte_offset + 4 <= buf.len() {
+                let old = i32::from_le_bytes(buf[byte_offset..byte_offset + 4].try_into().unwrap());
+                buf[byte_offset..byte_offset + 4].copy_from_slice(&value.to_le_bytes());
+                return old;
+            }
+        }
+        0
+    }
+
+    /// Atomic add to a mocked buffer (returns old value)
+    pub fn atomic_add(val: &JsValue, index: u32, delta: i32) -> i32 {
+        let mut guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get_mut(&val.0) {
+            let byte_offset = (index as usize) * 4;
+            if byte_offset + 4 <= buf.len() {
+                let old = i32::from_le_bytes(buf[byte_offset..byte_offset + 4].try_into().unwrap());
+                let new_val = old.wrapping_add(delta);
+                buf[byte_offset..byte_offset + 4].copy_from_slice(&new_val.to_le_bytes());
+                return old;
+            }
+        }
+        0
+    }
+
+    /// Atomic compare-exchange (returns old value)
+    pub fn atomic_compare_exchange(
+        val: &JsValue,
+        index: u32,
+        expected: i32,
+        replacement: i32,
+    ) -> i32 {
+        let mut guard = BUFFERS.lock().unwrap();
+        if let Some(buf) = guard.get_mut(&val.0) {
+            let byte_offset = (index as usize) * 4;
+            if byte_offset + 4 <= buf.len() {
+                let old = i32::from_le_bytes(buf[byte_offset..byte_offset + 4].try_into().unwrap());
+                if old == expected {
+                    buf[byte_offset..byte_offset + 4].copy_from_slice(&replacement.to_le_bytes());
+                }
+                return old;
+            }
+        }
+        0
+    }
 }
 
 pub fn console_log(_msg: &str, _level: u8) {
@@ -323,6 +385,11 @@ pub fn fill_random(_dest: &mut [u8]) {
     unsafe {
         inos_fill_random(_dest.as_mut_ptr(), _dest.len() as u32);
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Use OS-level CSPRNG on native platforms
+        let _ = getrandom::getrandom(_dest);
+    }
 }
 
 pub fn math_random() -> f64 {
@@ -343,8 +410,7 @@ pub fn atomic_add(typed_array: &JsValue, index: u32, value: i32) -> i32 {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (typed_array, index, value);
-        0
+        native_mock::atomic_add(typed_array, index, value)
     }
 }
 
@@ -355,8 +421,7 @@ pub fn atomic_load(typed_array: &JsValue, index: u32) -> i32 {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (typed_array, index);
-        0
+        native_mock::atomic_load(typed_array, index)
     }
 }
 
@@ -367,8 +432,7 @@ pub fn atomic_store(typed_array: &JsValue, index: u32, value: i32) -> i32 {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (typed_array, index, value);
-        0
+        native_mock::atomic_store(typed_array, index, value)
     }
 }
 
@@ -408,8 +472,7 @@ pub fn atomic_compare_exchange(
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = (typed_array, index, expected, replacement);
-        0
+        native_mock::atomic_compare_exchange(typed_array, index, expected, replacement)
     }
 }
 
@@ -472,9 +535,22 @@ pub fn console_log_buffered(msg: &str, level: u8) {
     console_log(msg, level);
 }
 
+pub fn signal_epoch(_typed_array: &JsValue, index: u32) -> i32 {
+    let result = atomic_add(_typed_array, index, 1);
+    let _ = atomic_notify(_typed_array, index, i32::MAX);
+
+    // Master Heartbeat: signal system epoch if this index qualifies
+    if layout::should_signal_system_epoch(index) {
+        let _ = atomic_add(_typed_array, layout::IDX_SYSTEM_EPOCH, 1);
+        let _ = atomic_notify(_typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
+    }
+
+    result + 1
+}
+
 pub fn maybe_bump_system_epoch(_typed_array: &JsValue, index: u32) {
-    if index == layout::IDX_SYSTEM_EPOCH {
-        let _ = atomic_add(_typed_array, index, 1);
-        let _ = atomic_notify(_typed_array, index, i32::MAX);
+    if layout::should_signal_system_epoch(index) {
+        let _ = atomic_add(_typed_array, layout::IDX_SYSTEM_EPOCH, 1);
+        let _ = atomic_notify(_typed_array, layout::IDX_SYSTEM_EPOCH, i32::MAX);
     }
 }
