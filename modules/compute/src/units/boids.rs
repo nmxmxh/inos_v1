@@ -822,11 +822,12 @@ impl UnitProxy for BoidUnit {
     }
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         _input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
-        let res = match method {
+        let res = match action {
+            // Changed from method
             "init_population" => {
                 let params: JsonValue = serde_json::from_slice(params).unwrap_or(JsonValue::Null);
                 self.init_population_impl(&params)?
@@ -837,9 +838,9 @@ impl UnitProxy for BoidUnit {
             }
             "evolve_batch" => return self.evolve_batch_impl(params),
             _ => {
-                return Err(ComputeError::UnknownMethod {
-                    library: "boids".to_string(),
-                    method: method.to_string(),
+                return Err(ComputeError::UnknownAction {
+                    service: "boids".to_string(),
+                    action: action.to_string(),
                 })
             }
         };

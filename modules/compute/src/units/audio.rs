@@ -250,9 +250,9 @@ impl AudioUnit {
                 let mut _transform = ffmpreg::transform::Normalize {};
                 Err(ComputeError::ExecutionFailed("ffmpreg normalization pipeline: transformation logic integrated, awaiting frame marshaling".into()))
             }
-            _ => Err(ComputeError::UnknownMethod {
-                library: "audio_toolkit".to_string(),
-                method: operation.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "audio_toolkit".to_string(),
+                action: operation.to_string(),
             }),
         }
     }
@@ -776,9 +776,9 @@ impl AudioUnit {
                     "SAB-native processing not yet integrated".to_string(),
                 ))
             }
-            _ => Err(ComputeError::UnknownMethod {
-                library: "audio".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "audio".to_string(),
+                action: method.to_string(),
             }),
         }
     }
@@ -825,7 +825,7 @@ impl UnitProxy for AudioUnit {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         input: &[u8],
         params_json: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
@@ -833,7 +833,8 @@ impl UnitProxy for AudioUnit {
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
         let result =
-            match method {
+            match action {
+                // Changed from method
                 // Toolkit
                 "toolkit_process" => {
                     let operation = params["operation"].as_str().unwrap_or("");
@@ -1180,9 +1181,9 @@ impl UnitProxy for AudioUnit {
                 }
 
                 _ => {
-                    return Err(ComputeError::UnknownMethod {
-                        library: "audio".to_string(),
-                        method: method.to_string(),
+                    return Err(ComputeError::UnknownAction {
+                        service: "audio".to_string(),
+                        action: action.to_string(),
                     });
                 }
             };

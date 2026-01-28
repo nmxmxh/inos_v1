@@ -1,11 +1,14 @@
 package routing
 
 import (
+	"fmt"
 	"log/slog"
 	"math"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/sony/gobreaker"
 )
 
 // ReputationStore defines persistence for trust scores.
@@ -51,6 +54,10 @@ type ReputationManager struct {
 
 	store  ReputationStore
 	logger *slog.Logger
+
+	// Circuit breakers per peer to prevent reputation death spirals
+	breakers   map[string]*gobreaker.CircuitBreaker
+	breakersMu sync.RWMutex
 }
 
 func NewReputationManager(decayHalflife time.Duration, store ReputationStore, logger *slog.Logger) *ReputationManager {
@@ -67,6 +74,7 @@ func NewReputationManager(decayHalflife time.Duration, store ReputationStore, lo
 		alpha:         0.15,
 		store:         store,
 		logger:        logger.With("component", "reputation"),
+		breakers:      make(map[string]*gobreaker.CircuitBreaker),
 	}
 
 	// Try to restore state
@@ -160,36 +168,90 @@ func (r *ReputationManager) PoRReport(peerID string, success bool, difficulty fl
 
 // ReportPenalty applies a specific penalty to a peer.
 func (r *ReputationManager) ReportPenalty(peerID string, reason PenaltyReason) {
-	r.scoresMu.Lock()
-	defer r.scoresMu.Unlock()
+	// Execute within a circuit breaker to prevent cascading reputation failures
+	cb := r.getOrCreateBreaker(peerID)
 
-	score := r.getOrCreateScore(peerID)
-	r.applyDecay(&score)
+	_, err := cb.Execute(func() (interface{}, error) {
+		r.scoresMu.Lock()
+		defer r.scoresMu.Unlock()
 
-	var penalty float64
-	switch reason {
-	case PenaltyTimeout:
-		penalty = 0.02
-	case PenaltyInvalidData:
-		penalty = 0.15
-	case PenaltyPoRFailure:
-		penalty = 0.30
-	case PenaltyMaliciousBehavior:
-		penalty = 1.0 // Blacklist
-	case PenaltyCongestion:
-		penalty = 0.01
-	default:
-		penalty = 0.05
+		score := r.getOrCreateScore(peerID)
+		r.applyDecay(&score)
+
+		var penalty float64
+		var isCritical bool
+		switch reason {
+		case PenaltyTimeout:
+			penalty = 0.02
+		case PenaltyInvalidData:
+			penalty = 0.15
+		case PenaltyPoRFailure:
+			penalty = 0.30
+		case PenaltyMaliciousBehavior:
+			penalty = 1.0 // Blacklist
+			isCritical = true
+		case PenaltyCongestion:
+			penalty = 0.01
+		default:
+			penalty = 0.05
+		}
+
+		score.Score = math.Max(r.minScore, score.Score-penalty)
+		score.FailedInteractions++
+
+		r.logger.Debug("applied reputation penalty", "peer_id", peerID, "reason", reason, "penalty", penalty)
+
+		r.updateConfidence(&score)
+		score.LastUpdated = time.Now().UnixNano()
+		r.scores[peerID] = score
+
+		// If it's malicious behavior, we treat it as an execution failure for the breaker
+		if isCritical || score.Score < 0.1 {
+			return nil, fmt.Errorf("node reputation critical: %s", peerID)
+		}
+
+		return nil, nil
+	})
+
+	if err != nil && err == gobreaker.ErrOpenState {
+		r.logger.Warn("reputation circuit open for peer, ignoring further penalties", "peer_id", peerID)
+	}
+}
+
+func (r *ReputationManager) getOrCreateBreaker(peerID string) *gobreaker.CircuitBreaker {
+	r.breakersMu.RLock()
+	cb, exists := r.breakers[peerID]
+	r.breakersMu.RUnlock()
+
+	if exists {
+		return cb
 	}
 
-	score.Score = math.Max(r.minScore, score.Score-penalty)
-	score.FailedInteractions++
+	r.breakersMu.Lock()
+	defer r.breakersMu.Unlock()
 
-	r.logger.Debug("applied reputation penalty", "peer_id", peerID, "reason", reason, "penalty", penalty)
+	// Double check
+	if cb, exists = r.breakers[peerID]; exists {
+		return cb
+	}
 
-	r.updateConfidence(&score)
-	score.LastUpdated = time.Now().UnixNano()
-	r.scores[peerID] = score
+	st := gobreaker.Settings{
+		Name:        "reputation-" + peerID,
+		MaxRequests: 3,
+		Interval:    1 * time.Minute,
+		Timeout:     5 * time.Minute,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return counts.Requests >= 5 && failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+			r.logger.Info("reputation circuit state change", "peer", peerID, "from", from, "to", to)
+		},
+	}
+
+	cb = gobreaker.NewCircuitBreaker(st)
+	r.breakers[peerID] = cb
+	return cb
 }
 
 func (r *ReputationManager) GetTrustScore(peerID string) (float64, float64) {

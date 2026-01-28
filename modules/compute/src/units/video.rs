@@ -172,14 +172,15 @@ impl UnitProxy for VideoUnit {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         input: &[u8],
         params_json: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
         let params: JsonValue = serde_json::from_slice(params_json)
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
-        match method {
+        match action {
+            // Changed from method
             "metadata" => self.get_metadata(input),
             "inspect_streams" => self.inspect_streams(input),
             "extract_frame" => self.extract_frame(input, &params),
@@ -190,9 +191,9 @@ impl UnitProxy for VideoUnit {
             }
             "generate_thumbnails" => self.generate_thumbnails(input, &params),
             "apply_video_transform" => self.apply_transform(input, &params),
-            _ => Err(ComputeError::UnknownMethod {
-                library: "video".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "video".to_string(),
+                action: action.to_string(),
             }),
         }
     }

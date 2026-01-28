@@ -193,7 +193,6 @@ func TestGossipManager_RateLimiting(t *testing.T) {
 
 	// Initialize rate limiters by adding peers
 	gossip.AddPeer("peer2")
-	gossip.updateRateLimiters([]string{"peer2"})
 
 	gossip.Start()
 	defer gossip.Stop()

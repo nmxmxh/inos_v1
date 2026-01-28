@@ -229,10 +229,10 @@ impl PhysicsEngine {
     }
 
     /// Create library proxy response
-    fn proxy_response(&self, method: &str, params: JsonValue) -> Result<Vec<u8>, ComputeError> {
+    fn proxy_response(&self, action: &str, params: JsonValue) -> Result<Vec<u8>, ComputeError> {
         let response = serde_json::json!({
-            "library": "rapier3d",
-            "method": method,
+            "service": "rapier3d",
+            "action": action,
             "params": params
         });
 
@@ -315,14 +315,15 @@ impl UnitProxy for PhysicsEngine {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         _input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
         let params: JsonValue = serde_json::from_slice(params)
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
-        match method {
+        match action {
+            // Changed from method
             // N-Body Methods (Migrated from legacy exports)
             "nbody_init" => {
                 let particle_count = params
@@ -510,37 +511,39 @@ impl UnitProxy for PhysicsEngine {
                 Ok(serde_json::to_vec(&serde_json::json!({ "status": "success" })).unwrap())
             }
 
+            "get_rigid_body_state" | "set_joint_limits" => self.proxy_response(action, params),
+
             // Rigid Body Methods
             "create_rigid_body" => {
                 self.validate_rigid_body_params(&params)?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "set_rigid_body_position" | "set_rigid_body_rotation" => {
                 params
                     .get("body_id")
                     .ok_or_else(|| ComputeError::InvalidParams("Missing body_id".to_string()))?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "set_rigid_body_velocity" | "set_rigid_body_angular_velocity" => {
                 params
                     .get("body_id")
                     .ok_or_else(|| ComputeError::InvalidParams("Missing body_id".to_string()))?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Collider Methods
             "create_collider" | "attach_collider" => {
                 self.validate_collider_params(&params)?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "set_collider_friction" | "set_collider_restitution" | "set_collider_density" => {
                 params.get("collider_id").ok_or_else(|| {
                     ComputeError::InvalidParams("Missing collider_id".to_string())
                 })?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Joint Methods
@@ -549,7 +552,7 @@ impl UnitProxy for PhysicsEngine {
             | "create_prismatic_joint"
             | "create_spherical_joint" => {
                 self.validate_joint_params(&params)?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Force Methods
@@ -559,13 +562,13 @@ impl UnitProxy for PhysicsEngine {
             | "apply_force_at_point"
             | "apply_impulse_at_point" => {
                 self.validate_force_params(&params)?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Query Methods
             "raycast" | "raycast_all" => {
                 self.validate_raycast_params(&params)?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "shape_cast" | "intersection_test" | "contact_query" | "proximity_query" => {
@@ -575,7 +578,7 @@ impl UnitProxy for PhysicsEngine {
                         "Params must be an object".to_string(),
                     ));
                 }
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Simulation Methods
@@ -588,7 +591,7 @@ impl UnitProxy for PhysicsEngine {
                         )));
                     }
                 }
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "set_gravity" => {
@@ -596,7 +599,7 @@ impl UnitProxy for PhysicsEngine {
                     ComputeError::InvalidParams("Missing gravity vector".to_string())
                 })?;
                 self.validate_vector3(gravity, "gravity")?;
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             "get_contacts"
@@ -605,13 +608,11 @@ impl UnitProxy for PhysicsEngine {
             | "reset_simulation"
             | "remove_rigid_body"
             | "remove_collider"
-            | "remove_joint"
-            | "get_rigid_body_state"
-            | "set_joint_limits" => self.proxy_response(method, params),
+            | "remove_joint" => self.proxy_response(action, params),
 
-            _ => Err(ComputeError::UnknownMethod {
-                library: "physics".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "physics".to_string(),
+                action: action.to_string(),
             }),
         }
     }
@@ -639,8 +640,8 @@ mod tests {
 
         assert!(result.is_ok());
         let response: JsonValue = serde_json::from_slice(&result.unwrap()).unwrap();
-        assert_eq!(response["library"], "rapier3d");
-        assert_eq!(response["method"], "create_rigid_body");
+        assert_eq!(response["service"], "rapier3d");
+        assert_eq!(response["action"], "create_rigid_body");
     }
 
     #[tokio::test]

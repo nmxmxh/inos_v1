@@ -16,12 +16,12 @@ pub trait UnitProxy: Send + Sync {
     /// Service name (e.g., "compute", "crypto", "audio")
     fn service_name(&self) -> &str;
 
-    /// Execute a method with given input and params
+    /// Execute an action with given input and params
     async fn execute(
         &self,
-        method: &str,
+        action: &str,
         input: &[u8],
-        params: &[u8], // Changed from &str to &[u8] for Tier 2 support
+        params: &[u8], // Standardizing on raw bytes for params (could be JSON or CapnP)
     ) -> Result<Vec<u8>, ComputeError>;
 
     /// List of supported actions (e.g., "image_resize", "sha256")
@@ -98,11 +98,11 @@ impl ResourceLimits {
 
 #[derive(Error, Debug)]
 pub enum ComputeError {
-    #[error("Unknown library: {0}")]
-    UnknownLibrary(String),
+    #[error("Unknown service: {0}")]
+    UnknownService(String),
 
-    #[error("Unknown method: {library}.{method}")]
-    UnknownMethod { library: String, method: String },
+    #[error("Unknown action: {service}.{action}")]
+    UnknownAction { service: String, action: String },
 
     #[error("Input too large: {size} bytes (max: {max})")]
     InputTooLarge { size: usize, max: usize },
@@ -153,16 +153,16 @@ impl ComputeEngine {
     /// Execute a compute job (Reflex Response)
     pub async fn execute(
         &self,
-        library: &str,
-        method: &str,
+        service: &str,
+        action: &str,
         input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
         // 1. Get unit
         let unit = self
             .units
-            .get(library)
-            .ok_or_else(|| ComputeError::UnknownLibrary(library.to_string()))?;
+            .get(service)
+            .ok_or_else(|| ComputeError::UnknownService(service.to_string()))?;
 
         // 2. Validate input size
         let limits = unit.resource_limits();
@@ -179,7 +179,7 @@ impl ComputeEngine {
         // 4. Execute
         // Note: tokio::time::timeout is removed because it causes hangs in WASM/block_on environments
         // without a running tokio reactor.
-        let output: Vec<u8> = unit.execute(method, input, params).await?;
+        let output: Vec<u8> = unit.execute(action, input, params).await?;
 
         // 5. Validate output size
         if output.len() > limits.max_output_size {
@@ -257,9 +257,9 @@ mod tests {
             match method {
                 "echo" => Ok(input.to_vec()),
                 "double" => Ok(input.repeat(2)),
-                _ => Err(ComputeError::UnknownMethod {
-                    library: "mock".to_string(),
-                    method: method.to_string(),
+                _ => Err(ComputeError::UnknownAction {
+                    service: "mock".to_string(),
+                    action: method.to_string(),
                 }),
             }
         }
@@ -297,7 +297,7 @@ mod tests {
     async fn test_unknown_library() {
         let engine = ComputeEngine::new();
         let result = engine.execute("unknown", "method", b"", b"{}").await;
-        assert!(matches!(result, Err(ComputeError::UnknownLibrary(_))));
+        assert!(matches!(result, Err(ComputeError::UnknownService(_))));
     }
 
     #[tokio::test]

@@ -272,23 +272,24 @@ impl ImageUnit {
     ) -> Result<Vec<DynamicImage>, ComputeError> {
         operations
             .par_iter()
-            .map(|(method, params)| self.execute_single_operation(img, method, params))
+            .map(|(action, params)| self.execute_single_operation(img, action, params))
             .collect()
     }
 
     fn execute_single_operation(
         &self,
         img: &DynamicImage,
-        method: &str,
+        action: &str, // Changed from method
         params: &serde_json::Value,
     ) -> Result<DynamicImage, ComputeError> {
-        match method {
+        match action {
+            // Changed from method
             "resize" => self.resize_simd(img, params),
             "crop" => self.crop(img, params),
             "grayscale" => Ok(img.grayscale()),
-            _ => Err(ComputeError::UnknownMethod {
-                library: "image".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "image".to_string(),
+                action: action.to_string(),
             }),
         }
     }
@@ -297,7 +298,7 @@ impl ImageUnit {
 #[async_trait]
 impl UnitProxy for ImageUnit {
     fn service_name(&self) -> &str {
-        "compute"
+        "image"
     }
 
     fn name(&self) -> &str {
@@ -340,7 +341,7 @@ impl UnitProxy for ImageUnit {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
@@ -360,9 +361,9 @@ impl UnitProxy for ImageUnit {
             let ops: Vec<(&str, serde_json::Value)> = operations
                 .iter()
                 .filter_map(|op| {
-                    let method = op.get("method")?.as_str()?;
+                    let action = op.get("method")?.as_str()?;
                     let op_params = op.get("params").cloned().unwrap_or(serde_json::json!({}));
-                    Some((method, op_params))
+                    Some((action, op_params))
                 })
                 .collect();
 
@@ -385,7 +386,8 @@ impl UnitProxy for ImageUnit {
         }
 
         // Single operation execution
-        let result = match method {
+        let result = match action {
+            // Changed from method
             // SIMD-accelerated operations
             "resize" | "resize_exact" | "resize_to_fill" => self.resize_simd(&img, &params)?,
             "thumbnail" => self.thumbnail(&img, &params)?,
@@ -443,9 +445,9 @@ impl UnitProxy for ImageUnit {
             }
 
             _ => {
-                return Err(ComputeError::UnknownMethod {
-                    library: "image".to_string(),
-                    method: method.to_string(),
+                return Err(ComputeError::UnknownAction {
+                    service: "image".to_string(),
+                    action: action.to_string(),
                 });
             }
         };
@@ -708,9 +710,9 @@ impl ImageUnit {
                     "ffmpreg HDR tone mapping interface established".into(),
                 ))
             }
-            _ => Err(ComputeError::UnknownMethod {
-                library: "image_toolkit".to_string(),
-                method: operation.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "image_toolkit".to_string(),
+                action: operation.to_string(),
             }),
         }
     }

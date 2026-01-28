@@ -187,10 +187,10 @@ impl MathUnit {
     }
 
     /// Create library proxy response for nalgebra
-    fn proxy_response(&self, method: &str, params: JsonValue) -> Result<Vec<u8>, ComputeError> {
+    fn proxy_response(&self, action: &str, params: JsonValue) -> Result<Vec<u8>, ComputeError> {
         let response = serde_json::json!({
-            "library": "nalgebra",
-            "method": method,
+            "service": "math",
+            "action": action,
             "params": params
         });
 
@@ -276,14 +276,14 @@ impl UnitProxy for MathUnit {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str,
         _input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
         let params: JsonValue = serde_json::from_slice(params)
             .map_err(|e| ComputeError::InvalidParams(format!("Invalid JSON: {}", e)))?;
 
-        match method {
+        match action {
             // Matrix Identity - can compute directly
             "matrix_identity" => {
                 use nalgebra::Matrix4;
@@ -513,7 +513,7 @@ impl UnitProxy for MathUnit {
                 })?;
 
                 // For batch operations, we validate structure and proxy to nalgebra/WebGPU
-                self.proxy_response(method, params)
+                self.proxy_response(action, params)
             }
 
             // Compute Instance Matrices (for instanced rendering) using Ping-Pong Buffers
@@ -702,7 +702,7 @@ impl UnitProxy for MathUnit {
                     }))
                     .unwrap())
                 } else {
-                    self.proxy_response(method, params)
+                    self.proxy_response(action, params)
                 }
             }
 
@@ -734,11 +734,11 @@ impl UnitProxy for MathUnit {
             | "look_at"
             | "perspective"
             | "orthographic"
-            | "batch_transform_points" => self.proxy_response(method, params),
+            | "batch_transform_points" => self.proxy_response(action, params),
 
-            _ => Err(ComputeError::UnknownMethod {
-                library: "math".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "math".to_string(),
+                action: action.to_string(),
             }),
         }
     }
@@ -1038,11 +1038,11 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            ComputeError::UnknownMethod { library, method } => {
-                assert_eq!(library, "math");
-                assert_eq!(method, "unknown_method");
+            ComputeError::UnknownAction { service, action } => {
+                assert_eq!(service, "math");
+                assert_eq!(action, "unknown_method");
             }
-            _ => panic!("Expected UnknownMethod error"),
+            _ => panic!("Expected UnknownAction error"),
         }
     }
 }

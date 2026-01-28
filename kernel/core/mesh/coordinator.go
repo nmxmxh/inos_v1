@@ -58,6 +58,9 @@ type MeshCoordinator struct {
 	gossip     *routing.GossipManager
 	reputation *routing.ReputationManager
 
+	// Signaling relay for P2P connection bootstrapping
+	gossipSignaling *transport.GossipSignalingChannel
+
 	// Resource management
 	allocator *internal.AdaptiveAllocator
 
@@ -112,9 +115,9 @@ type MeshCoordinator struct {
 	activeJobsMu sync.RWMutex
 
 	// Attestation state
-	attestedPeers   map[string]AttestationRecord
-	attestationMu   sync.RWMutex
-	attestingPeers  map[string]struct{}
+	attestedPeers    map[string]AttestationRecord
+	attestationMu    sync.RWMutex
+	attestingPeers   map[string]struct{}
 	attestingPeersMu sync.Mutex
 }
 
@@ -197,7 +200,7 @@ func DefaultCoordinatorConfig() CoordinatorConfig {
 }
 
 // NewMeshCoordinator creates a mesh coordinator for shared compute
-func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog.Logger) *MeshCoordinator {
+func NewMeshCoordinator(nodeID, region string, tr Transport, logger *slog.Logger) *MeshCoordinator {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -210,7 +213,7 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 		did:             "did:inos:system",
 		device:          "device:unknown",
 		name:            "Guest",
-		transport:       transport,
+		transport:       tr,
 		localChunks:     make(map[string]struct{}),
 		circuitBreakers: make(map[string]*CircuitBreaker),
 		peerCache:       make(map[string]PeerCacheEntry),
@@ -226,13 +229,28 @@ func NewMeshCoordinator(nodeID, region string, transport Transport, logger *slog
 	}
 
 	// Initialize subsystems
-	coord.dht = routing.NewDHT(nodeID, transport, logger)
+	coord.dht = routing.NewDHT(nodeID, tr, logger)
 	coord.reputation = routing.NewReputationManager(3*24*time.Hour, nil, logger)
 
 	var err error
-	coord.gossip, err = routing.NewGossipManager(nodeID, transport, logger)
+	coord.gossip, err = routing.NewGossipManager(nodeID, tr, logger)
 	if err != nil {
 		logger.Error("failed to initialize gossip", "error", err)
+	}
+
+	// Initialize Gossip-based signaling channel for decentralized bootstrapping
+	coord.gossipSignaling = transport.NewGossipSignalingChannel(nodeID, func(topic string, payload interface{}) error {
+		if coord.gossip != nil {
+			return coord.gossip.Broadcast(topic, payload)
+		}
+		return errors.New("gossip manager not initialized")
+	})
+
+	// Inject into transport if it supports it
+	if injector, ok := tr.(interface {
+		InjectSignalingChannel(url string, ch transport.SignalingChannel)
+	}); ok {
+		injector.InjectSignalingChannel("gossip://mesh", coord.gossipSignaling)
 	}
 
 	// Initialize adaptive allocator
@@ -1333,6 +1351,13 @@ func (m *MeshCoordinator) registerGossipHandlers() {
 		m.peerMetricsMu.Lock()
 		m.peerMetrics[msg.Sender] = peerMetrics
 		m.peerMetricsMu.Unlock()
+		return nil
+	})
+
+	m.gossip.RegisterHandler("webrtc.signaling", func(msg *common.GossipMessage) error {
+		if m.gossipSignaling != nil {
+			m.gossipSignaling.HandleIncoming(msg.Payload)
+		}
 		return nil
 	})
 }

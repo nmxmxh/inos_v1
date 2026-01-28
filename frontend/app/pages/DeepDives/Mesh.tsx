@@ -1495,7 +1495,36 @@ type PeerInfo struct {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <ScrollReveal>
         <Style.ContentCard>
-          <h3>Lesson 5: The Mesh API</h3>
+          <h3>Lesson 5: No Central Servers. Pure Mesh.</h3>
+          <p>
+            To achieve true decentralized resilience, we had to solve the "Bootstrapping Problem."
+            How do two strangers find each other and establish a WebRTC connection if there's no
+            central server to introduce them?
+          </p>
+          <ul>
+            <li>
+              <strong>Gossip Signaling Handshakes:</strong> Nodes now broadcast their connection
+              offers over the existing mesh (<code>gossip://mesh</code>). Every node acts as a relay
+              for introducing its neighbors.
+            </li>
+            <li>
+              <strong>Merkle-Tree Reconciliation:</strong> Truth isn't managed by a database—it's
+              calculated. Nodes periodically trade Merkle roots. If they match, the network is in
+              sync. If not, they only trade the specific chunks that differ.
+            </li>
+            <li>
+              <strong>Consistent Content:</strong> Since every piece of data is identified by its
+              hash, the <em>content of the mesh is the truth of the mesh.</em>
+            </li>
+          </ul>
+        </Style.ContentCard>
+      </ScrollReveal>
+
+      <Style.SectionDivider />
+
+      <ScrollReveal>
+        <Style.ContentCard>
+          <h3>Lesson 6: The Mesh API</h3>
           <p>
             The <code>P2PMesh</code> Cap'n Proto interface provides 17 methods for interacting with
             the mesh. Here are the key ones:
@@ -1536,7 +1565,7 @@ interface P2PMesh {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <ScrollReveal>
         <Style.ContentCard>
-          <h3>Lesson 6: Distributed Compute</h3>
+          <h3>Lesson 7: Distributed Compute</h3>
           <p>
             The mesh isn't just for storage—it's a <strong>distributed supercomputer</strong>. Any
             node can offer compute capabilities (GPU, CPU, specialized hardware) and earn credits
@@ -1591,8 +1620,9 @@ interface P2PMesh {
           <h3>Mesh Lab: Live Network Probe</h3>
           <p>
             This panel streams Cap&apos;n Proto mesh events directly from the SAB ring buffer. Use
-            query params like <code>?nodeId=node-a&amp;signaling=ws://localhost:8787/ws</code> to
-            spin up multiple peers in separate tabs and watch the mesh converge in real time.
+            query params like <code>?nodeId=alpha</code> to spin up peers. By default, the mesh uses{' '}
+            <code>gossip://mesh</code> for decentralized signaling, meaning peers discover and
+            connect to each other <strong>without any central server.</strong>
           </p>
         </Style.ContentCard>
       </ScrollReveal>

@@ -1041,7 +1041,7 @@ impl Default for DataUnit {
 #[async_trait]
 impl UnitProxy for DataUnit {
     fn service_name(&self) -> &str {
-        "compute" // Standardizing Data processing under "compute" service
+        "data" // Standardizing Data processing under unique "data" service
     }
 
     fn name(&self) -> &str {
@@ -1092,7 +1092,7 @@ impl UnitProxy for DataUnit {
     }
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
@@ -1108,7 +1108,8 @@ impl UnitProxy for DataUnit {
         }
 
         // Execute method
-        let result = match method {
+        let result = match action {
+            // Changed from method
             // I/O operations
             "parquet_read" => {
                 let batch = self.parquet_read(input)?;
@@ -1443,9 +1444,9 @@ impl UnitProxy for DataUnit {
             }
 
             _ => {
-                return Err(ComputeError::UnknownMethod {
-                    library: "data".to_string(),
-                    method: method.to_string(),
+                return Err(ComputeError::UnknownAction {
+                    service: "data".to_string(),
+                    action: action.to_string(),
                 });
             }
         };

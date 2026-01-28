@@ -156,10 +156,10 @@ pub extern "C" fn compute_init_with_sab() -> i32 {
 ///   const result = compute_execute("math", "matrix_identity", 0, 0, paramsPtr, paramsLen);
 #[no_mangle]
 pub extern "C" fn compute_execute(
-    library_ptr: *const u8,
-    library_len: usize,
-    method_ptr: *const u8,
-    method_len: usize,
+    service_ptr: *const u8,
+    service_len: usize,
+    action_ptr: *const u8,
+    action_len: usize,
     input_ptr: *const u8,
     input_len: usize,
     params_ptr: *const u8,
@@ -174,43 +174,43 @@ pub extern "C" fn compute_execute(
         return std::ptr::null_mut();
     }
 
-    // 1. Marshall library name
-    let library = unsafe {
-        if library_ptr.is_null() || library_len == 0 {
+    // 1. Marshall service name
+    let service = unsafe {
+        if service_ptr.is_null() || service_len == 0 {
             sdk::js_interop::console_log(
-                "[compute_execute] FAILED: library_ptr is null or len=0",
+                "[compute_execute] FAILED: service_ptr is null or len=0",
                 1,
             );
             return std::ptr::null_mut();
         }
-        let bytes = std::slice::from_raw_parts(library_ptr, library_len);
+        let bytes = std::slice::from_raw_parts(service_ptr, service_len);
         match std::str::from_utf8(bytes) {
             Ok(s) => s,
             Err(_) => {
                 let bytes_hex: Vec<String> =
                     bytes.iter().take(8).map(|b| format!("{:02x}", b)).collect();
-                let msg = format!("[compute_execute] FAILED: library name not valid UTF-8. Ptr: {:p}, Len: {}, Bytes(8): {:?}", 
-                    library_ptr, library_len, bytes_hex);
+                let msg = format!("[compute_execute] FAILED: service name not valid UTF-8. Ptr: {:p}, Len: {}, Bytes(8): {:?}", 
+                    service_ptr, service_len, bytes_hex);
                 sdk::js_interop::console_log(&msg, 1);
                 return std::ptr::null_mut();
             }
         }
     };
 
-    // 2. Marshall method name
-    let method = unsafe {
-        if method_ptr.is_null() || method_len == 0 {
+    // 2. Marshall action name
+    let action = unsafe {
+        if action_ptr.is_null() || action_len == 0 {
             sdk::js_interop::console_log(
-                "[compute_execute] FAILED: method_ptr is null or len=0",
+                "[compute_execute] FAILED: action_ptr is null or len=0",
                 1,
             );
             return std::ptr::null_mut();
         }
-        match std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)) {
+        match std::str::from_utf8(std::slice::from_raw_parts(action_ptr, action_len)) {
             Ok(s) => s,
             Err(_) => {
                 sdk::js_interop::console_log(
-                    "[compute_execute] FAILED: method name is not valid UTF-8",
+                    "[compute_execute] FAILED: action name is not valid UTF-8",
                     1,
                 );
                 return std::ptr::null_mut();
@@ -239,7 +239,7 @@ pub extern "C" fn compute_execute(
 
     // Initialize engine if needed (thread-safe spinlock)
     let engine = get_engine();
-    let result = match poll_sync(engine.execute(library, method, input, params)) {
+    let result = match poll_sync(engine.execute(service, action, input, params)) {
         Ok(res) => res,
         Err(e) => {
             let msg = format!("[compute_execute] Sync Execution Failed: {}", e);
@@ -269,6 +269,72 @@ pub extern "C" fn compute_execute(
             sdk::js_interop::console_log(&msg, 1);
             std::ptr::null_mut()
         }
+    }
+}
+
+/// Zero-Copy Protocol Dispatcher
+/// Standardizes communication with Cap'n Proto JobRequest capsule
+/// Standard usage: compute_dispatch(request_ptr, request_len)
+#[no_mangle]
+pub extern "C" fn compute_dispatch(request_ptr: *const u8, request_len: usize) -> *mut u8 {
+    if !sdk::is_context_valid() || request_ptr.is_null() || request_len == 0 {
+        return std::ptr::null_mut();
+    }
+
+    let request_bytes = unsafe { std::slice::from_raw_parts(request_ptr, request_len) };
+    let mut reader = std::io::Cursor::new(request_bytes);
+
+    // Read message from slice (zero-copy from WASM heap perspective)
+    let message_reader =
+        match capnp::serialize::read_message(&mut reader, capnp::message::ReaderOptions::new()) {
+            Ok(r) => r,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+    let job =
+        match message_reader.get_root::<sdk::protocols::compute::compute::job_request::Reader>() {
+            Ok(j) => j,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+    // Extract fields using zero-copy lenses
+    let service = job
+        .get_library() // Field remains 'library' in schema for compatibility
+        .unwrap_or(capnp::text::Reader::from(""))
+        .to_str()
+        .unwrap_or("");
+    let action = job
+        .get_method() // Field remains 'method' in schema for compatibility
+        .unwrap_or(capnp::text::Reader::from(""))
+        .to_str()
+        .unwrap_or("");
+    let input = job.get_input().unwrap_or(&[]);
+
+    let params_reader = job.get_params().unwrap();
+    let params = match params_reader.which().unwrap() {
+        sdk::protocols::compute::compute::job_params::Which::Binary(data) => data.unwrap_or(&[]),
+        _ => &[], // Structured params handled inside specialized units if needed
+    };
+
+    let engine = get_engine();
+    let result = match poll_sync(engine.execute(service, action, input, params)) {
+        Ok(res) => res,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    match result {
+        Ok(output) => {
+            // Standardize output wrapping: [len:u32][data...]
+            let total_len = 4 + output.len();
+            let mut buffer = Vec::with_capacity(total_len);
+            buffer.extend_from_slice(&(output.len() as u32).to_le_bytes());
+            buffer.extend_from_slice(&output);
+
+            let ptr = buffer.as_mut_ptr();
+            std::mem::forget(buffer);
+            ptr
+        }
+        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -369,8 +435,36 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
     };
 
     // Register core modules provided by this kernel
-    register_simple("compute", 512, false); // Base compute
-    register_simple("boids", 512, false); // Flocking simulation
+    // Dynamically register all units from the engine
+    let engine = get_engine();
+    let capabilities = engine.generate_capability_registry();
+
+    let mut builder = ModuleEntryBuilder::new("compute").version(1, 5, 0);
+    // Add all discovered capabilities to the 'compute' module entry
+    // In a production system, these might be separate modules, but for the monolithic kernel
+    // we export them through the primary discovery unit.
+    for cap_str in &capabilities {
+        // cap_str is "service:action:v1"
+        let parts: Vec<&str> = cap_str.split(':').collect();
+        if parts.len() >= 2 {
+            builder = builder.capability(parts[1], false, 512);
+        }
+    }
+
+    match builder.build() {
+        Ok((mut entry, _, caps)) => {
+            if let Ok(offset) = write_capability_table(sab, &caps) {
+                entry.cap_table_offset = offset;
+            }
+            if let Ok((slot, _)) = find_slot_double_hashing(sab, "compute") {
+                let _ = write_enhanced_entry(sab, slot, &entry);
+            }
+        }
+        Err(e) => info!("Failed to auto-register compute: {:?}", e),
+    }
+
+    // Register specialized 'boids' unit separately for legacy UI compatibility
+    register_simple("boids", 512, false);
 
     // Signal registry change to wake Go discovery loop immediately
     sdk::registry::signal_registry_change(sab);

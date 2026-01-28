@@ -206,11 +206,10 @@ func DefaultTransportConfig() TransportConfig {
 		},
 		TURNServers: []string{},
 
-		// No centralized signaling servers by default.
-		// P2P mesh: nodes start isolated and discover peers via gossip protocol.
-		// Signaling URLs can be injected via URL params for testing if needed.
+		// Decentralized P2P mesh: nodes discover peers and exchange SDPs via gossip protocol.
+		// Centralized signaling servers are removed in favor of every node being a relay.
 		WebSocketURL:     "",
-		SignalingServers: []string{},
+		SignalingServers: []string{"gossip://mesh"},
 
 		MaxConnections:    100,
 		ConnectionTimeout: 10 * time.Second,
@@ -345,6 +344,18 @@ func (t *WebRTCTransport) SetPeerEventHandler(handler func(peerID string, connec
 	t.peerEventMu.Lock()
 	t.peerEventHandler = handler
 	t.peerEventMu.Unlock()
+}
+
+// InjectSignalingChannel injects a custom signaling channel (e.g., GossipSignalingChannel)
+func (t *WebRTCTransport) InjectSignalingChannel(url string, ch SignalingChannel) {
+	t.signalingMu.Lock()
+	t.signaling[url] = ch
+	t.signalingMu.Unlock()
+
+	// If already started, start the receiver loop for this channel
+	if t.started.Load() {
+		go t.receiveSignalingMessages(ch, url)
+	}
 }
 
 func (t *WebRTCTransport) notifyPeerEvent(peerID string, connected bool) {
@@ -1073,6 +1084,23 @@ func (t *WebRTCTransport) connectSignaling() error {
 		dialWG.Add(1)
 		go func(url string) {
 			defer dialWG.Done()
+
+			// Handle gossip scheme separately - it's already injected
+			if strings.HasPrefix(url, "gossip://") {
+				t.signalingMu.RLock()
+				ch, exists := t.signaling[url]
+				t.signalingMu.RUnlock()
+				if exists && ch != nil {
+					t.signalingStatus.Store("connected")
+					// already has a receiver if started via InjectSignalingChannel
+					atomic.AddInt32(&successCount, 1)
+					select {
+					case success <- struct{}{}:
+					default:
+					}
+				}
+				return
+			}
 
 			// Each server gets the shared context
 			conn, err := dialSignaling(ctx, url)

@@ -7,7 +7,9 @@ require (
 	github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c
 	github.com/gorilla/websocket v1.5.3
 	github.com/pion/webrtc/v3 v3.3.6
+	github.com/sony/gobreaker v1.0.0
 	github.com/stretchr/testify v1.9.0
+	github.com/yasserelgammal/rate-limiter v1.0.0
 	golang.org/x/net v0.48.0
 	zombiezen.com/go/capnproto2 v2.18.2+incompatible
 )

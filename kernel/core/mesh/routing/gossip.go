@@ -19,6 +19,8 @@ import (
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
+	"github.com/yasserelgammal/rate-limiter/limiter"
+	"github.com/yasserelgammal/rate-limiter/store"
 )
 
 // GossipManager handles epidemic propagation with anti-entropy and rate limiting
@@ -49,8 +51,9 @@ type GossipManager struct {
 	// Transport
 	transport common.Transport
 
-	// Rate limiting
-	rateLimiters map[string]*RateLimiter
+	// Rate limiting (Token Bucket)
+	limiter      *limiter.TokenBucket
+	limiterStore store.Store
 	rateMu       sync.RWMutex
 
 	// Message queue for backpressure
@@ -171,46 +174,8 @@ type MerkleSyncState struct {
 	InProgress bool
 }
 
-// RateLimiter implements token bucket rate limiting
-type RateLimiter struct {
-	rate       float64 // tokens per second
-	capacity   float64 // burst capacity
-	tokens     float64 // current tokens
-	lastUpdate time.Time
-	mu         sync.Mutex
-}
-
-// NewRateLimiter creates a new rate limiter
-func NewRateLimiter(rate float64, burst int) *RateLimiter {
-	return &RateLimiter{
-		rate:       rate,
-		capacity:   float64(burst),
-		tokens:     float64(burst),
-		lastUpdate: time.Now(),
-	}
-}
-
-// Allow checks if a request is allowed
-func (rl *RateLimiter) Allow() bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	elapsed := now.Sub(rl.lastUpdate).Seconds()
-	rl.tokens += elapsed * rl.rate
-
-	if rl.tokens > rl.capacity {
-		rl.tokens = rl.capacity
-	}
-
-	if rl.tokens < 1.0 {
-		return false
-	}
-
-	rl.tokens--
-	rl.lastUpdate = now
-	return true
-}
+// Merkle depth limit to prevent stack overflow attacks
+const MaxMerkleSyncDepth = 32
 
 func getShortID(id string) string {
 	if len(id) <= 8 {
@@ -252,7 +217,6 @@ func NewGossipManager(nodeID string, transport common.Transport, logger *slog.Lo
 		seenTimestamps: make(map[string]time.Time),
 		seenTTL:        config.MessageTTL,
 		transport:      transport,
-		rateLimiters:   make(map[string]*RateLimiter),
 		messageQueue:   make(chan QueuedGossipMessage, config.QueueSize),
 		queueSize:      config.QueueSize,
 		handlers:       make(map[string]GossipHandler),
@@ -261,6 +225,17 @@ func NewGossipManager(nodeID string, transport common.Transport, logger *slog.Lo
 		logger:         logger.With("component", "gossip", "node_id", getShortID(nodeID)),
 		syncState:      make(map[string]*MerkleSyncState),
 	}
+
+	// Initialize rate limiter
+	gossip.limiterStore = store.NewMemoryStore(time.Minute)
+	gossip.limiter, _ = limiter.NewTokenBucket(
+		limiter.Config{
+			Rate:     int64(config.RateLimit.MessagesPerSecond),
+			Duration: time.Second,
+			Burst:    int64(config.RateLimit.BurstSize),
+		},
+		gossip.limiterStore,
+	)
 
 	// Initialize metrics
 	gossip.metrics.StartTime = time.Now()
@@ -998,8 +973,16 @@ func (g *GossipManager) diffMerkleTreesInteractive(peerID string, ourRoot, their
 	}
 
 	queue := []nodePair{{ourHash: ourRoot, theirHash: theirRoot}}
+	depth := 0
 
 	for len(queue) > 0 {
+		// Defense: prevent Merkle sync depth bombs
+		if depth > MaxMerkleSyncDepth {
+			g.logger.Warn("merkle sync depth exceeded", "peer", getShortID(peerID))
+			return nil, nil, fmt.Errorf("merkle sync depth limit exceeded")
+		}
+		depth++
+
 		pair := queue[0]
 		queue = queue[1:]
 
@@ -1283,9 +1266,6 @@ func (g *GossipManager) UpdatePeers(peers []string) {
 	g.peersMu.Lock()
 	g.peers = peers
 	g.peersMu.Unlock()
-
-	// Update rate limiters
-	g.updateRateLimiters(peers)
 }
 
 // AddPeer adds a single peer to the gossip list
@@ -1298,7 +1278,6 @@ func (g *GossipManager) AddPeer(peerID string) {
 		}
 	}
 	g.peers = append(g.peers, peerID)
-	// We don't call updateRateLimiters for individual peers yet
 }
 
 // RemovePeer removes a peer from the gossip list
@@ -1320,54 +1299,13 @@ func (g *GossipManager) TotalPeers() int {
 	return len(g.peers)
 }
 
-// updateRateLimiters updates rate limiters for peers
-func (g *GossipManager) updateRateLimiters(peers []string) {
-	g.rateMu.Lock()
-	defer g.rateMu.Unlock()
-
-	// Create new rate limiters for new peers
-	for _, peer := range peers {
-		if _, exists := g.rateLimiters[peer]; !exists {
-			g.rateLimiters[peer] = NewRateLimiter(
-				g.config.RateLimit.MessagesPerSecond,
-				g.config.RateLimit.BurstSize,
-			)
-		}
-	}
-
-	// Clean up old rate limiters
-	for peer := range g.rateLimiters {
-		found := false
-		for _, p := range peers {
-			if p == peer {
-				found = true
-				break
-			}
-		}
-		if !found {
-			delete(g.rateLimiters, peer)
-		}
-	}
-}
-
 // checkRateLimit checks if a peer is rate limited
 func (g *GossipManager) checkRateLimit(peerID string) bool {
 	g.rateMu.RLock()
-	limiter, exists := g.rateLimiters[peerID]
-	g.rateMu.RUnlock()
+	defer g.rateMu.RUnlock()
 
-	if !exists {
-		// Create new limiter
-		g.rateMu.Lock()
-		limiter = NewRateLimiter(
-			g.config.RateLimit.MessagesPerSecond,
-			g.config.RateLimit.BurstSize,
-		)
-		g.rateLimiters[peerID] = limiter
-		g.rateMu.Unlock()
-	}
-
-	return limiter.Allow()
+	// Use the library's Allow method with peerID as key
+	return g.limiter.Allow(peerID)
 }
 
 // computeMessageID computes a unique ID for a message

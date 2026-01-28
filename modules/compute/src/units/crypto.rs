@@ -9,13 +9,13 @@ use chacha20poly1305::ChaCha20Poly1305;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256, Sha512};
+use subtle::ConstantTimeEq;
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
 use zeroize::Zeroizing;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-
 
 struct HostRng;
 
@@ -343,6 +343,50 @@ impl CryptoUnit {
 
         mac.update(input);
         Ok(Zeroizing::new(mac.finalize().into_bytes().to_vec()))
+    }
+
+    /// HMAC-SHA256 verification (constant-time)
+    fn hmac_sha256_verify(
+        &self,
+        input: &[u8],
+        params: &serde_json::Value,
+    ) -> Result<Zeroizing<Vec<u8>>, ComputeError> {
+        let tag_b64 = params["tag"]
+            .as_str()
+            .ok_or_else(|| ComputeError::InvalidParams("Missing tag".to_string()))?;
+
+        let tag = general_purpose::STANDARD
+            .decode(tag_b64)
+            .map_err(|_| ComputeError::InvalidParams("Invalid tag encoding".to_string()))?;
+
+        let computed_tag = self.hmac_sha256(input, params)?;
+
+        // Constant-time comparison
+        let is_valid = tag.ct_eq(&computed_tag);
+
+        Ok(Zeroizing::new(vec![if is_valid.into() { 1 } else { 0 }]))
+    }
+
+    /// HMAC-SHA512 verification (constant-time)
+    fn hmac_sha512_verify(
+        &self,
+        input: &[u8],
+        params: &serde_json::Value,
+    ) -> Result<Zeroizing<Vec<u8>>, ComputeError> {
+        let tag_b64 = params["tag"]
+            .as_str()
+            .ok_or_else(|| ComputeError::InvalidParams("Missing tag".to_string()))?;
+
+        let tag = general_purpose::STANDARD
+            .decode(tag_b64)
+            .map_err(|_| ComputeError::InvalidParams("Invalid tag encoding".to_string()))?;
+
+        let computed_tag = self.hmac_sha512(input, params)?;
+
+        // Constant-time comparison
+        let is_valid = tag.ct_eq(&computed_tag);
+
+        Ok(Zeroizing::new(vec![if is_valid.into() { 1 } else { 0 }]))
     }
 
     /// HMAC-SHA512 (constant-time verification)
@@ -698,7 +742,9 @@ impl UnitProxy for CryptoUnit {
             "sha512",
             "blake3",
             "hmac_sha256",
+            "hmac_sha256_verify",
             "hmac_sha512",
+            "hmac_sha512_verify",
             "aes256_gcm_encrypt",
             "aes256_gcm_decrypt",
             "chacha20_encrypt",
@@ -718,7 +764,7 @@ impl UnitProxy for CryptoUnit {
 
     async fn execute(
         &self,
-        method: &str,
+        action: &str, // Changed from method
         input: &[u8],
         params: &[u8],
     ) -> Result<Vec<u8>, ComputeError> {
@@ -730,7 +776,8 @@ impl UnitProxy for CryptoUnit {
         self.validate_input(input, &params)?;
 
         // Determine operation type for rate limiting
-        let operation = match method {
+        let operation = match action {
+            // Changed from method
             "ed25519_sign" => Operation::Sign,
             "ed25519_verify" => Operation::Verify,
             "aes256_gcm_encrypt" | "chacha20_encrypt" => Operation::Encrypt,
@@ -742,13 +789,16 @@ impl UnitProxy for CryptoUnit {
         self.rate_limiter.check_and_increment(operation)?;
 
         // Execute method (returns Zeroizing<Vec<u8>>)
-        let result = match method {
+        let result = match action {
+            // Changed from method
             // Hash functions
             "sha256" => Ok(self.sha256_secure(input)),
             "sha512" => Ok(self.sha512_secure(input)),
             "blake3" => Ok(self.blake3_secure(input)),
             "hmac_sha256" => self.hmac_sha256(input, &params),
+            "hmac_sha256_verify" => self.hmac_sha256_verify(input, &params),
             "hmac_sha512" => self.hmac_sha512(input, &params),
+            "hmac_sha512_verify" => self.hmac_sha512_verify(input, &params),
 
             // Symmetric encryption
             "aes256_gcm_encrypt" => self.aes256_gcm_encrypt(input, &params),
@@ -766,9 +816,9 @@ impl UnitProxy for CryptoUnit {
             "hkdf" => self.hkdf(&params),
             "argon2id" => self.argon2id(&params),
 
-            _ => Err(ComputeError::UnknownMethod {
-                library: "crypto".to_string(),
-                method: method.to_string(),
+            _ => Err(ComputeError::UnknownAction {
+                service: "crypto".to_string(),
+                action: action.to_string(),
             }),
         }?;
 
