@@ -31,6 +31,7 @@ export interface SystemStore {
   moduleExports: Record<string, any>;
   stats: KernelStats;
   error: Error | null;
+  sab: SharedArrayBuffer | null;
 
   // Actions
   initialize: (tier?: ResourceTier) => Promise<void>;
@@ -50,6 +51,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
   status: 'initializing',
   units: {},
   moduleExports: {},
+  sab: null,
   stats: {
     nodes: 1,
     particles: 1000,
@@ -135,7 +137,9 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
       );
 
       // 2. Start registry scanning (using SAB if memory is null)
-      const scanBuffer = memory ? memory.buffer : sabBase;
+      const scanBuffer = memory ? memory.buffer : sabBase; // eslint-disable-line
+      set({ sab: (window as any).__INOS_SAB__ || sabBase });
+
       const scannerId = setInterval(() => {
         if (window.__INOS_CONTEXT_ID__ !== currentContext) {
           console.log(`[System] 💀 Killing stale scanner: ${currentContext}`);
@@ -214,6 +218,22 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
           role: 'main',
           ready: true,
         });
+        (dispatchInternal as any).workers.set('drone:main', {
+          worker,
+          unit: 'drone',
+          role: 'main',
+          ready: true,
+        });
+
+        // Register capabilities immediately so UI doesn't have to wait for 2s scan loop
+        dispatch.register('boids', ['step_physics', 'init_population', 'evolve_batch']);
+        dispatch.register('math', [
+          'matrix_multiply',
+          'fft',
+          'interpolate',
+          'compute_instance_matrices',
+        ]);
+        dispatch.register('drone', ['init', 'step_physics']);
       }
       console.log('[System] ✅ Dispatcher initialized (Worker mode)');
 

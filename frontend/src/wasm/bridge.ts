@@ -74,9 +74,10 @@ export function createBaseEnv(heap: WasmHeap, getBuffer: GetBufferFn) {
       const msg = textDecoder.decode(view);
       const prefix = LOG_PREFIXES[level] || 'LOG';
 
-      if (level === 0) console.warn(`[WASM-${prefix}] ${msg}`);
-      else if (level <= 2) console.log(`[WASM-${prefix}] ${msg}`);
-      else console.debug(`[WASM-${prefix}] ${msg}`);
+      const style = 'color: #ea580c; font-weight: bold;'; // Orange for Rust
+      if (level === 0) console.warn(`%c[WASM-${prefix}]`, style, msg);
+      else if (level <= 2) console.log(`%c[WASM-${prefix}]`, style, msg);
+      else console.debug(`%c[WASM-${prefix}]`, style, msg);
     },
 
     // Array creation

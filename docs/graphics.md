@@ -264,6 +264,22 @@ class RenderBackend {
 - Perfect audio-visual sync (critical for VR)
 - Spatial audio based on boid positions
 
+### 10. Real-Time Simulation Pipeline (Grand Prix)
+**Opportunity**: Extend patterns to autonomous racing
+
+The same zero-copy architecture scales to real-time simulation:
+- **Control Input**: External algorithms write to SAB control buffer via WebSocket
+- **Batched Physics**: Single `step_all_drones()` updates 32 drones per call
+- **Ping-Pong State**: Physics writes to Buffer A, renderer reads Buffer B
+- **250Hz Physics / 60Hz Render**: Interpolation bridges the gap
+
+```
+External Control → Control Buffer → Compute Worker → State Buffer → Three.js
+    (WS/fetch)        (SAB)         (drone.rs)       (ping-pong)    (render)
+```
+
+This demonstrates INOS's value for **hard real-time** applications beyond visualization.
+
 ---
 
 ## Implementation Priority

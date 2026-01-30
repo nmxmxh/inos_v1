@@ -172,13 +172,14 @@ export class Dispatcher {
     library: string,
     method: string,
     params: object = {},
-    input: Uint8Array | null = null
+    input: Uint8Array | null = null,
+    forceSync: boolean = false
   ): Promise<Uint8Array | null> {
     // Check if we have a plugged worker for this library
     // Priority: role-specific worker (if any) > generic unit worker > local execution
     const workerRef = Array.from(this.workers.values()).find(w => w.unit === library);
 
-    if (workerRef && workerRef.ready) {
+    if (workerRef && workerRef.ready && !forceSync) {
       return this.executeOnWorker(workerRef.worker, library, method, params);
     }
 
@@ -278,10 +279,20 @@ export class Dispatcher {
         paramsBytes.length
       );
 
+      console.log(`[Dispatch] executeSync '${library}:${method}' returned ptr: ${resultPtr}`);
+
       if (resultPtr === 0) return null;
+
+      if (!this.memory) {
+        console.error('[DISPATCH-CRITICAL] Memory reference lost! Attempting recovery...');
+        this.memory = (window as any).__INOS_MEM__;
+        if (!this.memory) throw new Error('[DISPATCH-CRITICAL] Fatal: Compute memory unavailable');
+      }
 
       const resultView = new DataView(this.memory!.buffer);
       const outputLen = resultView.getUint32(resultPtr, true);
+      console.log(`[Dispatch] Output len: ${outputLen}`);
+
       const output = new Uint8Array(this.memory!.buffer, resultPtr + 4, outputLen);
       const finalResult = new Uint8Array(output);
 
@@ -307,11 +318,15 @@ export class Dispatcher {
           }
         } catch (e) {
           // Silent fail for notification - don't break the main loop
+          console.warn('[Dispatch] notifyEpochChange error:', e);
         }
       }
 
       if (this.exports.compute_free) {
+        console.log(`[Dispatch] Freeing result ptr: ${resultPtr}`);
         this.exports.compute_free(resultPtr, 4 + outputLen);
+      } else {
+        console.warn('[Dispatch] compute_free missing!');
       }
 
       return finalResult;
@@ -383,10 +398,11 @@ export const dispatch = {
     library: string,
     method: string,
     params: object = {},
-    input: Uint8Array | null = null
+    input: Uint8Array | null = null,
+    forceSync = false
   ) => {
     if (!instance) throw new Error('Dispatcher not initialized');
-    return instance.execute(library, method, params, input);
+    return instance.execute(library, method, params, input, forceSync);
   },
 
   json: <T = any>(library: string, method: string, params: object = {}) => {

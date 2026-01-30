@@ -723,6 +723,124 @@ export function Landing() {
               </Style.DeepDiveLink>
             </div>
           </Style.ContentCard>
+
+          <Style.ContentCard
+            style={{
+              marginTop: '4rem',
+              background:
+                'linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(16, 185, 129, 0.1) 100%)',
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                flexWrap: 'wrap',
+                gap: '2rem',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: '300px' }}>
+                <Style.Subtitle style={{ color: '#059669' }}>
+                  Experimental Case Study
+                </Style.Subtitle>
+                <Style.ChapterTitle>AI Grand Prix: Autonomous Racing</Style.ChapterTitle>
+                <p style={{ color: '#064e3b', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+                  A hard real-time simulation of <strong>32 autonomous drones</strong> with 6DOF
+                  physics updating at <strong>250Hz</strong>. INOS proves the Zero-Copy architecture
+                  by enabling external Python algorithms to control the swarm via WebSocket with{' '}
+                  <strong>&lt;2ms latency</strong>.
+                </p>
+
+                <Style.DeepDiveLink
+                  to="/grandprix"
+                  $color="#10b981"
+                  style={{
+                    display: 'inline-flex',
+                    width: 'auto',
+                    padding: '1rem 2rem',
+                    background: '#fff',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontWeight: 800, color: '#10b981', textTransform: 'uppercase' }}>
+                      Launch Simulation
+                    </span>
+                    <span style={{ fontSize: '1.2rem' }}>→</span>
+                  </div>
+                </Style.DeepDiveLink>
+              </div>
+
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: '280px',
+                  background: 'rgba(255,255,255,0.6)',
+                  padding: '1.5rem',
+                  borderRadius: '8px',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <h4
+                  style={{
+                    margin: '0 0 1rem 0',
+                    color: '#065f46',
+                    textTransform: 'uppercase',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  Performance Budget
+                </h4>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: '0.5rem',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  <span style={{ color: '#4b5563' }}>WebSocket → SAB</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>0.5ms</span>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: '0.5rem',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  <span style={{ color: '#4b5563' }}>Physics (32 Drones)</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'monospace' }}>1.0ms</span>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: '0.5rem',
+                    paddingTop: '0.5rem',
+                    borderTop: '1px solid rgba(0,0,0,0.1)',
+                  }}
+                >
+                  <span style={{ color: '#047857', fontWeight: 700 }}>Total Latency</span>
+                  <span style={{ fontWeight: 800, fontFamily: 'monospace', color: '#059669' }}>
+                    1.8ms
+                  </span>
+                </div>
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    fontStyle: 'italic',
+                    color: '#666',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  *Achieved via Worker Bypass & Ping-Pong Buffers
+                </div>
+              </div>
+            </div>
+          </Style.ContentCard>
         </Style.TOCSection>
       </Style.HeroSection>
 

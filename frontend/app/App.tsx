@@ -22,6 +22,7 @@ import Insight from './pages/Insight';
 import Architecture from './pages/Architecture';
 import History from './pages/History';
 import WhatsNext from './pages/WhatsNext';
+import GrandPrix from './pages/GrandPrix';
 
 // Deep Dives
 import {
@@ -157,6 +158,7 @@ export default function App() {
               <Route path="history" element={<History />} />
               <Route path="whats-next" element={<WhatsNext />} />
               <Route path="diagnostics" element={<Diagnostics />} />
+              <Route path="grandprix" element={<GrandPrix />} />
               {/* Deep Dives */}
               <Route path="deep-dives">
                 <Route path="performance" element={<Performance />} />

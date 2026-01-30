@@ -12,8 +12,8 @@ use engine::ComputeEngine;
 use log::{info, warn};
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
 use units::{
-    AudioUnit, BoidUnit, CryptoUnit, DataUnit, GpuUnit, ImageUnit, MathUnit, PhysicsEngine,
-    VideoUnit,
+    AudioUnit, BoidUnit, CryptoUnit, DataUnit, DroneUnit, GpuUnit, ImageUnit, MathUnit,
+    PhysicsEngine, VideoUnit,
 };
 
 // --- PERSISTENT SAB CACHE ---
@@ -49,6 +49,7 @@ fn initialize_engine() -> ComputeEngine {
     engine.register(Arc::new(GpuUnit::new()));
     engine.register(Arc::new(PhysicsEngine::new()));
     engine.register(Arc::new(BoidUnit::new()));
+    engine.register(Arc::new(DroneUnit::new()));
     engine.register(Arc::new(VideoUnit::new()));
     // NOTE: ApiProxy is NOT registered here - it's handled separately
     // due to browser API constraints (HTTP/WebSocket use non-Send types)
@@ -261,6 +262,13 @@ pub extern "C" fn compute_execute(
 
             let ptr = buffer.as_mut_ptr();
             std::mem::forget(buffer);
+
+            // let msg = format!(
+            //     "[compute_execute] Returning success ptr: {:p}, len: {}",
+            //     ptr,
+            //     output.len()
+            // );
+            // sdk::js_interop::console_log(&msg, 1);
             ptr
         }
         Err(e) => {
@@ -463,8 +471,10 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
         Err(e) => info!("Failed to auto-register compute: {:?}", e),
     }
 
-    // Register specialized 'boids' unit separately for legacy UI compatibility
+    // Register specialized units separately for legacy UI compatibility and direct unit routing
     register_simple("boids", 512, false);
+    register_simple("drone", 512, false);
+    register_simple("math", 512, false);
 
     // Signal registry change to wake Go discovery loop immediately
     sdk::registry::signal_registry_change(sab);
