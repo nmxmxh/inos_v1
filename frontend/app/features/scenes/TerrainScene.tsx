@@ -139,7 +139,6 @@ class SimplexNoise {
 
 function TerrainMesh() {
   const sab = useSAB();
-  const moduleExports = useSystemStore(s => s.moduleExports);
   const meshRef = useRef<THREE.Mesh>(null);
   const [seed] = useState(() => Math.floor(Math.random() * 10000));
   const noise = useMemo(() => new SimplexNoise(seed), [seed]);
@@ -195,7 +194,8 @@ function TerrainMesh() {
     const time = state.clock.elapsedTime * CONFIG.ANIMATION_SPEED;
 
     // Dispatch 1: Terrain Perlin Base (Run periodically)
-    const shouldGpuTerrain = moduleExports?.compute && time - lastGpuUpdate.current > 1.0;
+    const shouldGpuTerrain =
+      dispatch.has('gpu', 'perlin_noise') && time - lastGpuUpdate.current > 1.0;
     if (shouldGpuTerrain) {
       try {
         dispatch.execute('gpu', 'perlin_noise', {
@@ -280,7 +280,6 @@ function TerrainMesh() {
 
 function CloudLayer() {
   const sab = useSAB();
-  const moduleExports = useSystemStore(s => s.moduleExports);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastUpdate = useRef(0);
 
@@ -313,7 +312,7 @@ function CloudLayer() {
     const cloudMap = getArenaView(sab, SCENE_OFFSETS.CLOUD_MAP, SCENE_OFFSETS.CLOUD_SIZE);
 
     // Dispatch 2: Fractal Noise for animated clouds
-    if (moduleExports?.compute && time - lastUpdate.current > 0.1) {
+    if (dispatch.has('gpu', 'fractal_noise') && time - lastUpdate.current > 0.1) {
       dispatch.execute('gpu', 'fractal_noise', {
         width: CONFIG.CLOUD_GRID,
         height: CONFIG.CLOUD_GRID,

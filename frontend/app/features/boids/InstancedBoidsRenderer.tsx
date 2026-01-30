@@ -178,25 +178,29 @@ export default function InstancedBoidsRenderer({ variant = 'bird' }: Props) {
 
   useEffect(() => {
     if (status === 'ready') {
-      console.log('[BoidsFlock] Initializing boids population and plugging workers');
-      dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
+      const init = async () => {
+        console.log('[BoidsFlock] Initializing boids population and plugging workers');
+        dispatch.execute('boids', 'init_population', { bird_count: CONFIG.BIRD_COUNT });
 
-      // Plug Boids Physics into an autonomous worker
-      dispatch.plug('boids', 'simulation', {
-        bird_count: CONFIG.BIRD_COUNT,
-        dt: 0.016, // Fixed DT for autonomous loop (approx 60fps)
-        library: 'boids',
-        method: 'step_physics',
-      });
+        // Plug Boids Physics into an autonomous worker
+        dispatch.plug('boids', 'simulation', {
+          bird_count: CONFIG.BIRD_COUNT,
+          dt: 0.016, // Fixed DT for autonomous loop (approx 60fps)
+          library: 'boids',
+          method: 'step_physics',
+        });
 
-      // Plug Matrix Compute into another autonomous worker
-      dispatch.plug('math', 'projection', {
-        count: CONFIG.BIRD_COUNT,
-        source_offset: CONFIG.SAB_OFFSET,
-        pivots: [],
-        library: 'math',
-        method: 'compute_instance_matrices',
-      });
+        // Plug Matrix Compute into another autonomous worker
+        dispatch.plug('math', 'projection', {
+          count: CONFIG.BIRD_COUNT,
+          source_offset: CONFIG.SAB_OFFSET,
+          pivots: [],
+          library: 'math',
+          method: 'compute_instance_matrices',
+        });
+      };
+
+      init();
     }
   }, [status]);
 

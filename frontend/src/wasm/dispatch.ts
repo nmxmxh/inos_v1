@@ -1,5 +1,5 @@
 import { getSAB, getMemory } from './bridge-state';
-import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH } from './layout';
+import { IDX_BIRD_EPOCH, IDX_MATRIX_EPOCH, IDX_REGISTRY_EPOCH } from './layout';
 
 // Vite worker import syntax
 import ComputeWorkerUrl from './compute.worker.ts?worker&url';
@@ -54,9 +54,78 @@ export class Dispatcher {
    */
   hasCapability(unit: string, method?: string): boolean {
     const methods = this.capabilities.get(unit);
-    if (!methods) return false;
-    if (method && !methods.includes(method)) return false;
-    return true;
+    if (methods && (!method || methods.includes(method))) return true;
+
+    // Cross-module discovery: check if this unit:method is provided by generic module
+    if (method) {
+      const fullCap = `${unit}:${method}`;
+      for (const m of this.capabilities.values()) {
+        if (m.includes(fullCap)) return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Wait for a specific capability to become available via registry epochs.
+   * This uses zero-CPU signaling (Atomics.waitAsync) to avoid polling.
+   */
+  async waitForCapability(
+    unit: string,
+    method?: string,
+    timeoutMs: number = 10000
+  ): Promise<boolean> {
+    if (this.hasCapability(unit, method)) return true;
+
+    const sab = getSAB() || (window as any).__INOS_SAB__;
+    if (!sab) {
+      console.warn(
+        '[Dispatch] waitForCapability: SAB not available yet, falling back to brief sleep'
+      );
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return this.hasCapability(unit, method);
+    }
+
+    const flags = new Int32Array(sab, 0, 32);
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      if (this.hasCapability(unit, method)) return true;
+
+      // Small initial yield to allow registry reader to finish first pass
+      await new Promise(resolve => setTimeout(resolve, 50));
+      if (this.hasCapability(unit, method)) return true;
+
+      const currentEpoch = Atomics.load(flags, IDX_REGISTRY_EPOCH);
+
+      // Using Atomics.waitAsync (Stage 3/4 JS, supported in modern Chrome/Safari/Firefox)
+      // This allows the main thread to "wait" without blocking.
+      if (typeof (Atomics as any).waitAsync === 'function') {
+        const result = (Atomics as any).waitAsync(
+          flags,
+          IDX_REGISTRY_EPOCH,
+          currentEpoch,
+          timeoutMs - (Date.now() - start)
+        );
+        await result.value;
+      } else {
+        // Fallback for older browsers (standard promise sleep)
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
+      // After a signal, the registry epoch changed. The SystemStore should have updated us.
+      // Small yield to allow SystemStore's scan to complete if it's on the same thread.
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+
+    const success = this.hasCapability(unit, method);
+    if (!success) {
+      console.warn(
+        `[Dispatch] Timeout waiting for capability: ${unit}${method ? ':' + method : ''}`
+      );
+    }
+    return success;
   }
 
   /**
@@ -81,13 +150,15 @@ export class Dispatcher {
     for (let i = 0; i < parallel; i++) {
       const workerId = parallel > 1 ? `${unit}:${role}:${i}` : `${unit}:${role}`;
 
-      if (this.workers.has(workerId)) {
-        const ref = this.workers.get(workerId)!;
-        workerRefs.push(ref);
-        // FORCE PARAMETER UPDATE FOR EXISTING WORKER
-        // This stops the old loop and starts a new one with fresh slicing params.
-        if (ref.ready) {
-          ref.worker.postMessage({
+      // Intelligent Reuse: Check if we already have a worker that provides this unit/role
+      // Or if the unit 'compute' already provides the capability and is available for this role.
+      let workerRef = this.getWorkerForRole(unit, role);
+
+      if (workerRef) {
+        workerRefs.push(workerRef);
+        // Force parameter update if role params changed
+        if (workerRef.ready) {
+          workerRef.worker.postMessage({
             type: 'start_role_loop',
             role,
             params: { ...params, index: i, parallel },
@@ -98,9 +169,9 @@ export class Dispatcher {
 
       console.log(`[Dispatch] Spawning worker ${i + 1}/${parallel} for ${unit} (role: ${role})`);
       const worker = new Worker(ComputeWorkerUrl, { type: 'module' });
-      const workerRef: WorkerRef = { worker, unit, role, ready: false };
-      this.workers.set(workerId, workerRef);
-      workerRefs.push(workerRef);
+      const newWorkerRef: WorkerRef = { worker, unit, role, ready: false };
+      this.workers.set(workerId, newWorkerRef);
+      workerRefs.push(newWorkerRef);
 
       // Initialize each worker
       const initPromise = new Promise<void>((resolve, reject) => {
@@ -109,7 +180,7 @@ export class Dispatcher {
 
           switch (type) {
             case 'ready':
-              workerRef.ready = true;
+              newWorkerRef.ready = true;
               // Transition to the requested role with partition info
               worker.postMessage({
                 type: 'start_role_loop',
@@ -175,12 +246,44 @@ export class Dispatcher {
     input: Uint8Array | null = null,
     forceSync: boolean = false
   ): Promise<Uint8Array | null> {
-    // Check if we have a plugged worker for this library
-    // Priority: role-specific worker (if any) > generic unit worker > local execution
-    const workerRef = Array.from(this.workers.values()).find(w => w.unit === library);
+    // Priority:
+    // 1. Worker specifically assigned this role (unit-mode)
+    // 2. Generic worker providing the capability (capability-mode)
+    let workerRef = this.getWorkerForRole(library, method.split('_')[0] || ''); // Try to infer role
+
+    if (!workerRef) {
+      workerRef = Array.from(this.workers.values()).find(
+        w => w.unit === library || this.hasCapability(w.unit, `${library}:${method}`)
+      );
+    }
 
     if (workerRef && workerRef.ready && !forceSync) {
       return this.executeOnWorker(workerRef.worker, library, method, params);
+    }
+
+    // Split Memory Mode Protection:
+    // If we have no local exports, we CANNOT fall back to executeSync.
+    // We must wait for a worker or throw a specific error.
+    if (!this.exports) {
+      console.warn(
+        `[Dispatch] '${library}:${method}' requested but no worker ready and no local exports.`
+      );
+
+      // Try for 2 seconds to see if a worker pops up (e.g. during boot)
+      const start = Date.now();
+      while (Date.now() - start < 2000) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const retryWorker = Array.from(this.workers.values()).find(
+          w => w.unit === library || this.hasCapability(w.unit, `${library}:${method}`)
+        );
+        if (retryWorker && retryWorker.ready) {
+          return this.executeOnWorker(retryWorker.worker, library, method, params);
+        }
+      }
+
+      throw new Error(
+        `[Dispatch] Cannot execute '${library}:${method}': No workers ready and local execution unavailable.`
+      );
     }
 
     // Fallback to local synchronous execution
@@ -367,30 +470,46 @@ export class Dispatcher {
     }
     this.workers.clear();
   }
+
+  initialize(exports: any, memory: WebAssembly.Memory) {
+    this.exports = exports;
+    this.memory = memory;
+    console.log('[Dispatch] Instance setup complete (memory attached)');
+  }
+
+  private getWorkerForRole(unit: string, role: string): WorkerRef | undefined {
+    return Array.from(this.workers.values()).find(
+      w =>
+        (w.unit === unit && w.role === role) ||
+        (this.hasCapability(w.unit, unit) && w.role === role)
+    );
+  }
 }
 
 // Global dispatcher instance
-let instance: Dispatcher | null = null;
+let instance = new Dispatcher();
 
 export const dispatch = {
   internal: () => instance,
 
   initialize: (exports: any, memory: WebAssembly.Memory) => {
-    instance = new Dispatcher(exports, memory);
+    instance.initialize(exports, memory);
     return instance;
   },
 
   register: (unit: string, methods: string[]) => {
-    instance?.registerUnit(unit, methods);
+    instance.registerUnit(unit, methods);
   },
 
-  has: (unit: string, method?: string) => instance?.hasCapability(unit, method) || false,
+  has: (unit: string, method?: string) => instance.hasCapability(unit, method) || false,
+
+  waitUntilReady: (unit: string, method?: string, timeout?: number) =>
+    instance.waitForCapability(unit, method, timeout),
 
   /**
    * Dedicated background unit registration
    */
   plug: (unit: string, role: string, params: object = {}) => {
-    if (!instance) instance = new Dispatcher(); // Lazy init if no local exports
     return instance.plug(unit, role, params);
   },
 
@@ -401,16 +520,14 @@ export const dispatch = {
     input: Uint8Array | null = null,
     forceSync = false
   ) => {
-    if (!instance) throw new Error('Dispatcher not initialized');
     return instance.execute(library, method, params, input, forceSync);
   },
 
   json: <T = any>(library: string, method: string, params: object = {}) => {
-    if (!instance) throw new Error('Dispatcher not initialized');
     return instance.json<T>(library, method, params);
   },
 
-  shutdown: () => instance?.shutdown(),
+  shutdown: () => instance.shutdown(),
 };
 
 export default dispatch;

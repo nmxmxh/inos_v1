@@ -137,6 +137,11 @@ impl ComputeEngine {
         self.units.insert(name, unit);
     }
 
+    /// Get a unit by name
+    pub fn get_unit(&self, name: &str) -> Option<Arc<dyn UnitProxy + Send + Sync>> {
+        self.units.get(name).cloned()
+    }
+
     /// Generate canonical capability registry at 0x001000
     /// Returns a list of "{service}:{action}:v1"
     pub fn generate_capability_registry(&self) -> Vec<String> {

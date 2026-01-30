@@ -70,18 +70,9 @@ export default function GrandPrix() {
     if (!sab || status !== 'ready' || initializedRef.current) return;
 
     const init = async () => {
-      // WAIT STRATEGY: Poll until the 'drone' unit is registered by the worker.
-      // This ensures the worker is hot and message-ready, avoiding startup race conditions.
-      setLoadingStep('Waiting for Worker...');
-      let retries = 0;
-      while (!dispatch.has('drone', 'init')) {
-        if (retries++ > 100) throw new Error('Compute Worker failed to register "drone" unit');
-        await new Promise(r => setTimeout(r, 100)); // 100ms poll
-      }
-
       initializedRef.current = true; // Mark as running only after we confirm readiness
       setLoadingStep('Initializing Drone Physics...');
-      console.log('[GrandPrix] Worker ready. Starting initialization sequence...');
+      console.log('[GrandPrix] System ready. Starting initialization sequence...');
 
       try {
         // 1. Initialize State (Async to Worker, but guaranteed ready now)

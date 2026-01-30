@@ -9,7 +9,7 @@ getrandom::register_custom_getrandom!(sdk::js_interop::getrandom_custom);
 pub mod benchmarks;
 
 use engine::ComputeEngine;
-use log::{info, warn};
+use log::info;
 use sdk::{Epoch, Reactor, IDX_SYSTEM_EPOCH};
 use units::{
     AudioUnit, BoidUnit, CryptoUnit, DataUnit, DroneUnit, GpuUnit, ImageUnit, MathUnit,
@@ -82,66 +82,39 @@ pub extern "C" fn compute_free(ptr: *mut u8, size: usize) {
 /// Standardized Initialization with SharedArrayBuffer
 #[no_mangle]
 pub extern "C" fn compute_init_with_sab() -> i32 {
-    // Use stable ABI to get global object
     let global = sdk::js_interop::get_global();
-    sdk::js_interop::console_log("[compute] Init: Global object retrieved", 3);
-
     let sab_key = sdk::js_interop::create_string("__INOS_SAB__");
     let sab_val = sdk::js_interop::reflect_get(&global, &sab_key);
-    sdk::js_interop::console_log("[compute] Init: SAB Value retrieved", 3);
-
     let offset_key = sdk::js_interop::create_string("__INOS_SAB_OFFSET__");
     let offset_val = sdk::js_interop::reflect_get(&global, &offset_key);
-
     let size_key = sdk::js_interop::create_string("__INOS_SAB_SIZE__");
     let size_val = sdk::js_interop::reflect_get(&global, &size_key);
-
     let id_key = sdk::js_interop::create_string("__INOS_MODULE_ID__");
     let id_val = sdk::js_interop::reflect_get(&global, &id_key);
 
     if let (Ok(val), Ok(off), Ok(sz), Ok(id)) = (sab_val, offset_val, size_val, id_val) {
-        sdk::js_interop::console_log("[compute] Init: All values retrieved successfully", 3);
         if !val.is_undefined() && !val.is_null() {
-            sdk::js_interop::console_log("[compute] Init: SAB is defined and not null", 3);
             let offset = sdk::js_interop::as_f64(&off).unwrap_or(0.0) as u32;
             let size = sdk::js_interop::as_f64(&sz).unwrap_or(0.0) as u32;
             let module_id = sdk::js_interop::as_f64(&id).unwrap_or(0.0) as u32;
 
-            // Create TWO SafeSAB references:
-            // 1. Scoped view for module data (offset-based)
-            let _module_sab = sdk::sab::SafeSAB::new_shared_view(&val, offset, size);
-            // 2. Global SAB for registry and buffer writes (uses absolute layout offsets)
             let global_sab = sdk::sab::SafeSAB::new(&val);
-
-            // Set global identity context
             sdk::set_module_id(module_id);
             sdk::identity::init_identity_from_js();
-
             sdk::init_logging();
-
-            // Set global barrier view for zero-copy context verification
             sdk::sab::set_global_barrier_view(global_sab.barrier_view().clone());
-
-            // Capture the initial context ID to prevent zombie execution
             sdk::init_context();
 
             info!("Compute module initialized (ID: {}) with synchronized SAB bridge (Offset: 0x{:x}, Size: {}MB)", 
                 module_id, offset, size / 1024 / 1024);
 
-            // CACHE THE SAB for high-frequency access
             set_cached_sab(global_sab.clone());
-
-            // Trigger registration of capabilities using GLOBAL SAB
             register_compute_capabilities(&global_sab);
 
-            return 1; // success
-        } else {
-            sdk::js_interop::console_log("[compute] Init FAILED: SAB is undefined or null", 1);
+            return 1;
         }
-    } else {
-        sdk::js_interop::console_log("[compute] Init FAILED: Could not retrieve global values", 1);
     }
-    0 // failure
+    0
 }
 
 // --- GENERIC UNIT DISPATCHER ---
@@ -391,71 +364,20 @@ pub struct ComputeKernel {
 fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
     use sdk::registry::*;
 
-    // Helper to register simple modules
-    let register_simple = |id: &str, mem: u16, gpu: bool| {
-        let mut builder = ModuleEntryBuilder::new(id).version(1, 4, 3);
-        builder = builder.capability("image", gpu, mem);
-        builder = builder.capability("video", gpu, mem);
-        builder = builder.capability("audio", gpu, mem);
-        builder = builder.capability("crypto", gpu, mem);
-        builder = builder.capability("data", gpu, mem);
-        builder = builder.capability("gpu_shader", gpu, 4096);
-
-        match builder.build() {
-            Ok((mut entry, _, caps)) => {
-                // No deps in simple mode
-                if let Ok(offset) = write_capability_table(sab, &caps) {
-                    info!(
-                        "[VERIFY] Cap table written to offset 0x{:x}, {} entries",
-                        offset,
-                        caps.len()
-                    );
-
-                    // Immediately verify the write by reading back
-                    if let Ok(verify_data) = sab.read(offset as usize, 16) {
-                        info!("[VERIFY] First 16 bytes after write: {:02x?}", verify_data);
-
-                        // Check if first 4 bytes are the capability name or zeros
-                        if verify_data[0] == 0
-                            && verify_data[1] == 0
-                            && verify_data[2] == 0
-                            && verify_data[3] == 0
-                        {
-                            warn!("[VERIFY] ⚠️  CORRUPTION DETECTED: First 4 bytes are zeros immediately after write!");
-                        } else {
-                            info!("[VERIFY] ✓ Data intact: first 4 bytes = {:02x} {:02x} {:02x} {:02x}", 
-                                verify_data[0], verify_data[1], verify_data[2], verify_data[3]);
-                        }
-                    }
-
-                    entry.cap_table_offset = offset;
-                }
-                if let Ok((slot, _)) = find_slot_double_hashing(sab, id) {
-                    if let Err(e) = write_enhanced_entry(sab, slot, &entry) {
-                        info!("Failed to write module {}: {}", id, e);
-                    } else {
-                        info!("Registered module {} at slot {}", id, slot);
-                    }
-                }
-            }
-            Err(e) => info!("Failed to build module {}: {:?}", id, e),
-        }
-    };
-
     // Register core modules provided by this kernel
     // Dynamically register all units from the engine
     let engine = get_engine();
     let capabilities = engine.generate_capability_registry();
 
-    let mut builder = ModuleEntryBuilder::new("compute").version(1, 5, 0);
+    let mut builder = ModuleEntryBuilder::new("compute").version(1, 6, 0);
     // Add all discovered capabilities to the 'compute' module entry
-    // In a production system, these might be separate modules, but for the monolithic kernel
-    // we export them through the primary discovery unit.
+    // These are registered as "service:action" for strictly generic discovery.
     for cap_str in &capabilities {
         // cap_str is "service:action:v1"
         let parts: Vec<&str> = cap_str.split(':').collect();
         if parts.len() >= 2 {
-            builder = builder.capability(parts[1], false, 512);
+            let cap_name = format!("{}:{}", parts[0], parts[1]);
+            builder = builder.capability(&cap_name, false, 512);
         }
     }
 
@@ -466,21 +388,17 @@ fn register_compute_capabilities(sab: &sdk::sab::SafeSAB) {
             }
             if let Ok((slot, _)) = find_slot_double_hashing(sab, "compute") {
                 let _ = write_enhanced_entry(sab, slot, &entry);
+                info!(
+                    "[Compute] Registered 0x{:x} generic capabilities to 'compute' module",
+                    capabilities.len()
+                );
             }
         }
         Err(e) => info!("Failed to auto-register compute: {:?}", e),
     }
 
-    // Register specialized units separately for legacy UI compatibility and direct unit routing
-    register_simple("boids", 512, false);
-    register_simple("drone", 512, false);
-    register_simple("math", 512, false);
-
-    // Signal registry change to wake Go discovery loop immediately
+    // Signal registry change to wake any listeners (SystemStore epoch watcher)
     sdk::registry::signal_registry_change(sab);
-
-    // Note: specialized units (ml, storage/vault, etc.) register themselves via their own WASM binaries.
-    // We do NOT register them here to avoid registry collisions.
 }
 
 impl ComputeKernel {

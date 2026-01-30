@@ -4,6 +4,7 @@ import { resolveMeshBootstrapConfig } from '../wasm/mesh';
 import { loadAllModules, loadModule } from '../wasm/module-loader';
 import { RegistryReader } from '../wasm/registry';
 import { dispatch } from '../wasm/dispatch';
+import { IDX_REGISTRY_EPOCH } from '../wasm/layout';
 
 export interface KernelStats {
   nodes: number;
@@ -121,121 +122,117 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
     try {
       console.log(`[System] Initializing INOS (Tier: ${tier})...`);
 
-      // 1. Initialize kernel
+      // 1. Parallelize Kernel & Compute Worker Spawning
       const meshConfig = resolveMeshBootstrapConfig();
-      const { memory, sabBase } = await initializeKernel(tier, meshConfig);
 
-      // Memory might be null on main-thread if kernel is isolated in a worker (Split Memory Mode)
-      // This is expected and should not halt initialization.
-      if (memory) {
-        (window as any).__INOS_MEM__ = memory;
-      }
+      console.log('[System] Launching parallel boot sequence...');
 
-      const currentContext = window.__INOS_CONTEXT_ID__;
-      console.log(
-        `[System] ✅ Kernel initialized (Context: ${currentContext}, Mode: ${memory ? 'Unified' : 'Split'})`
-      );
+      const bootTasks = async () => {
+        // Task A: Kernel Initialization
+        const kernelPromise = initializeKernel(tier, meshConfig);
 
-      // 2. Start registry scanning (using SAB if memory is null)
-      const scanBuffer = memory ? memory.buffer : sabBase; // eslint-disable-line
-      set({ sab: (window as any).__INOS_SAB__ || sabBase });
+        // Task B: Compute Worker Spawning (Concurrently)
+        const workerPromise = (async () => {
+          const ComputeWorker = await import('../wasm/compute.worker.ts?worker');
+          const worker = new ComputeWorker.default();
+          return worker;
+        })();
 
-      const scannerId = setInterval(() => {
-        if (window.__INOS_CONTEXT_ID__ !== currentContext) {
-          console.log(`[System] 💀 Killing stale scanner: ${currentContext}`);
-          clearInterval(scannerId);
-          return;
+        const [kernelResult, worker] = await Promise.all([kernelPromise, workerPromise]);
+        const { memory, sabBase } = kernelResult;
+        const systemSAB = (window as any).__INOS_SAB__ || sabBase;
+        const sabOffset = (window as any).__INOS_SAB_OFFSET__ || 0;
+        const contextId = window.__INOS_CONTEXT_ID__;
+
+        if (memory) {
+          (window as any).__INOS_MEM__ = memory;
         }
+        set({ sab: systemSAB });
+
+        console.log(`[System] ✅ Kernel & Worker spawned (Context: ${contextId})`);
+
+        // 2. Immediate Dispatcher Setup (Stabilize early!)
+        dispatch.initialize(null as any, memory || ({} as any));
+
+        // 3. Worker Initialization
+        await new Promise<void>((resolve, reject) => {
+          worker.onmessage = (event: MessageEvent) => {
+            if (event.data.type === 'ready') {
+              console.log('[System] ✅ Compute Worker ready');
+              resolve();
+            } else if (event.data.type === 'error') {
+              reject(new Error(event.data.error));
+            }
+          };
+          worker.onerror = reject;
+          worker.postMessage({
+            type: 'init',
+            sab: systemSAB,
+            sabOffset,
+            sabSize: systemSAB.byteLength,
+            identity: meshConfig.identity,
+          });
+        });
+
+        // 4. specialized worker role registration
+        const di = dispatch.internal();
+        if (di) {
+          (di as any).workers.set('compute:main', {
+            worker,
+            unit: 'compute',
+            role: 'main',
+            ready: true,
+          });
+        }
+
+        // 6. Diagnostics Module (Main Thread)
+        let loadedModules = {};
+        if (memory) {
+          loadedModules = await loadAllModules(memory);
+          console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
+        }
+
+        return { memory, sabBase, worker, loadedModules, contextId };
+      };
+
+      const { memory, sabBase, loadedModules, contextId: currentContext } = await bootTasks();
+      const scanBuffer = memory ? memory.buffer : sabBase;
+
+      // Efficient Registry Watcher: Replaces 2s polling with Atomics.waitAsync signaling
+      // CRITICAL: Must be started before we wait for capabilities!
+      const startRegistryWatcher = async () => {
+        const sab = (window as any).__INOS_SAB__ || sabBase;
+        const flags = new Int32Array(sab, 0, 32);
+
+        // Initial scan immediately
         get().scanRegistry(scanBuffer);
-      }, 2000);
 
-      get().scanRegistry(scanBuffer);
+        while (window.__INOS_CONTEXT_ID__ === currentContext) {
+          const currentEpoch = Atomics.load(flags, IDX_REGISTRY_EPOCH);
 
-      // 3. Load modules (diagnostics only - compute is in worker)
-      // If we don't have shared system memory, we skip loading on main thread or provide local memory
-      let loadedModules = {};
-      if (memory) {
-        loadedModules = await loadAllModules(memory);
-        console.log('[System] ✅ Modules loaded:', Object.keys(loadedModules));
-      } else {
-        console.log('[System] ⚠️ Split Memory Mode: Skipping main-thread module loading');
-      }
-
-      // 4. Initialize Dispatcher (will route to worker once spawned)
-      // We spawn a compute worker that handles all physics/math
-      const systemSAB = (window as any).__INOS_SAB__ || sabBase;
-      const sabOffset = (window as any).__INOS_SAB_OFFSET__ || 0;
-
-      // Import and spawn compute worker
-      const ComputeWorker = await import('../wasm/compute.worker.ts?worker');
-      const worker = new ComputeWorker.default();
-
-      // Initialize worker with SAB (Memory is created inside worker)
-      await new Promise<void>((resolve, reject) => {
-        worker.onmessage = (event: MessageEvent) => {
-          if (event.data.type === 'ready') {
-            console.log('[System] ✅ Compute Worker ready');
-            resolve();
-          } else if (event.data.type === 'error') {
-            reject(new Error(event.data.error));
+          if (typeof (Atomics as any).waitAsync === 'function') {
+            const result = (Atomics as any).waitAsync(flags, IDX_REGISTRY_EPOCH, currentEpoch);
+            await result.value;
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-        };
-        worker.onerror = reject;
-        worker.postMessage({
-          type: 'init',
-          sab: systemSAB,
-          sabOffset,
-          sabSize: systemSAB.byteLength,
-          identity: meshConfig.identity,
-        });
-      });
 
-      // Store worker reference for dispatch routing
-      (window as any).__INOS_COMPUTE_WORKER__ = worker;
+          // Scan after signal
+          get().scanRegistry(scanBuffer);
+        }
+      };
 
-      // Initialize dispatcher without local exports - will create worker route
-      dispatch.initialize(null as any, memory || ({} as any));
+      // Start the watcher background loop immediately
+      startRegistryWatcher();
 
-      // Register the worker route manually
-      const dispatchInternal = dispatch.internal();
-      if (dispatchInternal) {
-        (dispatchInternal as any).workers.set('compute:main', {
-          worker,
-          unit: 'boids',
-          role: 'main',
-          ready: true,
-        });
-        // Also register math/boids units as available
-        (dispatchInternal as any).workers.set('boids:main', {
-          worker,
-          unit: 'boids',
-          role: 'main',
-          ready: true,
-        });
-        (dispatchInternal as any).workers.set('math:main', {
-          worker,
-          unit: 'math',
-          role: 'main',
-          ready: true,
-        });
-        (dispatchInternal as any).workers.set('drone:main', {
-          worker,
-          unit: 'drone',
-          role: 'main',
-          ready: true,
-        });
-
-        // Register capabilities immediately so UI doesn't have to wait for 2s scan loop
-        dispatch.register('boids', ['step_physics', 'init_population', 'evolve_batch']);
-        dispatch.register('math', [
-          'matrix_multiply',
-          'fft',
-          'interpolate',
-          'compute_instance_matrices',
-        ]);
-        dispatch.register('drone', ['init', 'step_physics']);
+      // Ensure holistic readiness before proceeding to 'ready' status
+      const di = dispatch.internal();
+      if (di) {
+        console.log('[System] Verifying holistic readiness...');
+        await di.waitForCapability('compute');
       }
-      console.log('[System] ✅ Dispatcher initialized (Worker mode)');
+
+      console.log('[System] ✅ System is READY.');
 
       // 4. Update state
       set({

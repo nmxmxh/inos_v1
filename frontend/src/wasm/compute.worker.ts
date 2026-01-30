@@ -150,7 +150,7 @@ async function loadModuleInWorker(
   };
 
   moduleInstances.set(name, moduleExports);
-  console.log(`[ComputeWorker] Loaded: ${name}`);
+  console.log(`[ComputeWorker] ✅ Module '${name}' ready for execution`);
 
   return moduleExports;
 }
@@ -345,10 +345,12 @@ self.onmessage = async (event: MessageEvent<any>) => {
           }
         }
 
-        // Load modules
+        // Load modules (only if not already loaded)
         for (const name of ['compute', 'diagnostics']) {
-          const mod = await loadModuleInWorker(name, _memory!);
-          _modules[name] = mod;
+          if (!moduleInstances.has(name)) {
+            const mod = await loadModuleInWorker(name, _memory!);
+            _modules[name] = mod;
+          }
         }
 
         if (_modules.compute) {
