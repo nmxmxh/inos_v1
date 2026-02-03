@@ -25,11 +25,18 @@ const DRONE_COLORS = [
 ];
 
 const MAX_MOTOR_RPM = 35000;
-const ARM_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4];
-const ARM_LENGTH = 0.72;
-const MOTOR_RADIUS = 0.12;
-const PROP_RADIUS = 0.32;
+// Motor order: front-right, front-left, back-left, back-right (matches physics)
+const ARM_ANGLES = [
+  (7 * Math.PI) / 4,
+  (5 * Math.PI) / 4,
+  (3 * Math.PI) / 4,
+  Math.PI / 4,
+];
+const ARM_LENGTH = 0.11;
+const MOTOR_RADIUS = 0.016;
+const PROP_RADIUS = 0.0635;
 const RPM_TO_RAD = (Math.PI * 2) / 60;
+const MOTOR_DIR = [1, -1, 1, -1];
 
 const dummyObject = new THREE.Object3D();
 const tempQuat = new THREE.Quaternion();
@@ -66,12 +73,12 @@ export default function DroneModel() {
   );
 
   const geometry = useMemo(() => {
-    const body = new THREE.BoxGeometry(0.7, 0.18, 0.7);
-    const canopy = new THREE.CapsuleGeometry(0.18, 0.26, 4, 8);
-    const arm = new THREE.CylinderGeometry(0.04, 0.05, ARM_LENGTH, 10);
-    const motor = new THREE.CylinderGeometry(MOTOR_RADIUS, MOTOR_RADIUS * 0.9, 0.09, 16);
+    const body = new THREE.BoxGeometry(0.22, 0.05, 0.22);
+    const canopy = new THREE.CapsuleGeometry(0.08, 0.12, 4, 8);
+    const arm = new THREE.CylinderGeometry(0.01, 0.012, ARM_LENGTH, 10);
+    const motor = new THREE.CylinderGeometry(MOTOR_RADIUS, MOTOR_RADIUS * 0.9, 0.03, 16);
     const prop = new THREE.CircleGeometry(PROP_RADIUS, 20);
-    const led = new THREE.SphereGeometry(0.04, 10, 10);
+    const led = new THREE.SphereGeometry(0.015, 10, 10);
 
     arm.rotateZ(Math.PI / 2);
     prop.rotateX(-Math.PI / 2);
@@ -208,7 +215,7 @@ export default function DroneModel() {
         }
 
         if (canopyRef.current) {
-          dummyObject.position.set(px, py + 0.06, pz + 0.05);
+          dummyObject.position.set(px, py + 0.03, pz + 0.03);
           dummyObject.quaternion.copy(tempQuat);
           dummyObject.scale.set(1, 1, 1);
           dummyObject.updateMatrix();
@@ -232,7 +239,7 @@ export default function DroneModel() {
               armRef.current.setMatrixAt(armIndex, dummyObject.matrix);
             }
 
-            tempVec.set(armOffset.x, 0.03, armOffset.z);
+            tempVec.set(armOffset.x, 0.015, armOffset.z);
             tempVec.applyQuaternion(tempQuat);
 
             if (motorRef.current) {
@@ -245,7 +252,7 @@ export default function DroneModel() {
 
             if (ledRef.current) {
               const ledIndex = i * 4 + a;
-              dummyObject.position.set(px + tempVec.x, py + tempVec.y + 0.05, pz + tempVec.z);
+              dummyObject.position.set(px + tempVec.x, py + tempVec.y + 0.02, pz + tempVec.z);
               dummyObject.quaternion.copy(tempQuat);
               dummyObject.scale.set(1, 1, 1);
               dummyObject.updateMatrix();
@@ -285,10 +292,10 @@ export default function DroneModel() {
           const armOffset = armOffsets[a];
           const rpm = caches.rpm[rBase + a] || 12000;
           const spin = time * rpm * RPM_TO_RAD;
-          const spinDirection = a % 2 === 0 ? 1 : -1;
-          const blurScale = 0.72 + (rpm / MAX_MOTOR_RPM) * 0.35;
+          const spinDirection = MOTOR_DIR[a] ?? 1;
+          const blurScale = 0.55 + (rpm / MAX_MOTOR_RPM) * 0.35;
 
-          tempVec.set(armOffset.x, 0.06, armOffset.z);
+          tempVec.set(armOffset.x, 0.025, armOffset.z);
           tempVec.applyQuaternion(tempQuat);
 
           dummyObject.position.set(px + tempVec.x, py + tempVec.y, pz + tempVec.z);

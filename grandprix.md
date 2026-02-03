@@ -47,7 +47,7 @@ DeepSeek correctly identified risks. Our response uses **existing INOS patterns 
 │          │           │  │   Compute Worker       │          │   │
 │          │           │  │   (Direct SAB Access)  │          │   │
 │          │           │  │                        │          │   │
-│          │           │  │   drone_physics.rs     │          │   │
+│          │           │  │   drone.rs             │          │   │
 │          │           └─►│   ├── read control buf │          │   │
 │          │              │   ├── step_all_drones  │◄─────────┘   │
 │          │              │   ├── write state A    │  (flip)      │
@@ -85,7 +85,7 @@ computeExports.step_all_drones(drone_count, dt);
 Don't fight for 1000 Hz. Use 250 Hz physics with interpolation.
 
 ```rust
-// drone_physics.rs - One call updates all drones
+// drone.rs - One call updates all drones
 pub fn step_all_drones(sab: &[u8], count: u32, dt: f32) {
     let drones = DronePool::from_sab(sab);
     
@@ -172,10 +172,10 @@ This path respects graphics.md constraints:
 
 ```
 DRONE_CONTROL_OFFSET = 0x160000  (32 drones × 16 bytes = 512B)
-DRONE_STATE_A        = 0x160200  (32 drones × 256 bytes = 8KB)
-DRONE_STATE_B        = 0x162200  (32 drones × 256 bytes = 8KB)
-DRONE_MATRIX_A       = 0x164200  (32 drones × 64 bytes = 2KB)
-DRONE_MATRIX_B       = 0x164A00  (32 drones × 64 bytes = 2KB)
+DRONE_STATE_A        = 0x160200  (32 drones × 128 bytes = 4KB)
+DRONE_STATE_B        = 0x161200  (32 drones × 128 bytes = 4KB)
+DRONE_MATRIX_A       = 0x162200  (32 drones × 64 bytes = 2KB)
+DRONE_MATRIX_B       = 0x162A00  (32 drones × 64 bytes = 2KB)
 ```
 
 ---
@@ -183,7 +183,7 @@ DRONE_MATRIX_B       = 0x164A00  (32 drones × 64 bytes = 2KB)
 ## Phases
 
 ### Phase 1: Single Drone (1 week)
-- [ ] `drone_physics.rs` with simple 6DOF
+- [ ] `drone.rs` with simple 6DOF
 - [ ] Control buffer in SAB
 - [ ] Three.js drone model + track
 - [ ] Keyboard input

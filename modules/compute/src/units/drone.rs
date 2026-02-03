@@ -37,25 +37,31 @@ const SIZE_CONTROL_BUFFER: usize = MAX_DRONES * CONTROL_STRIDE;
 
 // Physics constants (Racing Quad 5" Profile)
 const MASS: f32 = 0.65; // kg (typical 5" racing quad)
-const GRAVITY: f32 = 9.81; // m/s²
-const ARM_LENGTH: f32 = 0.1; // m (200mm diagonal / 2)
+const GRAVITY: f32 = 9.80665; // m/s² (ISA g₀)
+const ARM_LENGTH: f32 = 0.11; // m (~220mm wheelbase / 2)
 
-// Blade Element Theory Constants
-const C_T: f32 = 0.11; // Thrust coefficient
-const C_Q: f32 = 0.008; // Torque coefficient
-const RHO: f32 = 1.225; // Air density kg/m³
-const PROP_DIAMETER: f32 = 0.127; // 5" = 0.127m
-const PROP_D4: f32 = 0.000260; // D^4 precomputed
-const PROP_D5: f32 = 0.000033; // D^5 precomputed
+// Blade Element / Momentum Theory Constants
+const C_T: f32 = 0.11; // Thrust coefficient (dimensionless)
+const C_Q: f32 = 0.008; // Torque coefficient (dimensionless)
+const PROP_DIAMETER: f32 = 0.127; // 5" = 0.127 m
+const PROP_RADIUS: f32 = PROP_DIAMETER * 0.5;
+const PROP_D2: f32 = PROP_DIAMETER * PROP_DIAMETER;
+const PROP_D4: f32 = PROP_D2 * PROP_D2;
+const PROP_D5: f32 = PROP_D4 * PROP_DIAMETER;
 const MAX_MOTOR_RPM: f32 = 35000.0; // Typical racing motor
 const MOTOR_TAU: f32 = 0.04; // Motor time constant (seconds)
 const ARM_COS_45: f32 = 0.70710678;
 const MOTOR_DIR: [f32; 4] = [1.0, -1.0, 1.0, -1.0];
+const TAU: f32 = std::f32::consts::PI * 2.0;
+const MAX_OMEGA_SEA: f32 = MAX_MOTOR_RPM * TAU / 60.0;
+const THRUST_COEFF_SEA: f32 = C_T * ISA_RHO0 * PROP_D4 / (TAU * TAU);
+const MAX_THRUST_PER_MOTOR_SEA: f32 = THRUST_COEFF_SEA * MAX_OMEGA_SEA * MAX_OMEGA_SEA;
+const HOVER_THROTTLE: f32 = (MASS * GRAVITY) / (4.0 * MAX_THRUST_PER_MOTOR_SEA);
 
 // Aerodynamic drag
-const DRAG_AREA_X: f32 = 0.018; // Side area m²
-const DRAG_AREA_Y: f32 = 0.012; // Top area m²
-const DRAG_AREA_Z: f32 = 0.024; // Frontal area m²
+const DRAG_AREA_X: f32 = 0.012; // Side area m² (approx)
+const DRAG_AREA_Y: f32 = 0.010; // Top area m² (approx)
+const DRAG_AREA_Z: f32 = 0.014; // Frontal area m² (approx)
 const DRAG_COEFF_X: f32 = 1.05;
 const DRAG_COEFF_Y: f32 = 0.9;
 const DRAG_COEFF_Z: f32 = 1.15;
@@ -73,8 +79,8 @@ const FLOOR_SPRING: f32 = 25.0; // Soft spring force for floor repulsion
 const CEILING_HEIGHT: f32 = 30.0; // Maximum altitude
 
 // ============= DRONE SEPARATION (COLLISION AVOIDANCE) =============
-const DRONE_SEPARATION: f32 = 2.5; // Minimum distance between drones (~3× body)
-const SEPARATION_FORCE: f32 = 12.0; // Repulsion strength
+const DRONE_SEPARATION: f32 = 1.0; // Minimum distance between drones (~3-4× body)
+const SEPARATION_FORCE: f32 = 8.0; // Repulsion strength
 
 // ============= ORIENTATION SMOOTHING =============
 // Reduced from 8.0 for smoother, more cinematic flight
@@ -90,15 +96,19 @@ const TURBULENCE_STRENGTH: f32 = 0.3; // m/s² peak turbulence
 const TURBULENCE_SCALE: f32 = 0.15; // Spatial frequency
 const BASE_WIND_SPEED: f32 = 2.5; // m/s
 const GUST_STRENGTH: f32 = 1.8; // m/s
-const AIR_TEMP_C: f32 = 24.0; // base ambient temperature
-const AIR_TEMP_LAPSE: f32 = 0.0065; // °C per meter (ISA lapse rate)
+const AIR_TEMP_C: f32 = 24.0; // base ambient temperature (sea level)
+const ISA_T0_K: f32 = 288.2; // K (sea level, ISA)
+const ISA_P0: f32 = 101300.0; // Pa (sea level, ISA)
+const ISA_R: f32 = 287.1; // J/(kg·K) (ISA gas constant)
+const ISA_LAPSE: f32 = 0.0065; // K/m (ISA lapse rate)
+const ISA_RHO0: f32 = 1.225; // kg/m³ (sea level, ISA)
 const BATTERY_SAG: f32 = 0.15; // max sag at full throttle
-const DISC_AREA: f32 = 0.0127; // pi * (0.127/2)^2
+const DISC_AREA: f32 = std::f32::consts::PI * PROP_RADIUS * PROP_RADIUS;
 const MAX_DT: f32 = 0.02;
 
 // ============= PROXIMITY SPEED LIMITING =============
-const MAX_SPEED: f32 = 12.0; // m/s
-const MIN_SPEED: f32 = 3.0; // m/s (prevent stalling)
+const MAX_SPEED: f32 = 18.0; // m/s
+const MIN_SPEED: f32 = 2.5; // m/s (prevent stalling)
 const APPROACH_SLOWDOWN_DIST: f32 = 8.0; // Start slowing at this distance from gate
 
 // Gate positions for autonomous flight (matching RaceTrack.tsx - expanded track)
@@ -289,14 +299,15 @@ impl DroneUnit {
             }
 
             // ============ AIR DENSITY ============
-            let air_temp = AIR_TEMP_C - pos[1] * AIR_TEMP_LAPSE;
-            let rho = compute_air_density(pos[1], air_temp);
+            let rho = compute_air_density(pos[1], AIR_TEMP_C);
 
             // ============ RATE CONTROLLER (TARGET MOMENTS) ============
+            // Body axes: X = right, Y = up, Z = forward
+            // Rates are [pitch (about X), yaw (about Y), roll (about Z)]
             let target_rates = [
-                (roll_cmd * MAX_ROLL_RATE).clamp(-MAX_ROLL_RATE, MAX_ROLL_RATE),
                 (pitch_cmd * MAX_PITCH_RATE).clamp(-MAX_PITCH_RATE, MAX_PITCH_RATE),
                 (yaw_cmd * MAX_YAW_RATE).clamp(-MAX_YAW_RATE, MAX_YAW_RATE),
+                (roll_cmd * MAX_ROLL_RATE).clamp(-MAX_ROLL_RATE, MAX_ROLL_RATE),
             ];
 
             let rate_error = [
@@ -334,14 +345,21 @@ impl DroneUnit {
             let sag = BATTERY_SAG * throttle + (1.0 - battery) * 0.1;
             let battery_factor = (1.0 - sag).clamp(0.65, 1.0);
             let max_rpm = MAX_MOTOR_RPM * battery_factor;
-            let max_n = max_rpm / 60.0;
-            let max_thrust_per_motor = C_T * rho * max_n * max_n * PROP_D4;
-            let total_thrust_cmd = (throttle * 4.0 * max_thrust_per_motor).max(0.0);
+            let max_omega = max_rpm * TAU / 60.0;
+
+            // Rotor coefficients in F = b ω², τ = d ω² form
+            let b = C_T * rho * PROP_D4 / (TAU * TAU);
+            let d = C_Q * rho * PROP_D5 / (TAU * TAU);
+
+            let max_thrust_per_motor = b * max_omega * max_omega;
+            let tilt_comp = quat_up_component(&quat).max(0.25);
+            let total_thrust_cmd =
+                (throttle * 4.0 * max_thrust_per_motor / tilt_comp).max(0.0);
 
             // ============ MIXER (X-FRAME) ============
             let mix = ARM_COS_45 * ARM_LENGTH;
-            let roll_term = moment_cmd[0] / (4.0 * mix + 1e-5);
-            let pitch_term = moment_cmd[1] / (4.0 * mix + 1e-5);
+            let pitch_term = moment_cmd[0] / (4.0 * mix + 1e-5);
+            let roll_term = moment_cmd[2] / (4.0 * mix + 1e-5);
 
             let mut thrusts = [
                 total_thrust_cmd * 0.25 - pitch_term + roll_term,
@@ -356,71 +374,64 @@ impl DroneUnit {
 
             // ============ MOTOR DYNAMICS ============
             let alpha = dt / (MOTOR_TAU + dt);
-            let kq = C_Q * rho * PROP_D5;
-            let kt = C_T * rho * PROP_D4;
-            let mut total_thrust = 0.0;
             let mut yaw_torque = 0.0;
 
             for m in 0..4 {
-                let target_n = (thrusts[m] / (kt + 1e-6)).sqrt();
-                let target_rpm = (target_n * 60.0).min(max_rpm);
+                let target_omega = (thrusts[m] / (b + 1e-6)).sqrt();
+                let target_rpm = (target_omega * 60.0 / TAU).min(max_rpm);
 
                 motor_rpm[m] += (target_rpm - motor_rpm[m]) * alpha;
                 motor_rpm[m] = motor_rpm[m].clamp(0.0, max_rpm);
 
-                let n = motor_rpm[m] / 60.0;
-                let thrust = kt * n * n;
-                let torque = kq * n * n * MOTOR_DIR[m];
-                total_thrust += thrust;
+                let omega = motor_rpm[m] * TAU / 60.0;
+                let torque = d * omega * omega * MOTOR_DIR[m];
                 yaw_torque += torque;
             }
 
             // Apply yaw correction (delta torque via RPM adjustment)
-            let yaw_error = moment_cmd[2] - yaw_torque;
+            let yaw_error = moment_cmd[1] - yaw_torque;
             let yaw_per_motor = yaw_error / 4.0;
             for m in 0..4 {
-                let n = motor_rpm[m] / 60.0;
-                let base_q = kq * n * n;
+                let omega = motor_rpm[m] * TAU / 60.0;
+                let base_q = d * omega * omega;
                 let desired_q = (base_q + yaw_per_motor * MOTOR_DIR[m]).max(0.0);
-                let desired_n = (desired_q / (kq + 1e-6)).sqrt();
-                let desired_rpm = (desired_n * 60.0).min(max_rpm);
+                let desired_omega = (desired_q / (d + 1e-6)).sqrt();
+                let desired_rpm = (desired_omega * 60.0 / TAU).min(max_rpm);
                 motor_rpm[m] += (desired_rpm - motor_rpm[m]) * (alpha * 0.5);
+                motor_rpm[m] = motor_rpm[m].clamp(0.0, max_rpm);
             }
 
             // Recompute thrust and actual moments after yaw correction
             let mut motor_thrusts = [0.0f32; 4];
-            total_thrust = 0.0;
+            let mut total_thrust = 0.0;
             yaw_torque = 0.0;
             for m in 0..4 {
-                let n = motor_rpm[m] / 60.0;
-                let thrust = kt * n * n;
+                let omega = motor_rpm[m] * TAU / 60.0;
+                let thrust = b * omega * omega;
                 motor_thrusts[m] = thrust;
                 total_thrust += thrust;
-                yaw_torque += kq * n * n * MOTOR_DIR[m];
+                yaw_torque += d * omega * omega * MOTOR_DIR[m];
             }
 
-            let roll_term_actual =
-                (motor_thrusts[0] - motor_thrusts[1] - motor_thrusts[2] + motor_thrusts[3]) * 0.25;
-            let pitch_term_actual =
-                (-motor_thrusts[0] - motor_thrusts[1] + motor_thrusts[2] + motor_thrusts[3]) * 0.25;
-            let moment_actual = [
-                roll_term_actual * 4.0 * mix,
-                pitch_term_actual * 4.0 * mix,
-                yaw_torque,
-            ];
+            let tau_pitch =
+                mix * (motor_thrusts[0] + motor_thrusts[1] - motor_thrusts[2] - motor_thrusts[3]);
+            let tau_roll =
+                mix * (motor_thrusts[0] - motor_thrusts[1] - motor_thrusts[2] + motor_thrusts[3]);
+            let moment_actual = [tau_pitch, yaw_torque, tau_roll];
 
-            let vel_body_for_inflow = quat_inv_rotate(&quat, &vel);
+            // ============ WIND FIELD ============
+            let wind = compute_wind(&pos, time);
+            let rel_vel = [vel[0] - wind[0], vel[1] - wind[1], vel[2] - wind[2]];
+
+            let vel_body_for_inflow = quat_inv_rotate(&quat, &rel_vel);
             let vi = (total_thrust / (2.0 * rho * DISC_AREA + 1e-5)).sqrt();
-            let inflow_factor = (1.0 - vel_body_for_inflow[1] / (2.0 * vi + 0.5)).clamp(0.35, 1.25);
+            let inflow_factor =
+                (1.0 - vel_body_for_inflow[1] / (2.0 * vi + 0.5)).clamp(0.35, 1.25);
             total_thrust *= ge_multiplier * inflow_factor;
 
             // Rotate thrust to world frame (thrust is +Y in body)
             let thrust_body = [0.0, total_thrust, 0.0];
             let thrust_world = quat_rotate(&quat, &thrust_body);
-
-            // ============ WIND FIELD ============
-            let wind = compute_wind(&pos, time);
-            let rel_vel = [vel[0] - wind[0], vel[1] - wind[1], vel[2] - wind[2]];
 
             // ============ AERODYNAMIC DRAG ============
             let vel_body = quat_inv_rotate(&quat, &rel_vel);
@@ -541,9 +552,9 @@ impl DroneUnit {
             ang_vel[1] += ang_accel[1] * dt;
             ang_vel[2] += ang_accel[2] * dt;
 
-            ang_vel[0] = ang_vel[0].clamp(-MAX_ROLL_RATE * 2.5, MAX_ROLL_RATE * 2.5);
-            ang_vel[1] = ang_vel[1].clamp(-MAX_PITCH_RATE * 2.5, MAX_PITCH_RATE * 2.5);
-            ang_vel[2] = ang_vel[2].clamp(-MAX_YAW_RATE * 3.0, MAX_YAW_RATE * 3.0);
+            ang_vel[0] = ang_vel[0].clamp(-MAX_PITCH_RATE * 2.5, MAX_PITCH_RATE * 2.5);
+            ang_vel[1] = ang_vel[1].clamp(-MAX_YAW_RATE * 3.0, MAX_YAW_RATE * 3.0);
+            ang_vel[2] = ang_vel[2].clamp(-MAX_ROLL_RATE * 2.5, MAX_ROLL_RATE * 2.5);
 
             // Integrate quaternion
             integrate_quaternion(&mut quat, &ang_vel, dt);
@@ -816,8 +827,8 @@ fn compute_autonomous_control(
     let alt_d = 0.3;
     let alt_cmd = alt_error * alt_p - alt_rate * alt_d;
     // Base hover throttle + altitude correction
-    let hover_throttle = 0.55;
-    let throttle = (hover_throttle + alt_cmd * 0.2).clamp(0.2, 0.95);
+    let hover_throttle = HOVER_THROTTLE.clamp(0.1, 0.7);
+    let throttle = (hover_throttle + alt_cmd * 0.25).clamp(0.05, 0.95);
 
     // ========== YAW CONTROL ==========
     // Get current forward direction from quaternion
@@ -841,9 +852,10 @@ fn compute_autonomous_control(
     // ========== FORWARD VELOCITY / PITCH CONTROL ==========
     // Pitch forward to accelerate towards target
     let speed_xz = (vel[0] * vel[0] + vel[2] * vel[2]).sqrt();
-    let target_speed = (dist_xz * 0.5).min(12.0); // Max 12 m/s
+    let target_speed = (dist_xz * 0.5).min(MAX_SPEED);
     let speed_error = target_speed - speed_xz;
-    let pitch_cmd = (speed_error * 0.15).clamp(-0.5, 0.5);
+    // Pitch forward (negative) to accelerate toward -Z
+    let pitch_cmd = (-speed_error * 0.15).clamp(-0.5, 0.5);
 
     // ========== ROLL CONTROL ==========
     // Bank into turns proportional to yaw rate
@@ -1022,9 +1034,14 @@ fn compute_wind(pos: &[f32; 3], time: f32) -> [f32; 3] {
 /// Air density based on altitude and temperature (ISA approximation)
 #[inline]
 fn compute_air_density(altitude: f32, temp_c: f32) -> f32 {
-    let rho = RHO * (-altitude / 8500.0).exp();
-    let temp_factor = (273.15 / (273.15 + temp_c.max(-40.0))).clamp(0.7, 1.2);
-    (rho * temp_factor).clamp(0.9, 1.3)
+    let h = altitude.max(0.0);
+    let temp_offset = temp_c - 15.0;
+    let t0 = (ISA_T0_K + temp_offset).max(220.0);
+    let t = (t0 - ISA_LAPSE * h).max(180.0);
+    let exponent = GRAVITY / (ISA_R * ISA_LAPSE);
+    let pressure = ISA_P0 * (t / t0).powf(exponent);
+    let rho = pressure / (ISA_R * t);
+    rho.clamp(0.6, 1.3)
 }
 
 #[inline]

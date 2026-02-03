@@ -109,6 +109,12 @@ No Rapier overhead. Full quad dynamics with:
 - Wind + turbulence + ground effect
 - Moment-based mixer (X-frame)
 
+Model conventions:
+- Body axes: **X = right, Y = up, Z = forward**
+- Rotor thrust/torque use `F_i = b·ω_i²`, `τ_i = d·ω_i²`
+- Drag uses `0.5·ρ·v²·C_d·A` in body axes
+- Air density follows ISA lapse-rate model
+
 ```rust
 pub fn step_all_drones(...) {
     // Control → moments → motor thrusts → forces/torques

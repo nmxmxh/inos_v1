@@ -229,8 +229,8 @@ function ChaseCamera({ sab }: { sab: SharedArrayBuffer | null }) {
     }
 
     // Chase position: behind drone
-    _chaseOffset.copy(_velDir).multiplyScalar(-15);
-    _chaseOffset.y = 8;
+    _chaseOffset.copy(_velDir).multiplyScalar(-10);
+    _chaseOffset.y = 5.5;
 
     _targetPos.set(px + _chaseOffset.x, py + _chaseOffset.y, pz + _chaseOffset.z);
 
@@ -238,7 +238,7 @@ function ChaseCamera({ sab }: { sab: SharedArrayBuffer | null }) {
     camera.position.lerp(_targetPos, 0.08);
 
     // Look ahead of drone
-    _lookAtPos.set(px + _velDir.x * 12, py + 2.0, pz + _velDir.z * 12);
+    _lookAtPos.set(px + _velDir.x * 8, py + 1.5, pz + _velDir.z * 8);
     lookAtPosition.current.lerp(_lookAtPos, 0.15);
 
     camera.lookAt(lookAtPosition.current);
