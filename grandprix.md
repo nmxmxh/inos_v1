@@ -153,6 +153,19 @@ class ControlBridge {
 }
 ```
 
+### 4. GPU-Driven Environment (Visuals Only)
+
+Grand Prix visuals now leverage the GPU unit for procedural noise to drive ground variation and cloud shadows:
+
+```
+gpu.rs (execute_wgsl) -> WebGpuRequest -> WebGpuExecutor -> DataTexture -> Three.js materials
+```
+
+This path respects graphics.md constraints:
+- No per-frame allocations
+- Cached TypedArray views
+- GPU updates on a fixed cadence (no render-thread stalls)
+
 ---
 
 ## SAB Layout Extension

@@ -177,7 +177,7 @@ export const useSystemStore = create<SystemStore>((set, get) => ({
         // 4. specialized worker role registration
         const di = dispatch.internal();
         if (di) {
-          (di as any).workers.set('compute:main', {
+          dispatch.bind('compute:main', {
             worker,
             unit: 'compute',
             role: 'main',

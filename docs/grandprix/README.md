@@ -49,6 +49,27 @@ Drone racing uses the **same patterns as boids**, proven at 10,000+ entities @ 6
 
 ---
 
+## Environment & Visual Pipeline (GPU-Aware)
+
+Grand Prix now uses the GPU unit for production-grade procedural visuals while keeping zero-copy rules intact.
+
+```
+GPU NOISE PATH (visuals only)
+GPU Unit (gpu.rs) -> WebGpuRequest -> WebGpuExecutor (WebGPU) -> DataTexture -> Three.js
+```
+
+Principles applied (from graphics.md):
+- Cached TypedArray views (no per-frame allocation)
+- Ping-pong epoch for drone state reads
+- Instanced meshes for all drone parts
+- GPU-driven noise updated on a fixed cadence (not every frame)
+
+Textures are updated periodically and reused across frames:
+- Ground albedo + roughness variation
+- Cloud shadow layer (alpha map)
+
+---
+
 ## SAB Layout (Drone Region)
 
 ```
@@ -73,40 +94,26 @@ pub struct DroneState {
     pub motor_rpm: [f32; 4],     // 4 motors (16B)
     pub control: [f32; 4],       // thr/pitch/roll/yaw (16B)
     pub race_state: [u32; 4],    // lap/gate/time/flags (16B)
-    pub reserved: [f32; 4],      // Future use (16B)
+    pub reserved: [f32; 4],      // battery, motor_temp, ... (16B)
 }
 ```
 
 ---
 
-## Physics (Simple 6DOF)
+## Physics (Production 6DOF)
 
-No Rapier overhead. Direct quadcopter dynamics:
+No Rapier overhead. Full quad dynamics with:
+- Motor lag + torque (C_T / C_Q)
+- Battery sag + thermal drift
+- Anisotropic drag in body axes
+- Wind + turbulence + ground effect
+- Moment-based mixer (X-frame)
 
 ```rust
-pub fn step_all_drones(sab: &mut [u8], count: u32, dt: f32) {
-    let states = DronePool::from_sab_mut(sab);
-    
-    for i in 0..count {
-        let ctrl = states.control(i);
-        
-        // Motor model
-        let thrust = motor_thrust(ctrl.throttle);
-        
-        // Forces
-        let gravity = [0.0, -9.81 * MASS, 0.0, 0.0];
-        let thrust_world = quat_rotate(states.orientation(i), [0.0, thrust, 0.0, 0.0]);
-        
-        // Integration
-        let accel = vec4_add(gravity, thrust_world);
-        states.set_velocity(i, vec4_add(states.velocity(i), vec4_scale(accel, dt)));
-        states.set_position(i, vec4_add(states.position(i), vec4_scale(states.velocity(i), dt)));
-        
-        // Quaternion integration
-        integrate_quat(states.orientation_mut(i), states.angular_vel(i), dt);
-    }
-    
-    signal_epoch(IDX_DRONE_PHYSICS);
+pub fn step_all_drones(...) {
+    // Control → moments → motor thrusts → forces/torques
+    // Wind + turbulence + ground effect + anisotropic drag
+    // Integrate linear + angular dynamics, clamp rates for chaos resistance
 }
 ```
 
@@ -164,6 +171,62 @@ while True:
 | Matrix gen | 0.2ms | Inline |
 | SAB → GPU | 0.3ms | Ping-pong |
 | **Total** | **1.4ms** | 60fps headroom |
+
+---
+
+## Race-Winning Control Algorithm (Production-Grade)
+
+The physics model reflects real-world quad behavior (motor torque, RPM lag, drag anisotropy,
+gusts, ground effect, battery sag). A winning controller must push performance while remaining
+stable in turbulence and close-proximity flow.
+
+### Strategy
+
+1. **Lookahead Pathing**
+   - Fit a spline through the next 2–3 gates.
+   - Track the tangent direction at a speed‑scaled lookahead distance.
+
+2. **Velocity Scheduling**
+   - `v_max = sqrt(a_lat_max / curvature)`
+   - Reduce `v_max` as battery state drops.
+   - Reserve vertical margin near ground or heavy gusts.
+
+3. **Rate Control (Primary)**
+   - Rate commands: pitch/roll/yaw rates (not absolute angles).
+   - Feed‑forward yaw rate from curvature.
+   - Bank into turns: roll rate proportional to lateral error.
+
+4. **Wind Compensation**
+   - Estimate wind from observed drift.
+   - Bias yaw and roll into wind to keep the line.
+
+5. **Chaos Resistance**
+   - Clamp jerk (rate change per tick).
+   - Recovery mode when angular rates exceed thresholds.
+   - Avoid throttle cut near ground (ground effect + downwash).
+
+### Pseudo‑Code (External Controller)
+
+```text
+path = spline(gates[current..current+3])
+lookahead = clamp(k * speed, 4m, 14m)
+
+heading_err = wrap(desired_heading - current_heading)
+lat_err = cross_track_error(path)
+curvature = path.curvature(lookahead)
+
+v_max = sqrt(a_lat_max / max(curvature, eps))
+v_cmd = clamp(v_nominal, v_min, v_max)
+
+yaw_rate = heading_err * k_yaw + curvature * v_cmd
+roll_rate = lat_err * k_roll + yaw_rate * k_bank
+pitch_rate = (v_cmd - forward_speed) * k_pitch
+
+throttle = hover + k_alt * alt_err + k_ff * v_cmd^2
+throttle = clamp_rate(throttle, prev_throttle, max_delta)
+
+send [throttle, pitch_rate, roll_rate, yaw_rate]
+```
 
 ---
 

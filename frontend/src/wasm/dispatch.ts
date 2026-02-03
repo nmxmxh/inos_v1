@@ -62,6 +62,12 @@ export class Dispatcher {
       for (const m of this.capabilities.values()) {
         if (m.includes(fullCap)) return true;
       }
+    } else {
+      // Namespace-only lookup: check if ANY capability starts with "unit:"
+      const prefix = `${unit}:`;
+      for (const m of this.capabilities.values()) {
+        if (m.some(cap => cap.startsWith(prefix))) return true;
+      }
     }
 
     return false;
@@ -164,6 +170,8 @@ export class Dispatcher {
             params: { ...params, index: i, parallel },
           });
         }
+        // If this was the first worker in a parallel set, we still need to "resolve"
+        // the conceptual wait for it to move the loop along.
         continue;
       }
 
@@ -228,8 +236,11 @@ export class Dispatcher {
         role,
       });
 
-      if (i === 0) await initPromise; // Wait for leader to be ready before spawning others?
-      // Actually, they can all spawn in parallel.
+      // Wait for the worker to be ready before moving to the next one in the pool
+      // This ensures we don't return from plug until at least the first worker is operational.
+      if (i === 0 || !workerRefs[0].ready) {
+        await initPromise;
+      }
     }
 
     return workerRefs;
@@ -484,6 +495,42 @@ export class Dispatcher {
         (this.hasCapability(w.unit, unit) && w.role === role)
     );
   }
+
+  /**
+   * Binds an existing worker to the dispatcher's message handling logic.
+   * Useful for workers spawned outside of plug (e.g. system boot worker).
+   */
+  bindWorker(id: string, ref: Omit<WorkerRef, 'ready'> & { ready: boolean }) {
+    const workerRef = { ...ref };
+    this.workers.set(id, workerRef);
+
+    workerRef.worker.onmessage = event => {
+      const { type, id: msgId, result, error } = event.data;
+      if (type === 'result') {
+        const pending = this.pendingRequests.get(msgId);
+        if (pending) {
+          this.pendingRequests.delete(msgId);
+          if (error) pending.reject(new Error(error));
+          else pending.resolve(result);
+        }
+      } else if (type === 'error') {
+        console.error(`[Dispatch:Worker:${id}] Error:`, error);
+        if (msgId !== undefined) {
+          const pending = this.pendingRequests.get(msgId);
+          if (pending) {
+            this.pendingRequests.delete(msgId);
+            pending.reject(new Error(error));
+          }
+        }
+      }
+    };
+
+    workerRef.worker.onerror = err => {
+      console.error(`[Dispatch:Worker:${id}] Fatal error:`, err);
+    };
+
+    return workerRef;
+  }
 }
 
 // Global dispatcher instance
@@ -526,6 +573,8 @@ export const dispatch = {
   json: <T = any>(library: string, method: string, params: object = {}) => {
     return instance.json<T>(library, method, params);
   },
+
+  bind: (id: string, ref: any) => instance.bindWorker(id, ref),
 
   shutdown: () => instance.shutdown(),
 };
