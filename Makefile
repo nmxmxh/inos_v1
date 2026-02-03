@@ -1,4 +1,4 @@
-.PHONY: setup build test proto clean help install-tools deps lint all
+.PHONY: setup build build-fast test proto clean help install-tools deps lint all
 .PHONY: kernel-build kernel-dev kernel-test kernel-proto
 .PHONY: modules-build modules-test
 .PHONY: frontend-build frontend-dev frontend-install
@@ -52,6 +52,29 @@ CAPNP_RUST_OUT=modules/gen
 WASM_OPT=wasm-opt
 BROTLI=brotli
 
+# Cap'n Proto TypeScript plugin (capnpc-ts)
+CAPNPC_TS_BIN=$(firstword $(wildcard $(CURDIR)/node_modules/.bin/capnpc-ts) $(wildcard $(CURDIR)/frontend/node_modules/.bin/capnpc-ts) $(shell command -v capnpc-ts 2>/dev/null))
+CAPNPC_TS_DIR=$(if $(CAPNPC_TS_BIN),$(dir $(CAPNPC_TS_BIN)))
+HAVE_CAPNPC_TS=$(if $(CAPNPC_TS_BIN),1,0)
+
+# Derived sources for incremental builds
+PROTO_SOURCES=$(shell find $(CAPNP_PATH) -name '*.capnp')
+KERNEL_SOURCES=$(shell find kernel -name '*.go')
+MODULES_SOURCES=$(shell find modules -name '*.rs')
+FRONTEND_SOURCES=$(shell find frontend -type f -not -path 'frontend/dist/*' -not -path 'frontend/node_modules/*')
+FRONTEND_LOCKFILES=$(wildcard frontend/package-lock.json frontend/pnpm-lock.yaml frontend/yarn.lock)
+
+# Build outputs / stamps
+KERNEL_WASM=frontend/public/kernel.wasm
+KERNEL_WASM_BR=frontend/public/kernel.wasm.br
+MODULES_STAMP=frontend/public/modules/.stamp
+FRONTEND_STAMP=frontend/dist/.stamp
+CAPNP_GO_STAMP=$(CAPNP_GO_OUT)/.stamp
+CAPNP_TS_STAMP=frontend/bridge/generated/.stamp
+
+HAVE_BROTLI=$(shell command -v $(BROTLI) >/dev/null 2>&1 && echo 1)
+JOBS?=$(shell (getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4))
+
 # Default target
 .DEFAULT_GOAL := help
 
@@ -97,11 +120,10 @@ deps:
 # Protocol Generation (Cap'n Proto)
 # ============================================================================
 
-proto: proto-go proto-rust proto-ts
+proto: $(CAPNP_GO_STAMP) proto-rust $(CAPNP_TS_STAMP)
 	@echo "✅ All protocol code generated"
 
-proto-go:
-	@./scripts/gen-proto-go.sh $(CAPNP_GO_OUT)
+proto-go: $(CAPNP_GO_STAMP)
 
 proto-rust:
 	@echo "🔧 Generating Rust code from Cap'n Proto schemas..."
@@ -112,16 +134,30 @@ proto-rust:
 	@echo "   Rust modules import generated code automatically"
 	@echo "✅ Rust protocol generation configured"
 
-proto-ts:
+proto-ts: $(CAPNP_TS_STAMP)
+	@echo "✅ TypeScript protocol code + constants generated in frontend/bridge/generated"
+
+$(CAPNP_GO_STAMP): $(PROTO_SOURCES) scripts/gen-proto-go.sh
+	@mkdir -p $(CAPNP_GO_OUT)
+	@./scripts/gen-proto-go.sh $(CAPNP_GO_OUT)
+	@touch $@
+
+$(CAPNP_TS_STAMP): $(PROTO_SOURCES) scripts/gen-capnp-consts-ts.js scripts/fix-capnp-imports.js
 	@echo "🔧 Generating TypeScript code from Cap'n Proto schemas..."
 	@mkdir -p frontend/bridge/generated
-	@for schema_file in $$(find $(CAPNP_PATH) -name '*.capnp'); do \
+	@if [ "$(HAVE_CAPNPC_TS)" != "1" ]; then \
+		echo "⚠️  capnpc-ts not found. Skipping TS schema generation (consts will still be generated)."; \
+		echo "   Looked for: $(CURDIR)/node_modules/.bin/capnpc-ts and $(CURDIR)/frontend/node_modules/.bin/capnpc-ts"; \
+	fi
+	@for schema_file in $(PROTO_SOURCES); do \
 		echo "Processing $$schema_file..."; \
-		capnp compile -I$(CAPNP_PATH) -o ts:frontend/bridge/generated $$schema_file || true; \
+		if [ "$(HAVE_CAPNPC_TS)" = "1" ]; then \
+			PATH="$(CAPNPC_TS_DIR):$$PATH" capnp compile -I$(CAPNP_PATH) -o ts:frontend/bridge/generated $$schema_file || true; \
+		fi; \
 		node scripts/gen-capnp-consts-ts.js $$schema_file || true; \
 	done
 	@node scripts/fix-capnp-imports.js
-	@echo "✅ TypeScript protocol code + constants generated in frontend/bridge/generated"
+	@touch $@
  
 gen-context:
 	@echo "📋 Generating Codebase Context Registry..."
@@ -135,7 +171,10 @@ gen-context:
 # Kernel Build (Go WASM - Layer 2)
 # ============================================================================
 
-kernel-build: proto-go
+kernel-build: $(KERNEL_WASM) $(if $(HAVE_BROTLI),$(KERNEL_WASM_BR))
+	@echo "✅ Kernel build complete: $(KERNEL_WASM)"
+
+$(KERNEL_WASM): $(KERNEL_SOURCES) kernel/go.mod kernel/go.sum $(CAPNP_GO_STAMP)
 	@echo "🧠 Building INOS Kernel (Go WASM with multithreading)..."
 	@mkdir -p frontend/public
 	@cd kernel && GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOBUILD) $(WASM_BUILD_FLAGS) -o ../frontend/public/kernel.wasm .
@@ -160,17 +199,16 @@ kernel-build: proto-go
 	@echo "ℹ️  Kernel will use JS-created SharedArrayBuffer (provided during instantiation)"
 	@# @echo "🔧 Patching kernel for SharedArrayBuffer (post-optimization)..."
 	@# @node scripts/patch_wasm_memory.js frontend/public/kernel.wasm
-	@# Compress with brotli if available
-	@if command -v $(BROTLI) > /dev/null 2>&1; then \
-		echo "📦 Compressing kernel.wasm with brotli..."; \
-		$(BROTLI) -q 11 -f frontend/public/kernel.wasm -o frontend/public/kernel.wasm.br; \
-		echo "✅ WASM compressed ($(shell ls -lh frontend/public/kernel.wasm.br | awk '{print $$5}'))"; \
-	else \
-		echo "⚠️  brotli not installed. Skipping compression."; \
-	fi
 	@echo "✅ Kernel build complete: frontend/public/kernel.wasm"
 
-kernel-dev: proto-go
+ifeq ($(HAVE_BROTLI),1)
+$(KERNEL_WASM_BR): $(KERNEL_WASM)
+	@echo "📦 Compressing kernel.wasm with brotli..."
+	@$(BROTLI) -q 11 -f $(KERNEL_WASM) -o $(KERNEL_WASM_BR)
+	@echo "✅ WASM compressed ($$(ls -lh $(KERNEL_WASM_BR) | awk '{print $$5}'))"
+endif
+
+kernel-dev: $(CAPNP_GO_STAMP)
 	@echo "🧠 Building INOS Kernel (Development mode - with debug symbols)..."
 	@mkdir -p frontend/public
 	@cd kernel && GOOS=$(GOOS) GOARCH=$(GOARCH) $(GOBUILD) $(WASM_DEV_FLAGS) -o ../frontend/public/kernel.wasm .
@@ -194,7 +232,10 @@ kernel-proto: proto-go
 # Modules Build (Rust WASM - Layer 3)
 # ============================================================================
 
-modules-build: proto-rust
+modules-build: $(MODULES_STAMP)
+	@echo "✅ Modules build complete"
+
+$(MODULES_STAMP): $(MODULES_SOURCES) modules/Cargo.toml modules/Cargo.lock $(PROTO_SOURCES)
 	@echo "💪 Building INOS Modules (Rust WASM)..."
 	@cd modules && RUSTFLAGS="$(RUSTFLAGS)" $(CARGO) build $(RUST_BUILD_FLAGS)
 	@echo "📦 Copying WASM modules to frontend..."
@@ -238,7 +279,7 @@ modules-build: proto-rust
 		done; \
 		echo "✅ Modules compressed"; \
 	fi
-	@echo "✅ Modules build complete"
+	@touch $@
 
 
 modules-test:
@@ -274,14 +315,17 @@ frontend-dev: kernel-dev
 	@echo "⚠️  Note: Vite must be configured with COOP/COEP headers for SharedArrayBuffer"
 	@node integration/signaling/server.js & cd frontend && npm run dev
 
-frontend-build:
+frontend-build: $(FRONTEND_STAMP)
+	@echo "✅ Frontend build complete"
+
+$(FRONTEND_STAMP): $(FRONTEND_SOURCES) $(KERNEL_WASM) $(MODULES_STAMP) $(CAPNP_TS_STAMP) frontend/package.json $(FRONTEND_LOCKFILES)
 	@echo "🎨 Building frontend for production..."
 	@echo "📦 Ensuring WASM artifacts are in place..."
 	@mkdir -p frontend/public/modules
-	@ls -lh frontend/public/kernel.wasm
+	@ls -lh $(KERNEL_WASM)
 	@ls -lh frontend/public/modules/*.wasm
 	@cd frontend && npm run build
-	@echo "✅ Frontend build complete"
+	@touch $@
 
 # ============================================================================
 # Build All
@@ -296,6 +340,9 @@ all: proto kernel-build modules-build frontend-build
 	@echo "  Frontend: frontend/dist/"
 
 build: all
+
+build-fast:
+	@$(MAKE) -j$(JOBS) all
 
 # ============================================================================
 # Testing
@@ -424,6 +471,7 @@ clean:
 	@rm -rf frontend/public/wasm_exec.js
 	@rm -rf frontend/public/modules/
 	@rm -rf frontend/dist/
+	@rm -rf $(CAPNP_GO_STAMP) $(CAPNP_TS_STAMP) $(MODULES_STAMP) $(FRONTEND_STAMP)
 	@cd kernel && $(GOCLEAN)
 	@cd modules && $(CARGO) clean
 	@find $(CAPNP_GO_OUT) -type f -delete 2>/dev/null || true
@@ -464,6 +512,7 @@ help:
 	@echo ""
 	@echo "Build All:"
 	@echo "  all / build        - Build all components (kernel + modules + frontend)"
+	@echo "  build-fast         - Parallel build (uses detected CPU cores)"
 	@echo ""
 	@echo "Testing & Quality:"
 	@echo "  test               - Run all tests (kernel + modules)"

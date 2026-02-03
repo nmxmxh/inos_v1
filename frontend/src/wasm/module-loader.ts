@@ -1,5 +1,6 @@
 import { WasmHeap } from './heap';
 import { createBaseEnv, createPlaceholders } from './bridge';
+import { getPlatformInfo } from './platform';
 import type { KernelInitResult } from './kernel';
 
 declare global {
@@ -20,6 +21,8 @@ const MODULE_IDS: Record<string, number> = {
   drivers: 3,
   diagnostics: 4,
 };
+
+const platform = getPlatformInfo();
 
 export interface ModuleLoadResult {
   exports: any;
@@ -87,7 +90,8 @@ export async function loadModule(
       }
 
       // iOS/Safari basic check: if streaming isn't supported or fails content-type check
-      if (useStreaming && typeof WebAssembly.compileStreaming === 'function') {
+      const allowStreaming = useStreaming && !platform.isIOS && !platform.isSafari;
+      if (allowStreaming && typeof WebAssembly.compileStreaming === 'function') {
         try {
           return await WebAssembly.compileStreaming(response);
         } catch (e) {

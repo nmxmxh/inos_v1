@@ -22,13 +22,13 @@ self.addEventListener('error', (e: ErrorEvent) => {
 declare const self: DedicatedWorkerGlobalScope;
 import { INOSBridge } from './bridge-state';
 import {
-  checkSharedMemoryCapability,
   exposeBrowserApis,
   registerHostCall,
   fetchWasmWithFallback,
   instantiateWasm,
   loadGoRuntime,
 } from './kernel.shared';
+import { getRuntimeCapabilities } from './runtime';
 import {
   IDX_BIRD_EPOCH,
   IDX_EVOLUTION_EPOCH,
@@ -105,8 +105,8 @@ async function initializeKernel(
     }
   }
   // 0. Check shared memory capability FIRST (prevents iOS "body is distributed" error)
-  const capability = checkSharedMemoryCapability();
-  if (!capability.supported) {
+  const capability = getRuntimeCapabilities();
+  if (!capability.sharedMemory) {
     throw new Error(
       `INOS requires SharedArrayBuffer support.\n\n${capability.reason}\n\n` +
         'On iOS Safari, ensure the server sends:\n' +
@@ -208,7 +208,7 @@ async function initializeKernel(
 
   // 8. Initialize centralized bridge for worker-local atomic access
   INOSBridge.initialize(buffer, sabOffset, sabSize, _memory as WebAssembly.Memory);
-  startEpochWatchers(buffer, sabOffset);
+  startEpochWatchers(buffer, sabOffset, capability.waitAsync);
 
   // 9. Expose Go exports as mesh/kernel APIs for Worker proxy
   const global = self as any;
@@ -292,14 +292,15 @@ function stopEpochWatchers(): void {
 /**
  * Check if Atomics.waitAsync is available (Safari 16.4+, Chrome 87+)
  */
-const hasWaitAsync =
-  typeof Atomics !== 'undefined' && typeof (Atomics as any).waitAsync === 'function';
-
 /**
  * Start epoch watchers that notify Go kernel when epochs change.
  * Uses Atomics.waitAsync when available, falls back to polling otherwise.
  */
-function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
+function startEpochWatchers(
+  sab: SharedArrayBuffer,
+  sabOffset: number,
+  hasWaitAsync: boolean
+): void {
   const indices = [
     IDX_SYSTEM_EPOCH,
     IDX_BIRD_EPOCH,
@@ -314,7 +315,7 @@ function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
   console.log('[KernelWorker] Starting epoch watchers (hasWaitAsync:', hasWaitAsync, ')');
 
   indices.forEach(index => {
-    watchEpochIndex(flags, index);
+    watchEpochIndex(flags, index, hasWaitAsync);
   });
 }
 
@@ -322,7 +323,7 @@ function startEpochWatchers(sab: SharedArrayBuffer, sabOffset: number): void {
  * Watch a single epoch index and notify Go when it changes.
  * Uses Atomics.waitAsync for zero-CPU idling when available.
  */
-function watchEpochIndex(flags: Int32Array, index: number): void {
+function watchEpochIndex(flags: Int32Array, index: number, hasWaitAsync: boolean): void {
   if (!epochWatchersRunning) return;
 
   const current = Atomics.load(flags, index);
@@ -335,13 +336,13 @@ function watchEpochIndex(flags: Int32Array, index: number): void {
         if (!epochWatchersRunning) return;
         const newValue = Atomics.load(flags, index);
         notifyGoEpochChange(index, newValue);
-        watchEpochIndex(flags, index); // Re-arm
+        watchEpochIndex(flags, index, hasWaitAsync); // Re-arm
       });
     } else {
       // Value already changed
       const newValue = Atomics.load(flags, index);
       notifyGoEpochChange(index, newValue);
-      setTimeout(() => watchEpochIndex(flags, index), 0);
+      setTimeout(() => watchEpochIndex(flags, index, hasWaitAsync), 0);
     }
   } else {
     // Fallback: poll at 60Hz for older browsers
@@ -351,7 +352,7 @@ function watchEpochIndex(flags: Int32Array, index: number): void {
       const newValue = Atomics.load(flags, index);
       if (newValue !== current) {
         notifyGoEpochChange(index, newValue);
-        watchEpochIndex(flags, index); // Re-arm with new value
+        watchEpochIndex(flags, index, hasWaitAsync); // Re-arm with new value
       } else {
         setTimeout(poll, pollInterval);
       }

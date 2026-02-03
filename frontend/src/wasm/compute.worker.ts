@@ -20,6 +20,7 @@ import { WasmHeap } from './heap';
 import { createBaseEnv, createPlaceholders } from './bridge';
 import { INOSBridge } from './bridge-state';
 import { IDX_SYSTEM_PULSE } from './layout';
+import { getRuntimeCapabilities } from './runtime';
 
 // Worker-scoped state
 let _memory: WebAssembly.Memory | null = null;
@@ -27,6 +28,7 @@ let _modules: Record<string, ModuleExports> = {};
 let _dispatcher: WorkerDispatcher | null = null;
 let _isLooping = false;
 let _loopParams: any = {};
+const runtimeCaps = getRuntimeCapabilities();
 
 interface ModuleExports {
   exports: WebAssembly.Exports;
@@ -315,6 +317,11 @@ self.onmessage = async (event: MessageEvent<any>) => {
     switch (type) {
       case 'init': {
         const { sab, memory, sabOffset, sabSize, identity } = event.data;
+        if (!runtimeCaps.sharedMemory) {
+          throw new Error(
+            `INOS requires SharedArrayBuffer support.\n\n${runtimeCaps.reason || ''}`
+          );
+        }
         if (!sab) throw new Error('SAB is required');
         _memory =
           memory ||

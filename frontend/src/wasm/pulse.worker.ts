@@ -1,4 +1,5 @@
 import { IDX_SYSTEM_PULSE, IDX_SYSTEM_VISIBILITY } from './layout';
+import { getRuntimeCapabilities } from './runtime';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -10,7 +11,13 @@ let lastPulseTime = 0;
 let flags: Int32Array | null = null;
 
 interface PulseMessage {
-  type: 'INIT' | 'STOP' | 'SET_TPS' | 'SET_VISIBILITY' | 'WATCH_INDICES';
+  type:
+    | 'INIT'
+    | 'STOP'
+    | 'SET_TPS'
+    | 'SET_VISIBILITY'
+    | 'WATCH_INDICES'
+    | 'UNWATCH_INDICES';
   payload: {
     sab?: SharedArrayBuffer;
     fps?: number;
@@ -42,6 +49,12 @@ self.onmessage = (event: MessageEvent<PulseMessage>) => {
         }
       }
       break;
+    case 'UNWATCH_INDICES':
+      if (!payload.indices) return;
+      for (const index of payload.indices) {
+        watchers.delete(index);
+      }
+      break;
 
     case 'STOP':
       isRunning = false;
@@ -67,8 +80,8 @@ self.onmessage = (event: MessageEvent<PulseMessage>) => {
 /**
  * Check if Atomics.waitAsync is available (Safari 16.4+, Chrome 87+)
  */
-const hasWaitAsync =
-  typeof Atomics !== 'undefined' && typeof (Atomics as any).waitAsync === 'function';
+const runtimeCaps = getRuntimeCapabilities();
+const hasWaitAsync = runtimeCaps.waitAsync;
 
 /**
  * Microsecond-latency watcher using non-blocking Atomics.waitAsync
@@ -76,6 +89,7 @@ const hasWaitAsync =
  */
 function watchIndex(index: number) {
   if (!isRunning || !flags) return;
+  if (!watchers.has(index)) return;
 
   const current = Atomics.load(flags, index);
 
@@ -85,7 +99,7 @@ function watchIndex(index: number) {
 
     if (result.async) {
       result.value.then(() => {
-        if (isRunning && flags) {
+        if (isRunning && flags && watchers.has(index)) {
           const newValue = Atomics.load(flags, index);
           self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
           watchIndex(index); // Re-arm
@@ -93,16 +107,18 @@ function watchIndex(index: number) {
       });
     } else {
       // Value already changed synchronously
-      const newValue = Atomics.load(flags, index);
-      self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
-      setTimeout(() => watchIndex(index), 0); // Avoid stack overflow
+      if (watchers.has(index)) {
+        const newValue = Atomics.load(flags, index);
+        self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
+        setTimeout(() => watchIndex(index), 0); // Avoid stack overflow
+      }
     }
   } else {
     // Fallback path for older browsers: poll at 60Hz
     // This is less efficient but ensures compatibility with iOS Safari < 16.4
     const pollInterval = 16; // ~60fps
     const poll = () => {
-      if (!isRunning || !flags) return;
+      if (!isRunning || !flags || !watchers.has(index)) return;
       const newValue = Atomics.load(flags, index);
       if (newValue !== current) {
         self.postMessage({ type: 'EPOCH_CHANGE', payload: { index, value: newValue } });
@@ -134,8 +150,9 @@ function runPulseLoop() {
     lastPulseTime = now - (delta % interval); // Jitter compensation
   }
 
-  // Tight loop for high precision timing without rAF overhead
-  setTimeout(runPulseLoop, 0);
+  // Schedule the next tick with a minimal delay to reduce CPU burn
+  const delay = Math.max(0, interval - delta);
+  setTimeout(runPulseLoop, delay);
 }
 
 export {};

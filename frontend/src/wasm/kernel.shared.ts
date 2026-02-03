@@ -1,3 +1,5 @@
+import { checkSharedMemoryCapability, getRuntimeCapabilities } from './runtime';
+
 export async function loadGoRuntime(
   target: any,
   wasmExecUrl: string,
@@ -111,34 +113,7 @@ export function applyMeshBootstrapConfig(target: any, config?: MeshBootstrapConf
   target.__INOS_MESH_CONFIG__ = config;
 }
 
-export function checkSharedMemoryCapability(): { supported: boolean; reason?: string } {
-  if (typeof SharedArrayBuffer === 'undefined') {
-    return {
-      supported: false,
-      reason:
-        'SharedArrayBuffer is not available. This may be due to missing COOP/COEP headers or an unsupported browser.',
-    };
-  }
-
-  try {
-    const testMemory = new WebAssembly.Memory({
-      initial: 1,
-      maximum: 1,
-      shared: true,
-    });
-    if (!(testMemory.buffer instanceof SharedArrayBuffer)) {
-      throw new Error('Shared memory buffer is not available.');
-    }
-  } catch {
-    return {
-      supported: false,
-      reason:
-        'Shared WebAssembly.Memory is not available. This may be due to missing COOP/COEP headers.',
-    };
-  }
-
-  return { supported: true };
-}
+export { checkSharedMemoryCapability, getRuntimeCapabilities };
 
 /**
  * WebRTC Proxy DataChannel for Worker Contexts

@@ -9,6 +9,7 @@ import {
 } from './kernel.shared';
 import { createMeshClient } from './mesh';
 import pulseManager from './pulse-manager';
+import { getPlatformInfo } from './platform';
 
 // Vite worker import syntax
 import KernelWorkerUrl from './kernel.worker?worker&url';
@@ -151,10 +152,9 @@ export async function initializeKernel(
 
   // Define the init logic as a single promise
   const init = async (): Promise<KernelInitResult> => {
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    const isIOS =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-      (navigator.userAgent.includes('Mac') && navigator.maxTouchPoints > 1);
+    const platform = getPlatformInfo();
+    const isSafari = platform.isSafari;
+    const isIOS = platform.isIOS;
 
     const isDev = import.meta.env.DEV;
     // Default URL logic

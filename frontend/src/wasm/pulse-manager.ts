@@ -127,6 +127,10 @@ const pulseManager = {
       handlers.delete(handler);
       if (handlers.size === 0) {
         epochHandlers.delete(index);
+        pulseWorker?.postMessage({
+          type: 'UNWATCH_INDICES',
+          payload: { indices: [index] },
+        });
       }
     }
   },
