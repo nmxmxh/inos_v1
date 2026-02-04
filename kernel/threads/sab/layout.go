@@ -133,6 +133,12 @@ const (
 	MESH_EVENT_SLOT_SIZE    = system.MeshEventSlotSize
 	MESH_EVENT_SLOT_COUNT   = system.MeshEventSlotCount
 
+	// Region Guard Table (Cross-Layer Enforcement)
+	OFFSET_REGION_GUARDS     = system.OffsetRegionGuards
+	SIZE_REGION_GUARDS       = system.SizeRegionGuards
+	REGION_GUARD_ENTRY_SIZE  = system.RegionGuardEntrySize
+	REGION_GUARD_COUNT       = system.RegionGuardCount
+
 	// Bird Animation State
 	OFFSET_BIRD_STATE = system.OffsetBirdState
 	SIZE_BIRD_STATE   = system.SizeBirdState

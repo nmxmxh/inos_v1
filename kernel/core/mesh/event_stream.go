@@ -29,6 +29,10 @@ type MeshEventQueue struct {
 	slotCount uint32
 }
 
+type regionGuarder interface {
+	AcquireRegionWriteGuard(region sab.RegionId, owner sab.RegionOwner) (sab.RegionWriteGuard, error)
+}
+
 func NewMeshEventQueue(bridge SABWriter) *MeshEventQueue {
 	queue := &MeshEventQueue{
 		bridge:    bridge,
@@ -61,6 +65,15 @@ func (q *MeshEventQueue) Enqueue(topic string, payload []byte) error {
 		return fmt.Errorf("mesh event payload too large (%d > %d)", len(payload), maxPayload)
 	}
 
+	var guard sab.RegionWriteGuard
+	if guarder, ok := q.bridge.(regionGuarder); ok {
+		g, err := guarder.AcquireRegionWriteGuard(sab.RegionMeshEventQueue, sab.RegionOwnerKernel)
+		if err != nil {
+			return err
+		}
+		guard = g
+	}
+
 	head := q.bridge.AtomicLoad(sab.IDX_MESH_EVENT_HEAD)
 	tail := q.bridge.AtomicLoad(sab.IDX_MESH_EVENT_TAIL)
 	inFlight := tail - head
@@ -88,6 +101,16 @@ func (q *MeshEventQueue) Enqueue(topic string, payload []byte) error {
 
 	q.bridge.AtomicAdd(sab.IDX_MESH_EVENT_TAIL, 1)
 	q.bridge.SignalEpoch(sab.IDX_MESH_EVENT_EPOCH)
+
+	if guard != nil {
+		if err := guard.EnsureEpochAdvanced(); err != nil {
+			_ = guard.Release()
+			return err
+		}
+		if err := guard.Release(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

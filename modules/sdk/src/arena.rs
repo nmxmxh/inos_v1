@@ -1,3 +1,4 @@
+use crate::guard::{policy_for, RegionGuard, RegionId, RegionOwner};
 use crate::registry::crc32c_hash;
 use crate::sab::SafeSAB;
 use crate::signal::Epoch;
@@ -11,7 +12,7 @@ const REQUEST_ENTRY_SIZE: usize = crate::layout::ARENA_QUEUE_ENTRY_SIZE;
 const MAX_REQUESTS: usize = crate::layout::MAX_ARENA_REQUESTS;
 
 // Epoch indices
-const IDX_ARENA_REQUEST: u32 = 12; // Dedicated System Reserved index
+const IDX_ARENA_REQUEST: u32 = crate::layout::IDX_ARENA_ALLOCATOR;
 
 pub struct ArenaAllocator {
     sab: SafeSAB,
@@ -42,10 +43,21 @@ impl ArenaAllocator {
         self.next_request_id += 1;
 
         // Write request
+        let guard_policy = policy_for(RegionId::ArenaRequestQueue);
+        let guard = RegionGuard::acquire_write(self.sab.clone(), guard_policy, RegionOwner::Module)
+            .map_err(|e| ArenaError::WriteError(format!("Guard error: {e:?}")))?;
+
         self.write_request(&request)?;
 
         // Signal Go
         self.request_epoch.increment();
+
+        guard
+            .ensure_epoch_advanced()
+            .map_err(|e| ArenaError::WriteError(format!("Guard epoch error: {e:?}")))?;
+        guard
+            .release()
+            .map_err(|e| ArenaError::WriteError(format!("Guard release error: {e:?}")))?;
 
         // Wait for response (1 second timeout)
         self.wait_for_response(request.id, 1000)
@@ -69,8 +81,19 @@ impl ArenaAllocator {
 
         self.next_request_id += 1;
 
+        let guard_policy = policy_for(RegionId::ArenaRequestQueue);
+        let guard = RegionGuard::acquire_write(self.sab.clone(), guard_policy, RegionOwner::Module)
+            .map_err(|e| ArenaError::WriteError(format!("Guard error: {e:?}")))?;
+
         self.write_request(&request)?;
         self.request_epoch.increment();
+
+        guard
+            .ensure_epoch_advanced()
+            .map_err(|e| ArenaError::WriteError(format!("Guard epoch error: {e:?}")))?;
+        guard
+            .release()
+            .map_err(|e| ArenaError::WriteError(format!("Guard release error: {e:?}")))?;
         self.wait_for_response(request.id, 1000)
     }
 
@@ -88,8 +111,19 @@ impl ArenaAllocator {
 
         self.next_request_id += 1;
 
+        let guard_policy = policy_for(RegionId::ArenaRequestQueue);
+        let guard = RegionGuard::acquire_write(self.sab.clone(), guard_policy, RegionOwner::Module)
+            .map_err(|e| ArenaError::WriteError(format!("Guard error: {e:?}")))?;
+
         self.write_request(&request)?;
         self.request_epoch.increment();
+
+        guard
+            .ensure_epoch_advanced()
+            .map_err(|e| ArenaError::WriteError(format!("Guard epoch error: {e:?}")))?;
+        guard
+            .release()
+            .map_err(|e| ArenaError::WriteError(format!("Guard release error: {e:?}")))?;
 
         Ok(())
     }
@@ -115,6 +149,10 @@ impl ArenaAllocator {
     }
 
     fn wait_for_response(&self, request_id: u64, timeout_ms: u32) -> Result<u32, ArenaError> {
+        let response_policy = policy_for(RegionId::ArenaResponseQueue);
+        RegionGuard::validate_read(&self.sab, response_policy, RegionOwner::Module)
+            .map_err(|e| ArenaError::ReadError(format!("Guard error: {e:?}")))?;
+
         let slot = (request_id % MAX_REQUESTS as u64) as usize;
         let offset = ARENA_RESPONSE_QUEUE + slot * REQUEST_ENTRY_SIZE;
 

@@ -61,6 +61,7 @@ SAB Memory Map (Absolute Addresses - v2.2)
 │   └── 0x0D0000 - 0x14FFFF: Outbox (512KB)
 └── 0x150000 - END:      Arena (Dynamic)
     ├── 0x150000 - 0x150FFF: Diagnostics (4KB)
+    ├── 0x15F000 - 0x15FFFF: Region Guard Table (4KB)
     ├── 0x160000 - 0x160FFF: Bird State (4KB)
     ├── 0x161000 - 0x16103F: Ping-Pong Control (64B)
     ├── 0x162000 - 0x3C1FFF: Bird Buffer A (2.36MB)
@@ -131,6 +132,19 @@ Eliminates read/write contention between layers:
 |------------|-------------------|-------------------|------|---------|
 | **Bird Buffers** | `0x162000` | `0x3C2000` | 2.36MB | Entity state (10k × 236B) |
 | **Matrix Buffers** | `0x622000` | `0xB22000` | 5.12MB | GPU transforms (10k × 512B) |
+
+### 3.3 Region Guard Table (Cross-Layer Enforcement)
+
+INOS reserves a small **Region Guard Table** inside Arena metadata to enforce
+single-writer and authorized-writer policies across Go/Rust/JS. Each entry is a
+fixed-size record that tracks:
+- Authorized owner (Kernel, Module, Host, System)
+- Active writer lock (atomic)
+- Last observed epoch
+- Violation counter (debug/telemetry)
+
+This enables runtime detection of multi-writer overlap and mis-ordered epoch
+signaling without changing the primary SAB layout.
 
 ---
 

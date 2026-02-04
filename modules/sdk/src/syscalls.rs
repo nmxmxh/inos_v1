@@ -1,5 +1,6 @@
 use crate::protocols::resource;
 use crate::protocols::syscall;
+use crate::guard::{policy_for, RegionGuard, RegionId, RegionOwner};
 use crate::sab::SafeSAB;
 
 use capnp::message::{Builder, ReaderOptions};
@@ -230,6 +231,10 @@ impl SyscallClient {
             return Err("Message too large for Outbox".to_string());
         }
 
+        let guard_policy = policy_for(RegionId::OutboxKernel);
+        let guard = RegionGuard::acquire_write(sab.clone(), guard_policy, RegionOwner::Module)
+            .map_err(|e| format!("Guard error: {e:?}"))?;
+
         // ACQUIRE OUTBOX LOCK
         // We use index IDX_OUTBOX_MUTEX in AtomicFlags as a Mutex for the Outbox
         let flags = sab.int32_view(
@@ -263,6 +268,7 @@ impl SyscallClient {
         if let Err(e) = write_result {
             // Unlock and return error
             crate::js_interop::atomic_store(&flags, crate::layout::IDX_OUTBOX_MUTEX, 0);
+            let _ = guard.release();
             return Err(e);
         }
 
@@ -272,6 +278,13 @@ impl SyscallClient {
 
         // RELEASE OUTBOX LOCK
         crate::js_interop::atomic_store(&flags, crate::layout::IDX_OUTBOX_MUTEX, 0);
+
+        guard
+            .ensure_epoch_advanced()
+            .map_err(|e| format!("Guard epoch error: {e:?}"))?;
+        guard
+            .release()
+            .map_err(|e| format!("Guard release error: {e:?}"))?;
 
         Ok(())
     }

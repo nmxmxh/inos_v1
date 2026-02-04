@@ -11,6 +11,7 @@ pub mod arena;
 pub mod compression;
 pub mod context;
 pub mod crdt;
+pub mod guard;
 pub mod hashing;
 pub mod js_interop;
 pub mod layout;

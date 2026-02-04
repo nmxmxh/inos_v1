@@ -128,9 +128,15 @@ const maxArenaRequests         :UInt32 = 64;
 
 # Mesh Event Stream (Ring Buffer)
 const offsetMeshEventQueue   :UInt32 = 0x00153000; # Event payload slots
-const sizeMeshEventQueue     :UInt32 = 0x000D000;  # 52KB (52 slots * 1KB)
-const meshEventSlotSize      :UInt32 = 0x000400;  # 1KB per slot
-const meshEventSlotCount     :UInt32 = 52;        # Power-of-two not required (monotonic counters)
+const sizeMeshEventQueue     :UInt32 = 0x000C000;  # 48KB (48 slots * 1KB)
+const meshEventSlotSize      :UInt32 = 0x000400;   # 1KB per slot
+const meshEventSlotCount     :UInt32 = 48;         # Power-of-two not required (monotonic counters)
+
+# Region Guard Table (Cross-Layer Enforcement)
+const offsetRegionGuards     :UInt32 = 0x0015F000; # Guard table entries (within Arena metadata)
+const sizeRegionGuards       :UInt32 = 0x00001000; # 4KB (256 entries * 16B)
+const regionGuardEntrySize   :UInt32 = 16;
+const regionGuardCount       :UInt32 = 256;
 
 # Bird Animation State
 const offsetBirdState        :UInt32 = 0x00160000; # Bird state metadata

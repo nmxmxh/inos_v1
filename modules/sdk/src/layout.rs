@@ -103,6 +103,12 @@ pub const SIZE_MESH_EVENT_QUEUE: usize = sab::SIZE_MESH_EVENT_QUEUE as usize;
 pub const MESH_EVENT_SLOT_SIZE: usize = sab::MESH_EVENT_SLOT_SIZE as usize;
 pub const MESH_EVENT_SLOT_COUNT: usize = sab::MESH_EVENT_SLOT_COUNT as usize;
 
+/// Region Guard Table (Cross-Layer Enforcement)
+pub const OFFSET_REGION_GUARDS: usize = sab::OFFSET_REGION_GUARDS as usize;
+pub const SIZE_REGION_GUARDS: usize = sab::SIZE_REGION_GUARDS as usize;
+pub const REGION_GUARD_ENTRY_SIZE: usize = sab::REGION_GUARD_ENTRY_SIZE as usize;
+pub const REGION_GUARD_COUNT: usize = sab::REGION_GUARD_COUNT as usize;
+
 /// Bird Animation State (Arena)
 pub const OFFSET_BIRD_STATE: usize = sab::OFFSET_BIRD_STATE as usize;
 pub const SIZE_BIRD_STATE: usize = sab::SIZE_BIRD_STATE as usize;

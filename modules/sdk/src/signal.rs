@@ -5,6 +5,7 @@ pub use crate::layout::{
     IDX_SYSTEM_EPOCH, OFFSET_SAB_INBOX, OFFSET_SAB_OUTBOX, SIZE_INBOX, SIZE_OUTBOX,
 };
 
+use crate::guard::{RegionId, RegionOwner};
 use crate::ringbuffer::RingBuffer;
 use crate::sab::SafeSAB;
 
@@ -20,9 +21,21 @@ impl Reactor {
         // We use a shared view of the first 1024 bytes of the provided SafeSAB (which is already offset-scoped)
         let flags = SafeSAB::new_shared_view(sab.inner(), sab.base_offset() as u32, 1024);
 
-        let inbox = RingBuffer::new(sab.clone(), OFFSET_SAB_INBOX as u32, SIZE_INBOX as u32);
+        let inbox = RingBuffer::new_guarded(
+            sab.clone(),
+            OFFSET_SAB_INBOX as u32,
+            SIZE_INBOX as u32,
+            RegionId::Inbox,
+            RegionOwner::Module,
+        );
 
-        let outbox = RingBuffer::new(sab.clone(), OFFSET_SAB_OUTBOX as u32, SIZE_OUTBOX as u32);
+        let outbox = RingBuffer::new_guarded(
+            sab.clone(),
+            OFFSET_SAB_OUTBOX as u32,
+            SIZE_OUTBOX as u32,
+            RegionId::OutboxKernel,
+            RegionOwner::Module,
+        );
 
         Self {
             flags,

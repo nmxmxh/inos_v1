@@ -372,7 +372,6 @@ func (sb *SABBridge) WriteOutbox(data []byte) error {
 	if err := sb.writeToSAB(sb.outboxHostOffset, sab_layout.SIZE_OUTBOX_HOST_TOTAL, data); err != nil {
 		return err
 	}
-	sb.SignalEpoch(sab_layout.IDX_OUTBOX_HOST_DIRTY)
 	return nil
 }
 
@@ -383,7 +382,6 @@ func (sb *SABBridge) WriteOutboxKernel(data []byte) error {
 	if err := sb.writeToSAB(sb.outboxKernelOffset, sab_layout.SIZE_OUTBOX_KERNEL_TOTAL, data); err != nil {
 		return err
 	}
-	sb.SignalEpoch(sab_layout.IDX_OUTBOX_KERNEL_DIRTY)
 	return nil
 }
 
@@ -595,6 +593,16 @@ func (sb *SABBridge) writeToSAB(baseOffset, regionSize uint32, data []byte) erro
 	const HeaderSize = 8
 	DataCapacity := regionSize - HeaderSize
 
+	regionID, guarded := sb.regionForBaseOffset(baseOffset)
+	var guard *RegionGuard
+	if guarded {
+		var err error
+		guard, err = sb.AcquireRegionWrite(regionID, sab_layout.RegionOwnerKernel)
+		if err != nil {
+			return err
+		}
+	}
+
 	msgLen := uint32(len(data))
 	totalLen := 4 + msgLen
 
@@ -649,6 +657,21 @@ func (sb *SABBridge) writeToSAB(baseOffset, regionSize uint32, data []byte) erro
 	// 4. Synchronize: Push local write to Global SAB
 	// Crucial: Only push the data region, leave Head/Tail (Metadata) to Atomic management
 	sb.commitToJS(baseOffset+HeaderSize, DataCapacity)
+
+	// 5. Signal epoch (enforced ordering)
+	if guard != nil && guard.policy.EpochIndex != nil {
+		sb.SignalEpoch(*guard.policy.EpochIndex)
+		if err := guard.EnsureEpochAdvanced(); err != nil {
+			_ = guard.Release()
+			return err
+		}
+	}
+
+	if guard != nil {
+		if err := guard.Release(); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -728,6 +751,12 @@ func (sb *SABBridge) readFromSAB(baseOffset, regionSize uint32) ([]byte, error) 
 	const HeaderSize = 8
 	DataCapacity := regionSize - HeaderSize
 
+	if regionID, guarded := sb.regionForBaseOffset(baseOffset); guarded {
+		if err := sb.ValidateRegionRead(regionID, sab.RegionOwnerKernel); err != nil {
+			return nil, err
+		}
+	}
+
 	// 1. Optimistic CAS Loop to claim the message
 	var head, tail, msgLen, nextHead, dataHead uint32
 
@@ -791,6 +820,19 @@ func (sb *SABBridge) readFromSAB(baseOffset, regionSize uint32) ([]byte, error) 
 	sb.writeRawRing(baseOffset, HeaderSize, DataCapacity, head, zeroBytes)
 
 	return data, nil
+}
+
+func (sb *SABBridge) regionForBaseOffset(baseOffset uint32) (sab_layout.RegionId, bool) {
+	switch baseOffset {
+	case sb.inboxOffset:
+		return sab_layout.RegionInbox, true
+	case sb.outboxHostOffset:
+		return sab_layout.RegionOutboxHost, true
+	case sb.outboxKernelOffset:
+		return sab_layout.RegionOutboxKernel, true
+	default:
+		return 0, false
+	}
 }
 
 func (sb *SABBridge) readRawRing(baseOffset, headerSize, capacity, readIdx uint32, out []byte) {
@@ -1029,6 +1071,34 @@ func (sb *SABBridge) atomicCASDirect(index uint32, old, new uint32) bool {
 	byteOffset := index * 4
 	ptr := unsafe.Add(sb.sab, byteOffset)
 	return atomic.CompareAndSwapUint32((*uint32)(ptr), old, new)
+}
+
+// atomicStoreDirect stores into the SAB at the absolute index (no flag offset)
+func (sb *SABBridge) atomicStoreDirect(index uint32, value uint32) {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		_ = sb.jsAtomics.Call("store", sb.jsInt32View, index, int32(value))
+		return
+	}
+	byteOffset := index * 4
+	ptr := unsafe.Add(sb.sab, byteOffset)
+	atomic.StoreUint32((*uint32)(ptr), value)
+}
+
+// atomicAddDirect adds to the SAB at the absolute index (no flag offset)
+func (sb *SABBridge) atomicAddDirect(index uint32, delta uint32) uint32 {
+	if !sb.jsInitialized || sb.jsInt32View.IsUndefined() {
+		sb.initJSCache()
+	}
+	if !sb.jsAtomics.IsUndefined() && !sb.jsInt32View.IsUndefined() {
+		val := sb.jsAtomics.Call("add", sb.jsInt32View, index, int32(delta))
+		return uint32(val.Int())
+	}
+	byteOffset := index * 4
+	ptr := unsafe.Add(sb.sab, byteOffset)
+	return atomic.AddUint32((*uint32)(ptr), delta)
 }
 
 func shouldSignalSystemEpoch(index uint32) bool {

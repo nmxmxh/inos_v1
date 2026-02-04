@@ -11,6 +11,7 @@ import type {
 } from '../../bridge/generated/protocols/schemas/p2p/v1/mesh';
 import pulseManager from './pulse-manager';
 import { getDataView, getFlagsView, getOffset, getSAB } from './bridge-state';
+import { RegionId, RegionOwner, validateRegionRead } from './guard';
 import type { MeshBootstrapConfig } from './kernel.shared';
 import {
   IDX_MESH_EVENT_EPOCH,
@@ -216,6 +217,11 @@ class MeshEventStream {
     const view = getDataView();
     const flags = getFlagsView();
     if (!sab || !view || !flags) {
+      return;
+    }
+
+    if (!validateRegionRead(sab, RegionId.MeshEventQueue, RegionOwner.Host)) {
+      console.warn('[MeshEvents] Guard rejected mesh event read');
       return;
     }
 

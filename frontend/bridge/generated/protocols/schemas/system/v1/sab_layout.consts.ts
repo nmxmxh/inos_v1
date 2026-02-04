@@ -211,13 +211,22 @@ export const MAX_ARENA_REQUESTS = 64 as const;
 export const OFFSET_MESH_EVENT_QUEUE = 0x153000 as const;
 
 /** 52KB (52 slots * 1KB) */
-export const SIZE_MESH_EVENT_QUEUE = 0x00D000 as const;
+export const SIZE_MESH_EVENT_QUEUE = 0x00C000 as const;
 
 /** 1KB per slot */
 export const MESH_EVENT_SLOT_SIZE = 1024 as const;
 
 /** Power-of-two not required (monotonic counters) */
-export const MESH_EVENT_SLOT_COUNT = 52 as const;
+export const MESH_EVENT_SLOT_COUNT = 48 as const;
+
+/** Guard table entries (within Arena metadata) */
+export const OFFSET_REGION_GUARDS = 0x15F000 as const;
+
+/** 4KB (256 entries * 16B) */
+export const SIZE_REGION_GUARDS = 0x001000 as const;
+
+export const REGION_GUARD_ENTRY_SIZE = 16 as const;
+export const REGION_GUARD_COUNT = 256 as const;
 
 /** Bird state metadata */
 export const OFFSET_BIRD_STATE = 0x160000 as const;
@@ -466,6 +475,10 @@ export const CONSTS = {
   SIZE_MESH_EVENT_QUEUE,
   MESH_EVENT_SLOT_SIZE,
   MESH_EVENT_SLOT_COUNT,
+  OFFSET_REGION_GUARDS,
+  SIZE_REGION_GUARDS,
+  REGION_GUARD_ENTRY_SIZE,
+  REGION_GUARD_COUNT,
   OFFSET_BIRD_STATE,
   SIZE_BIRD_STATE,
   OFFSET_PINGPONG_CONTROL,

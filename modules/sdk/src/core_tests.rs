@@ -3,6 +3,7 @@
 
 #[cfg(test)]
 mod ringbuffer_tests {
+    use crate::guard::{RegionId, RegionOwner};
     use crate::ringbuffer::RingBuffer;
     use crate::sab::SafeSAB;
 
@@ -31,6 +32,21 @@ mod ringbuffer_tests {
 
         // Capacity should be total - header (8 bytes)
         // This validates the constructor logic
+    }
+
+    #[test]
+    fn test_ringbuffer_guard_rejects_unauthorized_writer() {
+        let mock_sab = SafeSAB::with_size(16 * 1024);
+        let rb = RingBuffer::new_guarded(
+            mock_sab,
+            0,
+            1024,
+            RegionId::OutboxKernel,
+            RegionOwner::Host,
+        );
+        let data = b"unauthorized";
+        let result = rb.write_message(data);
+        assert!(result.is_err());
     }
 }
 

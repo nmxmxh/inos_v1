@@ -14,6 +14,7 @@ import {
   IDX_OUTBOX_HOST_DIRTY,
   IDX_OUTBOX_KERNEL_DIRTY,
 } from './layout';
+import { RegionId, RegionOwner, resetGuardTable, validateRegionRead } from './guard';
 
 // =============================================================================
 // SINGLETON STATE
@@ -67,6 +68,8 @@ export function initializeBridge(
   _dataView = new DataView(sab);
   _flagsView = new Int32Array(sab, OFFSET_SYSTEM_BASE, sab.byteLength / 4);
   _floatsView = new Float32Array(sab);
+
+  resetGuardTable(sab);
 
   // Clear cached region views (they'll be recreated on demand)
   _regionViews.clear();
@@ -309,6 +312,11 @@ export const INOSBridge = {
    */
   popResult: (): Uint8Array | null => {
     if (!isReady() || !_dataView || !_sab || !_flagsView) return null;
+
+    if (!validateRegionRead(_sab, RegionId.OutboxHost, RegionOwner.Host)) {
+      console.warn('[INOSBridge] Guard rejected outbox host read');
+      return null;
+    }
 
     const outboxBase = OFFSET_OUTBOX_HOST_BASE;
     const regionSize = SIZE_OUTBOX_HOST_TOTAL;

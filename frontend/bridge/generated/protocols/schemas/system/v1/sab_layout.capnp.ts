@@ -135,11 +135,16 @@ export const MAX_ARENA_REQUESTS: number = 64;
 
 export const OFFSET_MESH_EVENT_QUEUE: number = 1388544;
 
-export const SIZE_MESH_EVENT_QUEUE: number = 53248;
+export const SIZE_MESH_EVENT_QUEUE: number = 49152;
 
 export const MESH_EVENT_SLOT_SIZE: number = 1024;
 
-export const MESH_EVENT_SLOT_COUNT: number = 52;
+export const MESH_EVENT_SLOT_COUNT: number = 48;
+
+export const OFFSET_REGION_GUARDS: number = 1437696;
+export const SIZE_REGION_GUARDS: number = 4096;
+export const REGION_GUARD_ENTRY_SIZE: number = 16;
+export const REGION_GUARD_COUNT: number = 256;
 
 export const OFFSET_BIRD_STATE: number = 1441792;
 
@@ -256,4 +261,3 @@ export const ALIGNMENT_CACHE_LINE: number = 64;
 export const ALIGNMENT_PAGE: number = 4096;
 
 export const ALIGNMENT_LARGE: number = 65536;
-

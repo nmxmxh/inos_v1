@@ -1,3 +1,4 @@
+use crate::guard::{policy_for, GuardError, RegionGuard, RegionId, RegionOwner, RegionPolicy};
 use crate::sab::SafeSAB;
 
 /// Generic Ring Buffer backed by SharedArrayBuffer
@@ -7,6 +8,9 @@ pub struct RingBuffer {
     sab: SafeSAB,
     base_offset: u32,
     data_capacity: u32,
+    guard_policy: Option<RegionPolicy>,
+    guard_owner: Option<RegionOwner>,
+    signal_epoch_index: Option<u32>,
 }
 
 impl RingBuffer {
@@ -20,12 +24,35 @@ impl RingBuffer {
             sab,
             base_offset,
             data_capacity: total_size - Self::HEADER_SIZE,
+            guard_policy: None,
+            guard_owner: None,
+            signal_epoch_index: None,
+        }
+    }
+
+    pub fn new_guarded(
+        sab: SafeSAB,
+        base_offset: u32,
+        total_size: u32,
+        region_id: RegionId,
+        owner: RegionOwner,
+    ) -> Self {
+        let policy = policy_for(region_id);
+        let signal_epoch_index = policy.epoch_index;
+        Self {
+            sab,
+            base_offset,
+            data_capacity: total_size - Self::HEADER_SIZE,
+            guard_policy: Some(policy),
+            guard_owner: Some(owner),
+            signal_epoch_index,
         }
     }
 
     /// Write a framed message [Length: u32][Data...]
     /// Multi-Producer Safe: Uses atomic reservation and commitment.
     pub fn write_message(&self, data: &[u8]) -> Result<bool, String> {
+        let guard = self.acquire_write_guard()?;
         let msg_len = data.len() as u32;
         let total_len = 4 + msg_len;
 
@@ -43,12 +70,22 @@ impl RingBuffer {
         let len_bytes = msg_len.to_le_bytes();
         self.write_raw_at(start_tail, &len_bytes)?;
 
+        if let Some(epoch_idx) = self.signal_epoch_index {
+            crate::js_interop::signal_epoch(self.sab.barrier_view(), epoch_idx);
+        }
+
+        if let Some(guard) = guard {
+            guard.ensure_epoch_advanced().map_err(to_string)?;
+            guard.release().map_err(to_string)?;
+        }
+
         Ok(true)
     }
 
     /// Read next framed message
     /// Multi-Producer Safe: Only reads if length header is non-zero (committed).
     pub fn read_message(&self) -> Result<Option<Vec<u8>>, String> {
+        self.validate_read_guard()?;
         let head = self.load_head();
         let tail = self.load_tail();
 
@@ -85,6 +122,7 @@ impl RingBuffer {
     /// Read raw bytes (stream mode)
     /// Returns bytes read
     pub fn read(&self, buf: &mut [u8]) -> Result<usize, String> {
+        self.validate_read_guard()?;
         let head = self.load_head();
         let tail = self.load_tail();
 
@@ -105,6 +143,7 @@ impl RingBuffer {
     }
 
     pub fn read_raw(&self, buf: &mut [u8]) -> Result<(), String> {
+        self.validate_read_guard()?;
         let head = self.load_head();
         self.read_raw_at(head, buf)?;
         self.store_head((head + buf.len() as u32) % self.data_capacity);
@@ -112,14 +151,38 @@ impl RingBuffer {
     }
 
     pub fn peek_raw(&self, buf: &mut [u8]) -> Result<(), String> {
+        self.validate_read_guard()?;
         let head = self.load_head();
         self.read_raw_at(head, buf)
     }
 
     pub fn skip_raw(&self, amount: u32) -> Result<(), String> {
+        self.validate_read_guard()?;
         let head = self.load_head();
         self.store_head((head + amount) % self.data_capacity);
         Ok(())
+    }
+
+    fn acquire_write_guard(&self) -> Result<Option<RegionGuard>, String> {
+        let Some(policy) = self.guard_policy else {
+            return Ok(None);
+        };
+        let Some(owner) = self.guard_owner else {
+            return Ok(None);
+        };
+        let guard = RegionGuard::acquire_write(self.sab.clone(), policy, owner)
+            .map_err(to_string)?;
+        Ok(Some(guard))
+    }
+
+    fn validate_read_guard(&self) -> Result<(), String> {
+        let Some(policy) = self.guard_policy else {
+            return Ok(());
+        };
+        let Some(owner) = self.guard_owner else {
+            return Ok(());
+        };
+        RegionGuard::validate_read(&self.sab, policy, owner).map_err(to_string)
     }
 
     fn reserve_space(&self, amount: u32) -> Result<u32, String> {
@@ -247,5 +310,13 @@ impl RingBuffer {
         let (view_val, _) = self.get_sab_view();
         let idx = (self.base_offset + Self::TAIL_OFFSET) / 4;
         crate::js_interop::atomic_store(&view_val, idx, val as i32);
+    }
+}
+
+fn to_string(err: GuardError) -> String {
+    match err {
+        GuardError::Unauthorized(msg) => format!("Guard unauthorized: {msg}"),
+        GuardError::Locked(msg) => format!("Guard locked: {msg}"),
+        GuardError::OutOfRange(msg) => format!("Guard out of range: {msg}"),
     }
 }
