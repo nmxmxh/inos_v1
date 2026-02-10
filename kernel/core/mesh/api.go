@@ -3,6 +3,7 @@ package mesh
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	p2p "github.com/nmxmxh/inos_v1/kernel/gen/p2p/v1"
@@ -112,10 +113,32 @@ func (m *MeshCoordinator) GetTopPeers(limit int) []string {
 }
 
 // ConnectToPeer establishes a transport connection and updates routing.
-func (m *MeshCoordinator) ConnectToPeer(ctx context.Context, peerID string) error {
+func (m *MeshCoordinator) ConnectToPeer(ctx context.Context, peerID string, address ...string) error {
 	if peerID == "" {
 		return errors.New("peer ID is required")
 	}
+
+	bootstrapAddresses := make([]string, 0, len(address))
+	for _, candidate := range address {
+		for _, server := range strings.Split(candidate, ",") {
+			server = strings.TrimSpace(server)
+			if server != "" {
+				bootstrapAddresses = append(bootstrapAddresses, server)
+			}
+		}
+	}
+	if len(bootstrapAddresses) > 0 {
+		if bootstrapper, ok := m.transport.(interface {
+			AddSignalingServer(server string) error
+		}); ok {
+			for _, server := range bootstrapAddresses {
+				if err := bootstrapper.AddSignalingServer(server); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	m.emitPeerUpdateEvent(&PeerCapability{
 		PeerID:          peerID,
 		ConnectionState: ConnectionStateConnecting,

@@ -92,7 +92,7 @@ impl SyscallClient {
         hash: &str,
         src_offset: u64,
         size: u32,
-    ) -> Result<u8, String> {
+    ) -> Result<u16, String> {
         let call_id = CALL_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         let mut message = Builder::new_default();
@@ -146,10 +146,6 @@ impl SyscallClient {
 
         match result_reader.which().map_err(|e| e.to_string())? {
             syscall::syscall::result::Which::StoreChunk(res) => {
-                // Based on error feedback, res might be a Result in this generated version?
-                // Or maybe we just need to try standard access usage.
-                // If the error says "no method named `get_replicas` found for enum `Result`",
-                // then `res` must be a Result. We try `?` on it.
                 let reader = res.map_err(|e| e.to_string())?;
                 Ok(reader.get_replicas())
             }

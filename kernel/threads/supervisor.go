@@ -5,6 +5,7 @@ package threads
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unsafe"
@@ -624,15 +625,6 @@ func (s *Supervisor) FetchChunk(ctx context.Context, hash string) ([]byte, error
 
 // HasChunk checks if a chunk exists via the StorageSupervisor
 func (s *Supervisor) HasChunk(ctx context.Context, hash string) (bool, error) {
-	// For now, we use "query" or just try a "load" with minimal data?
-	// Actually, the StorageUnit in Rust might support a specific 'has' check.
-	// Looking at storage_supervisor.go, it supports 'query'.
-	// Let's use Load but we don't need the data.
-	// OR we can add a 'has_chunk' method to StorageUnit/Supervisor.
-	// For production grade, let's just check if it's in the pattern storage if it's there.
-
-	// Actually, the best way is to ask the supervisor to check.
-	// Let's use a "query" operation.
 	s.mu.RLock()
 	unit, ok := s.units["storage"]
 	s.mu.RUnlock()
@@ -646,10 +638,12 @@ func (s *Supervisor) HasChunk(ctx context.Context, hash string) (bool, error) {
 		return false, fmt.Errorf("invalid storage unit type")
 	}
 
+	// Use hash-specific load semantics instead of generic query, which cannot
+	// guarantee existence for a particular chunk hash.
 	job := &foundation.Job{
 		ID:        utils.GenerateID(),
 		Type:      "storage",
-		Operation: "query",
+		Operation: "load",
 		Parameters: map[string]interface{}{
 			"hash": hash,
 		},
@@ -657,14 +651,14 @@ func (s *Supervisor) HasChunk(ctx context.Context, hash string) (bool, error) {
 
 	result := ss.ExecuteJob(job)
 	if result.Error != "" {
+		errText := strings.ToLower(result.Error)
+		if strings.Contains(errText, "not found") || strings.Contains(errText, "missing") {
+			return false, nil
+		}
 		return false, fmt.Errorf("storage error: %s", result.Error)
 	}
 
-	// If result contains the hash, it exists.
-	// The Rust side should return something indicating existence.
-	// For now, assume if no error and we got a result, it might exist.
-	// TODO: Refine 'has_chunk' semantics in storage module.
-	return result.Error == "", nil
+	return true, nil
 }
 
 // GetStats returns supervisor statistics

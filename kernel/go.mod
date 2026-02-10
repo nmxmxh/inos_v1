@@ -3,6 +3,7 @@ module github.com/nmxmxh/inos_v1/kernel
 go 1.24.0
 
 require (
+	github.com/andybalholm/brotli v1.2.0
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/cdipaolo/goml v0.0.0-20220715001353-00e0c845ae1c
 	github.com/gorilla/websocket v1.5.3

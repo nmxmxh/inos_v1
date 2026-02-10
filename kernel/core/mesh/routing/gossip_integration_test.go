@@ -105,13 +105,15 @@ func TestGossipManager_Deduplication(t *testing.T) {
 
 	msgType := "test.dedup"
 
+	now := time.Now().UnixNano()
+
 	// First instance
 	incomingMsg1 := &common.GossipMessage{
 		ID:        "duplicate_msg",
 		Type:      msgType,
 		Payload:   []byte("data"),
 		Sender:    "peer2",
-		Timestamp: 123456789,
+		Timestamp: now,
 		HopCount:  1,
 		MaxHops:   10,
 	}
@@ -123,7 +125,7 @@ func TestGossipManager_Deduplication(t *testing.T) {
 		Type:      msgType,
 		Payload:   []byte("data"),
 		Sender:    "peer2",
-		Timestamp: 123456789,
+		Timestamp: now,
 		HopCount:  1,
 		MaxHops:   10,
 	}
@@ -145,7 +147,7 @@ func TestGossipManager_Deduplication(t *testing.T) {
 	}
 
 	// Receive second message - should be identified as duplicate
-	err2 := gossip.ReceiveMessage("peer3", incomingMsg2)
+	err2 := gossip.ReceiveMessage("peer2", incomingMsg2)
 	if err2 == nil {
 		// Dedup logic in ReceiveMessage returns error
 	}
@@ -163,6 +165,145 @@ func TestGossipManager_Deduplication(t *testing.T) {
 	metrics := gossip.GetMetrics()
 	if metrics.DuplicateMessages < 1 {
 		t.Errorf("Expected at least 1 duplicate counted, got %d", metrics.DuplicateMessages)
+	}
+}
+
+func TestGossipManager_RejectsOversizedMessage(t *testing.T) {
+	gossip, _ := NewGossipManager("node1", NewMockDHTTransport(), nil)
+	gossip.config.MaxMessageSize = 128
+	gossip.Start()
+	defer gossip.Stop()
+
+	msg := &common.GossipMessage{
+		ID:        "oversized-msg",
+		Type:      "abuse.test",
+		Payload:   map[string]any{"blob": string(make([]byte, 4096))},
+		Sender:    "peer2",
+		Timestamp: time.Now().UnixNano(),
+		HopCount:  0,
+		MaxHops:   10,
+	}
+	gossip.signMessage(msg)
+
+	err := gossip.ReceiveMessage("peer2", msg)
+	if err == nil {
+		t.Fatal("expected oversized message to be rejected")
+	}
+
+	metrics := gossip.GetMetrics()
+	if metrics.MessagesDropped == 0 {
+		t.Fatal("expected dropped message metric to increment")
+	}
+}
+
+func TestGossipManager_RejectsSenderMismatchAndClockSkew(t *testing.T) {
+	gossip, _ := NewGossipManager("node1", NewMockDHTTransport(), nil)
+	gossip.Start()
+	defer gossip.Stop()
+
+	msgSenderMismatch := &common.GossipMessage{
+		ID:        "sender-mismatch",
+		Type:      "abuse.test",
+		Payload:   []byte("x"),
+		Sender:    "peer2",
+		Timestamp: time.Now().UnixNano(),
+		HopCount:  0,
+		MaxHops:   10,
+	}
+	gossip.signMessage(msgSenderMismatch)
+	if err := gossip.ReceiveMessage("peer3", msgSenderMismatch); err == nil {
+		t.Fatal("expected sender mismatch rejection")
+	}
+
+	msgFuture := &common.GossipMessage{
+		ID:        "future-msg",
+		Type:      "abuse.test",
+		Payload:   []byte("x"),
+		Sender:    "peer2",
+		Timestamp: time.Now().Add(10 * time.Minute).UnixNano(),
+		HopCount:  0,
+		MaxHops:   10,
+	}
+	gossip.signMessage(msgFuture)
+	if err := gossip.ReceiveMessage("peer2", msgFuture); err == nil {
+		t.Fatal("expected future-skew message rejection")
+	}
+
+	msgStale := &common.GossipMessage{
+		ID:        "stale-msg",
+		Type:      "abuse.test",
+		Payload:   []byte("x"),
+		Sender:    "peer2",
+		Timestamp: time.Now().Add(-3 * gossip.seenTTL).UnixNano(),
+		HopCount:  0,
+		MaxHops:   10,
+	}
+	gossip.signMessage(msgStale)
+	if err := gossip.ReceiveMessage("peer2", msgStale); err == nil {
+		t.Fatal("expected stale message rejection")
+	}
+}
+
+type gossipBatchSpyTransport struct {
+	*MockDHTTransport
+	capturedByHashArgs []string
+}
+
+func (s *gossipBatchSpyTransport) SendRPC(ctx context.Context, peerID string, method string, args interface{}, reply interface{}) error {
+	switch method {
+	case "merkle.hashes":
+		hashes := make([]string, 0, maxMerkleSyncBatch*2)
+		for i := 0; i < maxMerkleSyncBatch*2; i++ {
+			hashes = append(hashes, fmt.Sprintf("remote-hash-%d", i))
+		}
+		if out, ok := reply.(*[]string); ok {
+			*out = hashes
+		}
+		return nil
+	case "gossip.by_hash":
+		if list, ok := args.([]string); ok {
+			s.capturedByHashArgs = append([]string(nil), list...)
+		}
+		if out, ok := reply.(*[]*common.GossipMessage); ok {
+			*out = nil
+		}
+		return nil
+	default:
+		return s.MockDHTTransport.SendRPC(ctx, peerID, method, args, reply)
+	}
+}
+
+func TestGossipManager_ReconcileMerkleTreesSimplifiedCapsBatch(t *testing.T) {
+	transport := &gossipBatchSpyTransport{MockDHTTransport: NewMockDHTTransport()}
+	gossip, _ := NewGossipManager("node1", transport, nil)
+	gossip.Start()
+	defer gossip.Stop()
+
+	// Trigger simplified reconciliation path.
+	gossip.reconcileMerkleTreesSimplified("peer2")
+
+	if len(transport.capturedByHashArgs) == 0 {
+		t.Fatal("expected gossip.by_hash request during reconciliation")
+	}
+	if len(transport.capturedByHashArgs) > maxMerkleSyncBatch {
+		t.Fatalf("expected capped reconciliation batch <= %d, got %d", maxMerkleSyncBatch, len(transport.capturedByHashArgs))
+	}
+}
+
+func TestNormalizeIDBatch_DeterministicOrderAndCap(t *testing.T) {
+	input := []string{
+		"zeta", "alpha", "beta", "alpha", "gamma", "beta", "", "delta",
+	}
+	out := normalizeIDBatch(input, 3)
+
+	expected := []string{"alpha", "beta", "delta"}
+	if len(out) != len(expected) {
+		t.Fatalf("unexpected normalized batch length: got=%d want=%d", len(out), len(expected))
+	}
+	for i := range expected {
+		if out[i] != expected[i] {
+			t.Fatalf("unexpected deterministic order at index %d: got=%q want=%q", i, out[i], expected[i])
+		}
 	}
 }
 

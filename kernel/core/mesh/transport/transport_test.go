@@ -5,6 +5,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,6 +90,44 @@ func (s *MockSignalingServer) URL() string {
 
 func (s *MockSignalingServer) Close() {
 	s.server.Close()
+}
+
+type BlockingSignalingChannel struct {
+	messages chan []byte
+	closed   chan struct{}
+	once     sync.Once
+}
+
+func NewBlockingSignalingChannel() *BlockingSignalingChannel {
+	return &BlockingSignalingChannel{
+		messages: make(chan []byte, 8),
+		closed:   make(chan struct{}),
+	}
+}
+
+func (b *BlockingSignalingChannel) Send(message interface{}) error { return nil }
+
+func (b *BlockingSignalingChannel) Receive() ([]byte, error) {
+	select {
+	case msg := <-b.messages:
+		return msg, nil
+	case <-b.closed:
+		return nil, errors.New("closed")
+	}
+}
+
+func (b *BlockingSignalingChannel) Close() error {
+	b.once.Do(func() { close(b.closed) })
+	return nil
+}
+
+func (b *BlockingSignalingChannel) IsConnected() bool {
+	select {
+	case <-b.closed:
+		return false
+	default:
+		return true
+	}
 }
 
 // MockConnection implements the Connection interface for testing
@@ -410,6 +449,132 @@ func TestWebRTCTransport_Signaling(t *testing.T) {
 	tr.handleSignalingMessage(candData)
 }
 
+func TestWebRTCTransport_StartsInjectedSignalingReceiver(t *testing.T) {
+	tr, err := NewWebRTCTransport("node-self", DefaultTransportConfig(), nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	channel := NewBlockingSignalingChannel()
+	tr.InjectSignalingChannel("gossip://mesh", channel)
+
+	if err := tr.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start transport: %v", err)
+	}
+	defer tr.Stop()
+
+	time.Sleep(50 * time.Millisecond)
+
+	tr.signalingMu.RLock()
+	_, loopRunning := tr.signalingLoops["gossip://mesh"]
+	tr.signalingMu.RUnlock()
+	if !loopRunning {
+		t.Fatal("expected injected signaling receiver loop to be started")
+	}
+}
+
+func TestWebRTCTransport_SignalingTargetFiltering(t *testing.T) {
+	tr, err := NewWebRTCTransport("node-self", DefaultTransportConfig(), nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	offer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeOffer,
+		SDP:  "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
+	}
+
+	ignored := map[string]interface{}{
+		"type":      "webrtc_offer",
+		"peer_id":   "peer-a",
+		"target_id": "someone-else",
+		"offer":     offer,
+	}
+	ignoredData, _ := json.Marshal(ignored)
+	tr.handleSignalingMessage(ignoredData)
+
+	tr.pcMu.RLock()
+	_, ignoredCreated := tr.peerConnections["peer-a"]
+	tr.pcMu.RUnlock()
+	if ignoredCreated {
+		t.Fatal("offer for another target should not create a peer connection")
+	}
+
+	accepted := map[string]interface{}{
+		"type":      "webrtc_offer",
+		"peer_id":   "peer-b",
+		"target_id": "node-self",
+		"offer":     offer,
+	}
+	acceptedData, _ := json.Marshal(accepted)
+	tr.handleSignalingMessage(acceptedData)
+
+	tr.pcMu.RLock()
+	pc, acceptedCreated := tr.peerConnections["peer-b"]
+	tr.pcMu.RUnlock()
+	if !acceptedCreated {
+		t.Fatal("offer for this node should create a peer connection")
+	}
+	if pc != nil {
+		_ = pc.Close()
+	}
+}
+
+func TestWebRTCTransport_HandleSignalingMessageDropsOversized(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.MaxMessageSize = 64
+	tr, err := NewWebRTCTransport("node-self", config, nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	offer := webrtc.SessionDescription{
+		Type: webrtc.SDPTypeOffer,
+		SDP:  "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
+	}
+	msg := map[string]interface{}{
+		"type":      "webrtc_offer",
+		"peer_id":   "peer-x",
+		"target_id": "node-self",
+		"offer":     offer,
+		"padding":   strings.Repeat("x", 256),
+	}
+	raw, _ := json.Marshal(msg)
+	if len(raw) <= config.MaxMessageSize {
+		t.Fatalf("test setup invalid: expected oversized signaling payload, got %d bytes", len(raw))
+	}
+
+	tr.handleSignalingMessage(raw)
+
+	tr.pcMu.RLock()
+	_, created := tr.peerConnections["peer-x"]
+	tr.pcMu.RUnlock()
+	if created {
+		t.Fatal("oversized signaling message should be dropped before creating peer connection")
+	}
+}
+
+func TestWebRTCTransport_HandleSignalingMessageIgnoresUnknownType(t *testing.T) {
+	tr, err := NewWebRTCTransport("node-self", DefaultTransportConfig(), nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	msg := map[string]interface{}{
+		"type":    "mystery_type",
+		"peer_id": "peer-x",
+		"data":    "ignored",
+	}
+	raw, _ := json.Marshal(msg)
+	tr.handleSignalingMessage(raw)
+
+	tr.pcMu.RLock()
+	defer tr.pcMu.RUnlock()
+	if len(tr.peerConnections) != 0 {
+		t.Fatal("unknown signaling type should not create peer connections")
+	}
+}
+
 // TestWebRTCTransport_ConnectFailures tests various connection failure paths
 func TestWebRTCTransport_ConnectFailures(t *testing.T) {
 	tr, _ := NewWebRTCTransport("node1_long_enough", DefaultTransportConfig(), nil)
@@ -424,6 +589,81 @@ func TestWebRTCTransport_ConnectFailures(t *testing.T) {
 	err = tr.Connect(context.Background(), "unknown_peer")
 	if err == nil {
 		t.Error("Expected error connecting to unknown peer")
+	}
+}
+
+func TestWebRTCTransport_AddSignalingServer(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.SignalingServers = []string{"gossip://mesh"}
+	config.WebSocketURL = ""
+
+	tr, err := NewWebRTCTransport("node1", config, nil)
+	if err != nil {
+		t.Fatalf("Failed to create transport: %v", err)
+	}
+
+	address := "ws://127.0.0.1:8787/ws"
+	if err := tr.AddSignalingServer(address); err != nil {
+		t.Fatalf("AddSignalingServer failed: %v", err)
+	}
+
+	servers := tr.signalingServerList()
+	if len(servers) == 0 {
+		t.Fatal("expected signaling servers after runtime add")
+	}
+	if !containsString(servers, address) {
+		t.Fatalf("expected runtime signaling server in list: %v", servers)
+	}
+	if tr.config.WebSocketURL != address {
+		t.Fatalf("expected websocket bootstrap URL to be set to runtime signaling server, got %q", tr.config.WebSocketURL)
+	}
+}
+
+func TestWebRTCTransport_AddSignalingServerRejectsUnsupportedScheme(t *testing.T) {
+	tr, err := NewWebRTCTransport("node1", DefaultTransportConfig(), nil)
+	if err != nil {
+		t.Fatalf("Failed to create transport: %v", err)
+	}
+
+	if err := tr.AddSignalingServer("http://127.0.0.1:8787/ws"); err == nil {
+		t.Fatal("expected unsupported signaling scheme to be rejected")
+	}
+}
+
+func TestWebRTCTransport_SignalingServerListDedupes(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.SignalingServers = []string{"gossip://mesh", "gossip://mesh"}
+	config.WebSocketURL = "ws://127.0.0.1:8787/ws"
+
+	tr, err := NewWebRTCTransport("node1", config, nil)
+	if err != nil {
+		t.Fatalf("Failed to create transport: %v", err)
+	}
+
+	servers := tr.signalingServerList()
+	if len(servers) != 2 {
+		t.Fatalf("expected deduped signaling list length 2, got %d (%v)", len(servers), servers)
+	}
+	if !containsString(servers, "gossip://mesh") {
+		t.Fatalf("expected gossip signaling server in list: %v", servers)
+	}
+	if !containsString(servers, "ws://127.0.0.1:8787/ws") {
+		t.Fatalf("expected websocket bootstrap in list: %v", servers)
+	}
+}
+
+func TestWebRTCTransport_GetPeerWebSocketURLRequiresBootstrap(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.SignalingServers = []string{"gossip://mesh"}
+	config.WebSocketURL = ""
+
+	tr, err := NewWebRTCTransport("node1", config, nil)
+	if err != nil {
+		t.Fatalf("Failed to create transport: %v", err)
+	}
+
+	if _, err := tr.getPeerWebSocketURL("peer2"); err == nil {
+		t.Fatal("expected getPeerWebSocketURL to fail when no websocket bootstrap URL is configured")
 	}
 }
 
@@ -540,6 +780,86 @@ func TestWebRTCTransport_HandleIncomingMessages(t *testing.T) {
 	tr.connMu.RUnlock()
 }
 
+func TestWebRTCTransport_HandleIncomingJSONPayloadChunkStore(t *testing.T) {
+	tr, _ := NewWebRTCTransport("node1_long_enough", DefaultTransportConfig(), nil)
+
+	var (
+		mu        sync.Mutex
+		handled   bool
+		chunkHash string
+		chunkData []byte
+	)
+
+	tr.RegisterRPCHandler("chunk.store", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
+		var req struct {
+			ChunkHash string `json:"chunk_hash"`
+			Data      []byte `json:"data"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		handled = true
+		chunkHash = req.ChunkHash
+		chunkData = req.Data
+		mu.Unlock()
+		return map[string]any{"stored": true}, nil
+	})
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"type":       "chunk_store",
+		"chunk_hash": "hash-1",
+		"data":       []byte("payload"),
+	})
+	env := &common.Envelope{
+		ID:        "msg-1",
+		Type:      "json_payload",
+		Timestamp: time.Now().UnixNano(),
+		Payload:   payload,
+	}
+	bytes, _ := env.Marshal()
+	tr.handleIncomingMessage("peer-1", bytes)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !handled {
+		t.Fatal("expected chunk.store handler to be invoked from json_payload")
+	}
+	if chunkHash != "hash-1" {
+		t.Fatalf("unexpected chunk hash: %s", chunkHash)
+	}
+	if string(chunkData) != "payload" {
+		t.Fatalf("unexpected chunk data: %s", string(chunkData))
+	}
+}
+
+func TestWebRTCTransport_HandleIncomingMessageDropsOversizedEnvelope(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.MaxMessageSize = 96
+	tr, err := NewWebRTCTransport("node1_long_enough", config, nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	env := &common.Envelope{
+		ID:        "oversized",
+		Type:      "json_payload",
+		Timestamp: time.Now().UnixNano(),
+		Payload:   []byte(strings.Repeat("x", 1024)),
+	}
+	wire, _ := env.Marshal()
+	if len(wire) <= config.MaxMessageSize {
+		t.Fatalf("test setup invalid: expected oversized envelope, got %d bytes", len(wire))
+	}
+
+	tr.handleIncomingMessage("peer-1", wire)
+
+	metrics := tr.GetConnectionMetrics()
+	if metrics.FailedMessages == 0 {
+		t.Fatal("expected oversized incoming message to increment failed message metric")
+	}
+}
+
 // TestWebRTCTransport_Adaptors tests the DHT adaptor methods
 func TestWebRTCTransport_Adaptors(t *testing.T) {
 	tr, _ := NewWebRTCTransport("n1", DefaultTransportConfig(), nil)
@@ -652,6 +972,68 @@ func TestWebRTCTransport_ConnectionManagement(t *testing.T) {
 		// Cleanup should have removed it if stale threshold met (check threshold in transport.go)
 	}
 	tr.connMu.RUnlock()
+}
+
+func TestWebRTCTransport_CleanupStaleDiscoveredPeers(t *testing.T) {
+	config := DefaultTransportConfig()
+	config.KeepAliveInterval = 1 * time.Second
+	tr, err := NewWebRTCTransport("node1_long_enough", config, nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	tr.connMu.Lock()
+	tr.connections["peer-stale"] = &PeerConnection{
+		PeerID:      "peer-stale",
+		Connected:   false,
+		LastContact: time.Now().Add(-10 * time.Second),
+	}
+	tr.connections["peer-fresh"] = &PeerConnection{
+		PeerID:      "peer-fresh",
+		Connected:   false,
+		LastContact: time.Now(),
+	}
+	tr.connMu.Unlock()
+
+	tr.cleanupStaleConnections()
+
+	tr.connMu.RLock()
+	_, staleExists := tr.connections["peer-stale"]
+	_, freshExists := tr.connections["peer-fresh"]
+	tr.connMu.RUnlock()
+
+	if staleExists {
+		t.Fatal("expected stale discovered peer to be pruned")
+	}
+	if !freshExists {
+		t.Fatal("expected fresh discovered peer to remain")
+	}
+}
+
+func TestWebRTCTransport_HandlePeerDiscoveryRefreshesLastContact(t *testing.T) {
+	tr, err := NewWebRTCTransport("node1_long_enough", DefaultTransportConfig(), nil)
+	if err != nil {
+		t.Fatalf("failed to create transport: %v", err)
+	}
+
+	old := time.Now().Add(-1 * time.Hour)
+	tr.connMu.Lock()
+	tr.connections["peer-touch"] = &PeerConnection{
+		PeerID:      "peer-touch",
+		Connected:   false,
+		LastContact: old,
+	}
+	tr.connMu.Unlock()
+
+	tr.handlePeerDiscovery(map[string]interface{}{"peer_id": "peer-touch"})
+
+	tr.connMu.RLock()
+	updated := tr.connections["peer-touch"].LastContact
+	tr.connMu.RUnlock()
+
+	if !updated.After(old) {
+		t.Fatalf("expected LastContact to advance, old=%v updated=%v", old, updated)
+	}
 }
 
 // TestWebRTCTransport_State tests Disconnect and GetConnectedPeers

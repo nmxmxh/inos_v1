@@ -172,6 +172,7 @@ function decodeEnvelope(bytes: Uint8Array): MeshEventMessage | null {
 class MeshEventStream {
   private handlers = new Map<string, MeshEventHandler>();
   private isWatching = false;
+  private readonly epochHandler = () => this.drainQueue();
 
   subscribe(id: string, handler: MeshEventHandler): void {
     this.handlers.set(id, handler);
@@ -196,9 +197,7 @@ class MeshEventStream {
     }
 
     // Reuse the pulseManager's heartbeat worker
-    pulseManager.watchEpochs([IDX_MESH_EVENT_EPOCH], () => {
-      this.drainQueue();
-    });
+    pulseManager.watchEpochs([IDX_MESH_EVENT_EPOCH], this.epochHandler);
 
     this.isWatching = true;
   }
@@ -207,7 +206,7 @@ class MeshEventStream {
     if (!this.isWatching) {
       return;
     }
-    pulseManager.unwatchEpoch(IDX_MESH_EVENT_EPOCH, this.drainQueue.bind(this));
+    pulseManager.unwatchEpoch(IDX_MESH_EVENT_EPOCH, this.epochHandler);
     this.isWatching = false;
   }
 

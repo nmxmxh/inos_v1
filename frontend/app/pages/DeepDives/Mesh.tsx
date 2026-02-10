@@ -1495,17 +1495,21 @@ type PeerInfo struct {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       <ScrollReveal>
         <Style.ContentCard>
-          <h3>Lesson 5: No Central Servers. Pure Mesh.</h3>
+          <h3>Lesson 5: Mesh-Native Signaling After Bootstrap</h3>
           <p>
             To achieve true decentralized resilience, we had to solve the "Bootstrapping Problem."
             How do two strangers find each other and establish a WebRTC connection if there's no
-            central server to introduce them?
+            prior relationship? The answer is a first-contact seed path, then peer-native signaling.
           </p>
           <ul>
             <li>
-              <strong>Gossip Signaling Handshakes:</strong> Nodes now broadcast their connection
-              offers over the existing mesh (<code>gossip://mesh</code>). Every node acts as a relay
-              for introducing its neighbors.
+              <strong>First Contact, Not Central Control:</strong> A node may use one known seed
+              domain/peer to enter the network. After that, the mesh handles discovery and relaying.
+            </li>
+            <li>
+              <strong>Gossip Signaling Handshakes:</strong> Nodes broadcast connection offers over
+              the existing mesh (<code>gossip://mesh</code>). Every node can relay introductions for
+              its neighbors.
             </li>
             <li>
               <strong>Merkle-Tree Reconciliation:</strong> Truth isn't managed by a database—it's
@@ -1621,8 +1625,8 @@ interface P2PMesh {
           <p>
             This panel streams Cap&apos;n Proto mesh events directly from the SAB ring buffer. Use
             query params like <code>?nodeId=alpha</code> to spin up peers. By default, the mesh uses{' '}
-            <code>gossip://mesh</code> for decentralized signaling, meaning peers discover and
-            connect to each other <strong>without any central server.</strong>
+            <code>gossip://mesh</code> for decentralized signaling. Nodes may still use an initial
+            known bootstrap address for first contact, then continue peer-to-peer.
           </p>
         </Style.ContentCard>
       </ScrollReveal>

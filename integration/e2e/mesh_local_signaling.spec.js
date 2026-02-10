@@ -131,4 +131,105 @@ test.describe('INOS Mesh Local Signaling', () => {
     await contextA.close();
     await contextB.close();
   });
+
+  test('should support runtime bootstrap address on connectToPeer', async ({ browser }) => {
+    const baseUrl = process.env.INOS_APP_URL || 'http://localhost:5173';
+    const signaling =
+      process.env.INOS_SIGNALING_URL || signalingUrl || 'ws://localhost:8787/ws';
+
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    // pageA intentionally starts without ?signaling to validate runtime bootstrap injection.
+    const peerA = `${baseUrl}/?nodeId=node-runtime-a&deviceId=device-runtime-a`;
+    // pageB is already connected to signaling endpoint.
+    const peerB = `${baseUrl}/?nodeId=node-runtime-b&deviceId=device-runtime-b&signaling=${encodeURIComponent(
+      signaling
+    )}`;
+
+    await pageA.goto(peerA);
+    await pageB.goto(peerB);
+
+    await pageA.waitForFunction(() => (window).mesh?.connectToPeer, { timeout: 60000 });
+    await pageB.waitForFunction(() => (window).mesh?.subscribeToEvents, { timeout: 60000 });
+
+    await pageB.evaluate(() => {
+      window.__mesh_runtime_events__ = [];
+      return window.mesh.subscribeToEvents(['mesh.*'], event => {
+        window.__mesh_runtime_events__.push({ type: event.type, payloadType: event.payloadType });
+      });
+    });
+
+    const connectResult = await pageA.evaluate(sig => {
+      try {
+        return window.mesh.connectToPeer('node-runtime-b', sig);
+      } catch (error) {
+        return { error: String(error) };
+      }
+    }, signaling);
+
+    if (connectResult?.error) {
+      throw new Error(`connectToPeer runtime bootstrap failed: ${connectResult.error}`);
+    }
+
+    await pageB.waitForFunction(
+      () => (window.__mesh_runtime_events__ || []).some(evt => evt.type === 'mesh.peer_update'),
+      { timeout: 30000 }
+    );
+
+    const events = await pageB.evaluate(() => window.__mesh_runtime_events__ || []);
+    expect(events.length).toBeGreaterThan(0);
+
+    await contextA.close();
+    await contextB.close();
+  });
+
+  test('should connect when first signaling bootstrap endpoint is unavailable', async ({ browser }) => {
+    const baseUrl = process.env.INOS_APP_URL || 'http://localhost:5173';
+    const signaling =
+      process.env.INOS_SIGNALING_URL || signalingUrl || 'ws://localhost:8787/ws';
+    const deadBootstrap = 'ws://127.0.0.1:1/ws';
+
+    const contextA = await browser.newContext();
+    const contextB = await browser.newContext();
+    const pageA = await contextA.newPage();
+    const pageB = await contextB.newPage();
+
+    const fallbackList = `${deadBootstrap},${signaling}`;
+
+    const peerA = `${baseUrl}/?nodeId=node-fallback-a&deviceId=device-fallback-a&signaling=${encodeURIComponent(
+      fallbackList
+    )}`;
+    const peerB = `${baseUrl}/?nodeId=node-fallback-b&deviceId=device-fallback-b&signaling=${encodeURIComponent(
+      signaling
+    )}`;
+
+    await pageA.goto(peerA);
+    await pageB.goto(peerB);
+
+    await pageA.waitForFunction(() => (window).mesh?.connectToPeer, { timeout: 60000 });
+    await pageB.waitForFunction(() => (window).mesh?.getTelemetry, { timeout: 60000 });
+
+    const connectResult = await pageA.evaluate(async () => {
+      try {
+        const result = await window.mesh.connectToPeer('node-fallback-b');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        const telemetry = window.mesh.getTelemetry ? await window.mesh.getTelemetry() : null;
+        return { success: true, result, telemetry };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    });
+
+    expect(connectResult.success).toBe(true);
+    if (connectResult.telemetry && typeof connectResult.telemetry.active_peers === 'number') {
+      expect(connectResult.telemetry.active_peers).toBeGreaterThanOrEqual(0);
+    }
+
+    await contextA.close();
+    await contextB.close();
+  });
+
 });

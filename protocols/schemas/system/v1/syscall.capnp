@@ -131,7 +131,7 @@ interface Syscall {
   }
 
   struct StoreChunkResult {
-    replicas @0 :UInt8;
+    replicas @0 :UInt16;
   }
 
   struct HostCallResult {

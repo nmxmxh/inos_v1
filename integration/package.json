@@ -4,6 +4,10 @@
   "description": "INOS polyglot integration tests",
   "scripts": {
     "test": "playwright test",
+    "test:node": "node --test signaling/*.test.js",
+    "test:multi-browser": "INOS_E2E_WEBKIT=1 playwright test",
+    "test:all": "npm run test:node && playwright test",
+    "test:all:multi-browser": "npm run test:node && npm run test:multi-browser",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "signaling": "node signaling/server.js"

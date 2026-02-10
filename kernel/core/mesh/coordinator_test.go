@@ -10,11 +10,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
+	meshtransport "github.com/nmxmxh/inos_v1/kernel/core/mesh/transport"
+	system "github.com/nmxmxh/inos_v1/kernel/gen/system/v1"
+	"github.com/nmxmxh/inos_v1/kernel/threads/foundation"
 )
 
 // MockStorage implements StorageProvider for testing
@@ -41,29 +45,56 @@ func (m *MockStorage) HasChunk(ctx context.Context, hash string) (bool, error) {
 
 // MockTransport implements Transport for testing
 type MockTransport struct {
-	nodeID      string
-	rpcHandlers map[string]func(args interface{}) (interface{}, error)
-	sentMsgs    []map[string]interface{}
-	mu          sync.RWMutex
+	nodeID                string
+	rpcHandlers           map[string]func(args interface{}) (interface{}, error)
+	registeredRPCHandlers map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)
+	rpcFailures           map[string]error
+	sendFailures          map[string]error
+	sentMsgs              []map[string]interface{}
+	connectCalls          []string
+	signalingServers      []string
+	injectedSignaling     map[string]meshtransport.SignalingChannel
+	mu                    sync.RWMutex
 }
 
-func (m *MockTransport) Start(ctx context.Context) error                  { return nil }
-func (m *MockTransport) Stop() error                                      { return nil }
-func (m *MockTransport) Connect(ctx context.Context, peerID string) error { return nil }
-func (m *MockTransport) Disconnect(peerID string) error                   { return nil }
-func (m *MockTransport) IsConnected(peerID string) bool                   { return true }
-func (m *MockTransport) GetConnectedPeers() []string                      { return []string{} }
+func (m *MockTransport) Start(ctx context.Context) error { return nil }
+func (m *MockTransport) Stop() error                     { return nil }
+func (m *MockTransport) Connect(ctx context.Context, peerID string) error {
+	m.mu.Lock()
+	m.connectCalls = append(m.connectCalls, peerID)
+	m.mu.Unlock()
+	return nil
+}
+func (m *MockTransport) Disconnect(peerID string) error { return nil }
+func (m *MockTransport) IsConnected(peerID string) bool { return true }
+func (m *MockTransport) GetConnectedPeers() []string    { return []string{} }
 
 func (m *MockTransport) SendRPC(ctx context.Context, peerID string, method string, args interface{}, reply interface{}) error {
 	m.mu.RLock()
+	failErr := m.rpcFailures[method+"@"+peerID]
 	handler, ok := m.rpcHandlers[method]
+	registeredHandler, registeredOK := m.registeredRPCHandlers[method]
 	m.mu.RUnlock()
 
-	if !ok {
+	if failErr != nil {
+		return failErr
+	}
+
+	var (
+		result interface{}
+		err    error
+	)
+
+	switch {
+	case ok:
+		result, err = handler(args)
+	case registeredOK:
+		paramsBytes, _ := json.Marshal(args)
+		result, err = registeredHandler(ctx, peerID, json.RawMessage(paramsBytes))
+	default:
 		return errors.New("no handler for method " + method)
 	}
 
-	result, err := handler(args)
 	if err != nil {
 		return err
 	}
@@ -85,6 +116,9 @@ func (m *MockTransport) StreamRPC(ctx context.Context, peerID string, method str
 func (m *MockTransport) SendMessage(ctx context.Context, peerID string, message interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if failErr := m.sendFailures[peerID]; failErr != nil {
+		return failErr
+	}
 	if msg, ok := message.(map[string]interface{}); ok {
 		m.sentMsgs = append(m.sentMsgs, msg)
 	}
@@ -93,6 +127,12 @@ func (m *MockTransport) SendMessage(ctx context.Context, peerID string, message 
 
 func (m *MockTransport) Broadcast(topic string, message interface{}) error { return nil }
 func (m *MockTransport) RegisterRPCHandler(method string, handler func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.registeredRPCHandlers == nil {
+		m.registeredRPCHandlers = make(map[string]func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error))
+	}
+	m.registeredRPCHandlers[method] = handler
 }
 func (m *MockTransport) GetPeerCapabilities(peerID string) (*common.PeerCapability, error) {
 	return &common.PeerCapability{PeerID: peerID, LatencyMs: 10}, nil
@@ -121,6 +161,35 @@ func (m *MockTransport) FindValue(ctx context.Context, peerID, chunkHash string)
 }
 func (m *MockTransport) Store(ctx context.Context, peerID string, key string, value []byte) error {
 	return nil
+}
+func (m *MockTransport) AddSignalingServer(server string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.signalingServers = append(m.signalingServers, server)
+	return nil
+}
+func (m *MockTransport) InjectSignalingChannel(url string, ch meshtransport.SignalingChannel) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.injectedSignaling == nil {
+		m.injectedSignaling = make(map[string]meshtransport.SignalingChannel)
+	}
+	m.injectedSignaling[url] = ch
+}
+
+type mockDispatcher struct {
+	run func(job *foundation.Job) *foundation.Result
+}
+
+func (d *mockDispatcher) ExecuteJob(job *foundation.Job) *foundation.Result {
+	if d.run != nil {
+		return d.run(job)
+	}
+	return &foundation.Result{
+		JobID:   job.ID,
+		Success: true,
+		Data:    job.Data,
+	}
 }
 
 func TestMeshCoordinator_Lifecycle(t *testing.T) {
@@ -158,6 +227,66 @@ func TestMeshCoordinator_Lifecycle(t *testing.T) {
 	err = coord.Stop()
 	if err != nil {
 		t.Errorf("Failed to stop coordinator: %v", err)
+	}
+}
+
+func TestMeshCoordinator_ConnectToPeerRegistersBootstrapAddress(t *testing.T) {
+	nodeID := "test-node-bootstrap"
+	tr := &MockTransport{nodeID: nodeID}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+
+	bootstrap := "ws://127.0.0.1:8787/ws"
+	if err := coord.ConnectToPeer(context.Background(), "peer-1", bootstrap); err != nil {
+		t.Fatalf("ConnectToPeer failed: %v", err)
+	}
+
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	if len(tr.signalingServers) == 0 {
+		t.Fatal("expected bootstrap signaling server to be registered")
+	}
+	if tr.signalingServers[0] != bootstrap {
+		t.Fatalf("unexpected bootstrap signaling server: %s", tr.signalingServers[0])
+	}
+}
+
+func TestMeshCoordinator_ConnectToPeerRegistersMultipleBootstrapAddresses(t *testing.T) {
+	nodeID := "test-node-bootstrap-multi"
+	tr := &MockTransport{nodeID: nodeID}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+
+	addresses := "ws://127.0.0.1:8787/ws, ws://127.0.0.1:9999/ws"
+	if err := coord.ConnectToPeer(context.Background(), "peer-1", addresses); err != nil {
+		t.Fatalf("ConnectToPeer failed: %v", err)
+	}
+
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+	if len(tr.signalingServers) != 2 {
+		t.Fatalf("expected 2 bootstrap signaling servers, got %d", len(tr.signalingServers))
+	}
+	if tr.signalingServers[0] != "ws://127.0.0.1:8787/ws" {
+		t.Fatalf("unexpected first bootstrap server: %s", tr.signalingServers[0])
+	}
+	if tr.signalingServers[1] != "ws://127.0.0.1:9999/ws" {
+		t.Fatalf("unexpected second bootstrap server: %s", tr.signalingServers[1])
+	}
+}
+
+func TestMeshCoordinator_ReplaceTransportReinjectsGossipSignaling(t *testing.T) {
+	nodeID := "test-node-replace"
+	coord := NewMeshCoordinator(nodeID, "us-east", &MockTransport{nodeID: nodeID}, nil)
+
+	replacement := &MockTransport{nodeID: nodeID}
+	coord.ReplaceTransport(replacement)
+
+	replacement.mu.RLock()
+	defer replacement.mu.RUnlock()
+	if replacement.injectedSignaling == nil {
+		t.Fatal("expected injected signaling map to be initialized")
+	}
+	if _, ok := replacement.injectedSignaling["gossip://mesh"]; !ok {
+		t.Fatal("expected gossip signaling channel to be re-injected on transport replace")
 	}
 }
 
@@ -359,6 +488,382 @@ func TestMeshCoordinator_ChunkOrchestration(t *testing.T) {
 	}
 	if string(fetchedRemote) != "chunk-data" {
 		t.Errorf("Expected chunk-data, got %s", string(fetchedRemote))
+	}
+}
+
+func TestMeshCoordinator_DistributeChunkReportsDeliveredReplicas(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+		rpcFailures: map[string]error{
+			"chunk.store@peer-2": errors.New("network failure"),
+		},
+		sendFailures: map[string]error{
+			"peer-2": errors.New("legacy send disabled"),
+		},
+	}
+
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+	storage := &MockStorage{chunks: make(map[string][]byte)}
+	coord.SetStorage(storage)
+
+	coord.dht.AddPeer(common.PeerInfo{
+		ID:           "peer-1",
+		Capabilities: &common.PeerCapability{PeerID: "peer-1", Reputation: 0.9, Region: "us-east"},
+	})
+	coord.dht.AddPeer(common.PeerInfo{
+		ID:           "peer-2",
+		Capabilities: &common.PeerCapability{PeerID: "peer-2", Reputation: 0.8, Region: "us-east"},
+	})
+	coord.dht.AddPeer(common.PeerInfo{
+		ID:           "peer-3",
+		Capabilities: &common.PeerCapability{PeerID: "peer-3", Reputation: 0.7, Region: "us-east"},
+	})
+
+	replicas, err := coord.DistributeChunk(context.Background(), "hash-partial", []byte("payload"))
+	if err != nil {
+		t.Fatalf("DistributeChunk failed: %v", err)
+	}
+
+	// 2 successful remote deliveries + 1 successful local store.
+	if replicas != 3 {
+		t.Fatalf("expected delivered replicas to be 3, got %d", replicas)
+	}
+}
+
+func TestMeshCoordinator_RegistersChunkRPCHandlers(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+	coord.SetStorage(&MockStorage{chunks: make(map[string][]byte)})
+
+	var storeResp struct {
+		Stored bool `json:"stored"`
+		Size   int  `json:"size"`
+	}
+	err := tr.SendRPC(context.Background(), "peer-remote", "chunk.store", map[string]interface{}{
+		"chunk_hash": "rpc-hash",
+		"data":       []byte("rpc-data"),
+	}, &storeResp)
+	if err != nil {
+		t.Fatalf("chunk.store RPC failed: %v", err)
+	}
+	if !storeResp.Stored || storeResp.Size != len("rpc-data") {
+		t.Fatalf("unexpected chunk.store response: %+v", storeResp)
+	}
+
+	var fetchResp struct {
+		Data []byte `json:"data"`
+		Size int    `json:"size"`
+	}
+	err = tr.SendRPC(context.Background(), "peer-remote", "chunk.fetch", map[string]interface{}{
+		"chunk_hash": "rpc-hash",
+	}, &fetchResp)
+	if err != nil {
+		t.Fatalf("chunk.fetch RPC failed: %v", err)
+	}
+	if string(fetchResp.Data) != "rpc-data" {
+		t.Fatalf("expected rpc-data, got %s", string(fetchResp.Data))
+	}
+}
+
+func TestMeshCoordinator_ChunkRPCBrotliRoundTrip(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+	storage := &MockStorage{chunks: make(map[string][]byte)}
+	coord.SetStorage(storage)
+
+	chunkHash := "brotli-hash-1"
+	original := []byte(strings.Repeat("pied-piper-middle-out-compression|", 2048))
+
+	if err := coord.sendChunkToPeer(context.Background(), "peer-1", chunkHash, original); err != nil {
+		t.Fatalf("sendChunkToPeer failed: %v", err)
+	}
+
+	stored, err := storage.FetchChunk(context.Background(), chunkHash)
+	if err != nil {
+		t.Fatalf("expected stored chunk in local storage: %v", err)
+	}
+	if !bytes.Equal(stored, original) {
+		t.Fatalf("stored chunk mismatch")
+	}
+
+	var fetchResp struct {
+		Data        []byte `json:"data"`
+		Size        int    `json:"size"`
+		RawSize     int    `json:"raw_size"`
+		WireSize    int    `json:"wire_size"`
+		Compression string `json:"compression"`
+	}
+	err = tr.SendRPC(context.Background(), "peer-1", "chunk.fetch", map[string]interface{}{
+		"chunk_hash": chunkHash,
+	}, &fetchResp)
+	if err != nil {
+		t.Fatalf("chunk.fetch RPC failed: %v", err)
+	}
+	if fetchResp.Compression != "brotli" {
+		t.Fatalf("expected brotli compression, got %q", fetchResp.Compression)
+	}
+	if fetchResp.WireSize >= fetchResp.RawSize {
+		t.Fatalf("expected compressed wire payload to be smaller than raw payload: wire=%d raw=%d", fetchResp.WireSize, fetchResp.RawSize)
+	}
+
+	fetched, err := coord.fetchFromPeer(context.Background(), chunkHash, &common.PeerCapability{PeerID: "peer-1"})
+	if err != nil {
+		t.Fatalf("fetchFromPeer failed: %v", err)
+	}
+	if !bytes.Equal(fetched, original) {
+		t.Fatalf("decoded fetch payload mismatch")
+	}
+}
+
+func TestMeshCoordinator_DelegateComputeRejectsDigestMismatch(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+
+	tr.mu.Lock()
+	tr.rpcHandlers["mesh.DelegateCompute"] = func(args interface{}) (interface{}, error) {
+		badResource, err := coord.packResource("resp-1", "definitely-wrong-digest", []byte("tampered-output"))
+		if err != nil {
+			return nil, err
+		}
+		return DelegationResponse{
+			Status:    "success",
+			Resource:  badResource,
+			LatencyMs: 1,
+		}, nil
+	}
+	tr.mu.Unlock()
+
+	coord.peerMetricsMu.Lock()
+	coord.peerMetrics["peer-1"] = common.MeshMetrics{AvgReputation: 1.0, P50LatencyMs: 1.0}
+	coord.peerMetricsMu.Unlock()
+
+	_, err := coord.DelegateCompute(context.Background(), "compress", "input-digest", []byte("input-data"))
+	if err == nil {
+		t.Fatal("expected digest mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("expected digest mismatch error, got: %v", err)
+	}
+}
+
+func TestMeshCoordinator_DelegateComputeVerifiesReturnedDigest(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+	coord.SetDispatcher(&mockDispatcher{
+		run: func(job *foundation.Job) *foundation.Result {
+			return &foundation.Result{
+				JobID:   job.ID,
+				Success: true,
+				Data:    append([]byte("processed:"), job.Data...),
+				Latency: 2 * time.Millisecond,
+			}
+		},
+	})
+
+	coord.peerMetricsMu.Lock()
+	coord.peerMetrics["peer-1"] = common.MeshMetrics{AvgReputation: 1.0, P50LatencyMs: 1.0}
+	coord.peerMetricsMu.Unlock()
+
+	output, err := coord.DelegateCompute(context.Background(), "compress", "input-digest", []byte("source"))
+	if err != nil {
+		t.Fatalf("DelegateCompute failed: %v", err)
+	}
+	if string(output) != "processed:source" {
+		t.Fatalf("unexpected delegation output: %s", string(output))
+	}
+}
+
+func TestMeshCoordinator_DelegateComputeCompressedResourceRoundTrip(t *testing.T) {
+	nodeID := "test-node-1"
+	tr := &MockTransport{
+		nodeID:      nodeID,
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	coord := NewMeshCoordinator(nodeID, "us-east", tr, nil)
+
+	input := []byte(strings.Repeat("hooli::middle-out::", 1024))
+	expectedOutput := append([]byte("processed:"), input...)
+
+	var (
+		sawCompressedRequest  bool
+		sawCompressedResponse bool
+	)
+
+	coord.SetDispatcher(&mockDispatcher{
+		run: func(job *foundation.Job) *foundation.Result {
+			if !bytes.Equal(job.Data, input) {
+				return &foundation.Result{
+					JobID:   job.ID,
+					Success: false,
+					Error:   "delegated job payload mismatch",
+				}
+			}
+			return &foundation.Result{
+				JobID:   job.ID,
+				Success: true,
+				Data:    append([]byte("processed:"), job.Data...),
+				Latency: 2 * time.Millisecond,
+			}
+		},
+	})
+
+	tr.mu.Lock()
+	delegateHandler := tr.registeredRPCHandlers["mesh.DelegateCompute"]
+	tr.rpcHandlers["mesh.DelegateCompute"] = func(args interface{}) (interface{}, error) {
+		req, ok := args.(DelegateRequest)
+		if !ok {
+			return nil, fmt.Errorf("unexpected request type: %T", args)
+		}
+		reqResource, err := coord.unpackResource(req.Resource)
+		if err != nil {
+			return nil, err
+		}
+		if reqResource.Compression() == system.Resource_Compression_brotli && reqResource.WireSize() < reqResource.RawSize() {
+			sawCompressedRequest = true
+		}
+
+		paramsBytes, _ := json.Marshal(args)
+		result, err := delegateHandler(context.Background(), "peer-1", json.RawMessage(paramsBytes))
+		if err != nil {
+			return nil, err
+		}
+
+		resp, ok := result.(DelegationResponse)
+		if !ok {
+			return result, nil
+		}
+		respResource, err := coord.unpackResource(resp.Resource)
+		if err != nil {
+			return nil, err
+		}
+		if respResource.Compression() == system.Resource_Compression_brotli && respResource.WireSize() < respResource.RawSize() {
+			sawCompressedResponse = true
+		}
+
+		return result, nil
+	}
+	tr.mu.Unlock()
+
+	coord.peerMetricsMu.Lock()
+	coord.peerMetrics["peer-1"] = common.MeshMetrics{AvgReputation: 1.0, P50LatencyMs: 1.0}
+	coord.peerMetricsMu.Unlock()
+
+	output, err := coord.DelegateCompute(context.Background(), "compress", "input-digest", input)
+	if err != nil {
+		t.Fatalf("DelegateCompute failed: %v", err)
+	}
+	if !bytes.Equal(output, expectedOutput) {
+		t.Fatalf("unexpected delegation output size=%d", len(output))
+	}
+	if !sawCompressedRequest {
+		t.Fatal("expected delegated request resource to use Brotli compression")
+	}
+	if !sawCompressedResponse {
+		t.Fatal("expected delegated response resource to use Brotli compression")
+	}
+}
+
+func TestMeshCoordinator_PiedPiperMiddleOutCompressionProfile(t *testing.T) {
+	coord := NewMeshCoordinator("node-a", "us-east", &MockTransport{nodeID: "node-a"}, nil)
+
+	corpus := []byte(strings.Repeat("middle-out|dictionary|segment|", 4096))
+	payload, err := coord.encodePayloadForWire(corpus, meshCompressionMinBytes, meshBrotliCompressionLevel)
+	if err != nil {
+		t.Fatalf("encodePayloadForWire failed: %v", err)
+	}
+	if payload.Compression != "brotli" {
+		t.Fatalf("expected brotli compression, got %q", payload.Compression)
+	}
+	if payload.WireSize >= payload.RawSize {
+		t.Fatalf("expected compression to reduce size: wire=%d raw=%d", payload.WireSize, payload.RawSize)
+	}
+
+	decoded, err := coord.decodePayloadFromWire(payload.Data, payload.Compression, payload.RawSize)
+	if err != nil {
+		t.Fatalf("decodePayloadFromWire failed: %v", err)
+	}
+	if !bytes.Equal(decoded, corpus) {
+		t.Fatal("round-trip mismatch for pied piper corpus")
+	}
+}
+
+func TestMeshCoordinator_ChunkReplicationAcrossCoordinatorsWithCompression(t *testing.T) {
+	trA := &MockTransport{
+		nodeID:      "node-a",
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+	trB := &MockTransport{
+		nodeID:      "node-b",
+		rpcHandlers: make(map[string]func(args interface{}) (interface{}, error)),
+	}
+
+	coordA := NewMeshCoordinator("node-a", "us-east", trA, nil)
+	coordB := NewMeshCoordinator("node-b", "us-east", trB, nil)
+	storageA := &MockStorage{chunks: make(map[string][]byte)}
+	storageB := &MockStorage{chunks: make(map[string][]byte)}
+	coordA.SetStorage(storageA)
+	coordB.SetStorage(storageB)
+
+	trA.mu.Lock()
+	trA.rpcHandlers["chunk.store"] = func(args interface{}) (interface{}, error) {
+		params, _ := json.Marshal(args)
+		return trB.registeredRPCHandlers["chunk.store"](context.Background(), "node-a", json.RawMessage(params))
+	}
+	trA.rpcHandlers["chunk.fetch"] = func(args interface{}) (interface{}, error) {
+		params, _ := json.Marshal(args)
+		return trB.registeredRPCHandlers["chunk.fetch"](context.Background(), "node-a", json.RawMessage(params))
+	}
+	trA.mu.Unlock()
+
+	coordA.dht.AddPeer(common.PeerInfo{
+		ID:           "node-b",
+		Capabilities: &common.PeerCapability{PeerID: "node-b", Reputation: 1, Region: "us-east"},
+	})
+	coordA.cachePeer("node-b", &common.PeerCapability{PeerID: "node-b", LatencyMs: 5})
+
+	chunkHash := "cross-node-brotli-chunk"
+	payload := []byte(strings.Repeat("distributed-middle-out-payload|", 4096))
+
+	replicas, err := coordA.DistributeChunk(context.Background(), chunkHash, payload)
+	if err != nil {
+		t.Fatalf("DistributeChunk failed: %v", err)
+	}
+	if replicas < 2 {
+		t.Fatalf("expected local + remote replicas, got %d", replicas)
+	}
+
+	remoteStored, err := storageB.FetchChunk(context.Background(), chunkHash)
+	if err != nil {
+		t.Fatalf("expected chunk to be replicated to node-b: %v", err)
+	}
+	if !bytes.Equal(remoteStored, payload) {
+		t.Fatal("replicated chunk mismatch on node-b")
+	}
+
+	fetched, err := coordA.fetchFromPeer(context.Background(), chunkHash, &common.PeerCapability{PeerID: "node-b"})
+	if err != nil {
+		t.Fatalf("fetchFromPeer failed: %v", err)
+	}
+	if !bytes.Equal(fetched, payload) {
+		t.Fatal("fetched payload mismatch across coordinator boundary")
 	}
 }
 

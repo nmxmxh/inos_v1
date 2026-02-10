@@ -612,10 +612,10 @@ export class Syscall_StoreChunkResult extends $.Struct {
     size: new $.ObjectSize(8, 0),
   };
   get replicas(): number {
-    return $.utils.getUint8(0, this);
+    return $.utils.getUint16(0, this);
   }
   set replicas(value: number) {
-    $.utils.setUint8(0, value, this);
+    $.utils.setUint16(0, value, this);
   }
   toString(): string { return "Syscall_StoreChunkResult_" + super.toString(); }
 }

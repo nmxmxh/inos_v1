@@ -13,10 +13,12 @@
 INOS is a **biological runtime** for the internet age. It replaces traditional message passing with **shared reality**, enabling zero-copy communication across Go, Rust, and JavaScript boundaries.
 
 ### The Core Innovation: Reactive Mutation
+
 We eliminate serialization overhead by allowing components to share memory via **SharedArrayBuffer (SAB)**.
-1.  **Mutate**: A worker updates the shared state.
-2.  **Signal**: The worker increments an **Atomic Epoch Counter**.
-3.  **React**: Subscribers detect the epoch change and synchronize instantly.
+
+1. **Mutate**: A worker updates the shared state.
+2. **Signal**: The worker increments an **Atomic Epoch Counter**.
+3. **React**: Subscribers detect the epoch change and synchronize instantly.
 
 ---
 
@@ -46,24 +48,27 @@ inos_v1/
 INOS uses **Cap'n Proto** for all cross-boundary communication. Unlike JSON or Protobuf, Cap'n Proto requires **no parsing step**; data is accessed directly from the wire format.
 
 ### Why Cap'n Proto?
-*   **Zero-Copy Reads**: Pointers into the message buffer, no deserialization.
-*   **Type Safety**: Compile-time schema validation across Go, Rust, and TypeScript.
-*   **Compact Binary Format**: Efficient for SAB regions and P2P mesh traffic.
+
+* **Zero-Copy Reads**: Pointers into the message buffer, no deserialization.
+* **Type Safety**: Compile-time schema validation across Go, Rust, and TypeScript.
+* **Compact Binary Format**: Efficient for SAB regions and P2P mesh traffic.
 
 ### Schema Organization
+
 All schemas live in `protocols/schemas/` with versioned subdirectories:
 
 | Domain | Schemas | Purpose |
-|:---|:---|:---|
+| :--- | :--- | :--- |
 | `system/v1` | `sab_layout`, `syscall`, `runtime` | Kernel internals, SAB region definitions |
 | `compute/v1` | `capsule` | Job requests/results for Rust units |
 | `p2p/v1` | `mesh`, `gossip`, `delegation` | Peer discovery, state propagation |
 | `identity/v1` | `identity` | Cryptographic identity and attestation |
 
 ### Relevant Files
-*   [`protocols/schemas/`](protocols/schemas/) — All `.capnp` schema definitions
-*   [`scripts/gen-proto-go.sh`](scripts/gen-proto-go.sh) — Go code generation script
-*   [`modules/sdk/src/protocols/`](modules/sdk/src/protocols/) — Rust bindings (via `build.rs`)
+
+* [`protocols/schemas/`](protocols/schemas/) — All `.capnp` schema definitions
+* [`scripts/gen-proto-go.sh`](scripts/gen-proto-go.sh) — Go code generation script
+* [`modules/sdk/src/protocols/`](modules/sdk/src/protocols/) — Rust bindings (via `build.rs`)
 
 ---
 
@@ -71,12 +76,13 @@ All schemas live in `protocols/schemas/` with versioned subdirectories:
 
 INOS **deliberately avoids `wasm-bindgen`** for Rust modules. This architectural decision ensures:
 
-1.  **Pure C ABI**: All exports use `extern "C"` with `#[no_mangle]`. No JS glue code generated.
-2.  **Minimal Binary Size**: No runtime overhead from bindgen-generated wrappers.
-3.  **SAB Compatibility**: Direct pointer manipulation into SharedArrayBuffer without JS object marshalling.
-4.  **Predictable Memory**: Manual `compute_alloc` / `compute_free` lifecycle.
+1. **Pure C ABI**: All exports use `extern "C"` with `#[no_mangle]`. No JS glue code generated.
+2. **Minimal Binary Size**: No runtime overhead from bindgen-generated wrappers.
+3. **SAB Compatibility**: Direct pointer manipulation into SharedArrayBuffer without JS object marshalling.
+4. **Predictable Memory**: Manual `compute_alloc` / `compute_free` lifecycle.
 
 ### The Library Proxy Pattern
+
 Instead of exposing many `#[wasm_bindgen]` functions, we expose a **single generic dispatcher**:
 
 ```rust
@@ -91,11 +97,12 @@ pub extern "C" fn compute_execute(
 
 The `ComputeEngine` internally routes to registered units (Image, Crypto, Boids, etc.).
 
-### Relevant Files
-*   [`modules/compute/src/lib.rs`](modules/compute/src/lib.rs) — `compute_execute` entry point
-*   [`modules/compute/src/engine.rs`](modules/compute/src/engine.rs) — Unit registry and routing
-*   [`modules/storage/src/lib.rs`](modules/storage/src/lib.rs) — Storage module (no wasm-bindgen)
-*   [`modules/drivers/src/lib.rs`](modules/drivers/src/lib.rs) — I/O drivers (pure C ABI)
+### Relevant Files (2)
+
+* [`modules/compute/src/lib.rs`](modules/compute/src/lib.rs) — `compute_execute` entry point
+* [`modules/compute/src/engine.rs`](modules/compute/src/engine.rs) — Unit registry and routing
+* [`modules/storage/src/lib.rs`](modules/storage/src/lib.rs) — Storage module (no wasm-bindgen)
+* [`modules/drivers/src/lib.rs`](modules/drivers/src/lib.rs) — I/O drivers (pure C ABI)
 
 ---
 
@@ -104,10 +111,12 @@ The `ComputeEngine` internally routes to registered units (Image, Crypto, Boids,
 Go's WASM runtime cannot natively share `SharedArrayBuffer` as its linear memory. INOS solves this with a **Synchronized Memory Twin** architecture.
 
 ### The Problem
-*   **Rust/JS**: Direct SAB access (true zero-copy).
-*   **Go Kernel**: Operates on its own private linear memory.
+
+* **Rust/JS**: Direct SAB access (true zero-copy).
+* **Go Kernel**: Operates on its own private linear memory.
 
 ### The Solution: Ephemeral Snapshot Isolation
+
 The Kernel maintains a **Local Replica (Twin)** synchronized via explicit bridge calls:
 
 ```go
@@ -116,14 +125,16 @@ js.CopyBytesToGo(localTwin, view.Call("subarray", offset, offset+size))
 ```
 
 ### Benefits
-*   **Snapshot Consistency**: Kernel operates on a stable snapshot, immune to tearing reads.
-*   **Zero-Allocation Sync**: `ReadAt` pattern recycles buffers, minimizing GC pressure.
-*   **Double-Buffered State**: Front Buffer (SAB, mutated by Rust/JS) ↔ Back Buffer (Go Twin, stable for logic).
 
-### Relevant Files
-*   [`docs/go_wasm_memory_integrity.md`](docs/go_wasm_memory_integrity.md) — Full architectural deep-dive
-*   [`kernel/threads/bridge.go`](kernel/threads/bridge.go) — SAB bridge implementation
-*   [`frontend/src/wasm/layout.ts`](frontend/src/wasm/layout.ts) — SAB region offsets and indices
+* **Snapshot Consistency**: Kernel operates on a stable snapshot, immune to tearing reads.
+* **Zero-Allocation Sync**: `ReadAt` pattern recycles buffers, minimizing GC pressure.
+* **Double-Buffered State**: Front Buffer (SAB, mutated by Rust/JS) ↔ Back Buffer (Go Twin, stable for logic).
+
+### Relevant Files (3)
+
+* [`docs/go_wasm_memory_integrity.md`](docs/go_wasm_memory_integrity.md) — Full architectural deep-dive
+* [`kernel/threads/bridge.go`](kernel/threads/bridge.go) — SAB bridge implementation
+* [`frontend/src/wasm/layout.ts`](frontend/src/wasm/layout.ts) — SAB region offsets and indices
 
 ---
 
@@ -131,10 +142,10 @@ js.CopyBytesToGo(localTwin, view.Call("subarray", offset, offset+size))
 
 INOS uses a standardized **Unit Proxy Model** to expose Rust performance to the JavaScript frontend without complex glue code.
 
-1.  **Registry**: Rust units (Boids, Math, Crypto) register their capabilities in a global table.
-2.  **Marshalling**: The `compute_execute` WASM export serves as a generic entry point.
-3.  **Dispatch**: The frontend `Dispatcher` routes requests to dedicated background workers (`plug`) or executes them synchronously.
-4.  **Zero-Copy**: Parameters and results stay in the SAB; only pointers and lengths cross the WASM boundary.
+1. **Registry**: Rust units (Boids, Math, Crypto) register their capabilities in a global table.
+2. **Marshalling**: The `compute_execute` WASM export serves as a generic entry point.
+3. **Dispatch**: The frontend `Dispatcher` routes requests to dedicated background workers (`plug`) or executes them synchronously.
+4. **Zero-Copy**: Parameters and results stay in the SAB; only pointers and lengths cross the WASM boundary.
 
 ---
 
@@ -142,9 +153,9 @@ INOS uses a standardized **Unit Proxy Model** to expose Rust performance to the 
 
 Based on the [ArchitecturalBoids](frontend/app/features/boids/ArchitecturalBoids.tsx) implementation:
 
-*   **Decoupled Compute**: Physics (Boids) and Matrix generation (Math) run in autonomous workers.
-*   **Pulse Signaling**: Workers wait on the high-precision `PulseWorker` (Zero-CPU idling).
-*   **Epoch-Based GPU Sync**: React only flips the GPU buffer pointers when the `IDX_MATRIX_EPOCH` increments, ensuring tear-free rendering at 60FPS+.
+* **Decoupled Compute**: Physics (Boids) and Matrix generation (Math) run in autonomous workers.
+* **Pulse Signaling**: Workers wait on the high-precision `PulseWorker` (Zero-CPU idling).
+* **Epoch-Based GPU Sync**: React only flips the GPU buffer pointers when the `IDX_MATRIX_EPOCH` increments, ensuring tear-free rendering at 60FPS+.
 
 ---
 
@@ -153,7 +164,7 @@ Based on the [ArchitecturalBoids](frontend/app/features/boids/ArchitecturalBoids
 INOS provides a rich set of built-in functionalities exposed via the `dispatch` system:
 
 | Unit | Capabilities |
-|:---|:---|
+| :--- | :--- |
 | **Compute** | BLAKE3/SHA256 Hashing, Brotli Compression/Decompression |
 | **GPU** | PBR Rendering, WGSL Execution, Particle Systems, SSAO/SSR |
 | **Math** | Matrix/Vector SIMD-ready operations, Quaternions, Projections |
@@ -167,9 +178,11 @@ INOS provides a rich set of built-in functionalities exposed via the `dispatch` 
 ## 🚀 Getting Started
 
 ### Prerequisites
-*   **Go 1.21+**, **Rust 1.75+**, **Node.js 20+**, **Cap'n Proto 1.0+**
+
+* **Go 1.21+**, **Rust 1.75+**, **Node.js 20+**, **Cap'n Proto 1.0+**
 
 ### Quick Build
+
 ```bash
 make setup    # Install tools and generate protocols
 make build    # Build Kernel, Modules, and Frontend
@@ -182,12 +195,12 @@ cd frontend && npm run dev
 
 INOS is licensed under the **Business Source License 1.1 (BSL 1.1)**.
 
-*   **Free for Individuals & Small Teams**: Permitted for entities with <$5M annual revenue and <50 employees.
-*   **Commercial Use**: Requires a separate agreement for larger corporations ("Fat Checks").
-*   **Eventual Open Source**: Becomes **MIT Licensed** on **2029-01-01**.
+* **Free for Individuals & Small Teams**: Permitted for entities with <$5M annual revenue and <50 employees.
+* **Commercial Use**: Requires a separate agreement for larger corporations ("Fat Checks").
+* **Eventual Open Source**: Becomes **MIT Licensed** on **2029-01-01**.
 
 See [LICENSE](LICENSE) for full legal text.
 
 ---
 
-*Built with 🧠 by The INOS Architects*
+## Built with 🧠 by The INOS Architects

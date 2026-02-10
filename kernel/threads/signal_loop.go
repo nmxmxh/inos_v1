@@ -214,7 +214,16 @@ func (s *Supervisor) handleSyscall(ctx context.Context, m *mesh.MeshCoordinator,
 			)
 
 			// Return Typed Response
-			s.sendStoreChunkResponse(callId, uint8(replicas))
+			reportedReplicas := replicas
+			const maxWireReplicas = int(^uint16(0))
+			if reportedReplicas > maxWireReplicas {
+				s.logger.Warn("Replica count exceeds syscall wire range; clamping to UInt16 max",
+					utils.Int("requested_replicas", replicas),
+					utils.Int("reported_replicas", maxWireReplicas),
+				)
+				reportedReplicas = maxWireReplicas
+			}
+			s.sendStoreChunkResponse(callId, uint16(reportedReplicas))
 		}()
 
 	case syscall.Syscall_Body_Which_sendMessage:
@@ -294,7 +303,7 @@ func (s *Supervisor) sendFetchChunkResponse(callId uint64, bytesTransferred uint
 }
 
 // sendStoreChunkResponse sends a typed StoreChunkResult
-func (s *Supervisor) sendStoreChunkResponse(callId uint64, replicas uint8) {
+func (s *Supervisor) sendStoreChunkResponse(callId uint64, replicas uint16) {
 	s.sendResponse(callId, func(resp syscall.Syscall_Response) error {
 		resp.SetStatus(syscall.Syscall_Status_success)
 		res, _ := resp.Result()

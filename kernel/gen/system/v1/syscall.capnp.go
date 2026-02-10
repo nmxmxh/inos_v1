@@ -1600,12 +1600,12 @@ func (s Syscall_StoreChunkResult) String() string {
 	return str
 }
 
-func (s Syscall_StoreChunkResult) Replicas() uint8 {
-	return s.Struct.Uint8(0)
+func (s Syscall_StoreChunkResult) Replicas() uint16 {
+	return s.Struct.Uint16(0)
 }
 
-func (s Syscall_StoreChunkResult) SetReplicas(v uint8) {
-	s.Struct.SetUint8(0, v)
+func (s Syscall_StoreChunkResult) SetReplicas(v uint16) {
+	s.Struct.SetUint16(0, v)
 }
 
 // Syscall_StoreChunkResult_List is a list of Syscall_StoreChunkResult.
@@ -1838,11 +1838,11 @@ const schema_de4f1a7b7c4a2b19 = "x\xda\xa4V]l\x1c\xd5\x15>\xe7\xde\xfd\xf1\xdfz"
 	"\x08\xfa\xd2\x80D\xe7\x96\xde2\xb3\xd5\xb7\xf4\x96\xbd\x85" +
 	"\x8f\xa3\x02\x82D\x9b\x84 \xd1\xb9\xc4\x87\x86\xd8|\xb9" +
 	"}qo9\xe4\xa7Y\xee\x94\xcc\"sBf\xddG" +
-	"\x91}\x8e\xa0px\xc52\xf3\xba{M\x9bm\xdbF" +
-	"\xee;[\xc7n;\xa3\xd6\xd8\x96\xa0G\xe4\xe1&\x8a" +
-	"l+\x913\xd12\x97\xb8\xc3\x01\x95\xe4,\xdd\xe3\xe5" +
-	"|m\x0a\xd0\xc5$\x10L\x02\xfe?\x00\x00\xff\xff\x00" +
-	"\xc5\xcb\xf9"
+	"\x91}\x8e\xa0px\xc52\xf3\xba+\xbf\x99\x04\x82\xc9" +
+	"k\xde\xc8}g\xeb\xd8mg\xd4\x1a\xdb\x12\xf4\x88<" +
+	"\xdcD\x91m%r&Z\xe6\x12w8\xa0\x92\x9c\xa5" +
+	"{\xbc\x9c\xafM\x01\xbaaH\xff\x0f\x00\x00\xff\xff\x01" +
+	"\xf5\xcb\xfb"
 
 func init() {
 	schemas.Register(schema_de4f1a7b7c4a2b19,

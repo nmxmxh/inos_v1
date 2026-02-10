@@ -4,6 +4,24 @@ const frontendCommand =
   process.env.INOS_E2E_WEB_SERVER ||
   'yarn --cwd ../frontend dev --host 127.0.0.1 --port 5173';
 
+const projects = [
+  {
+    name: 'chromium',
+    use: { ...devices['Desktop Chrome'] },
+  },
+  {
+    name: 'firefox',
+    use: { ...devices['Desktop Firefox'] },
+  },
+];
+
+if (process.env.INOS_E2E_WEBKIT === '1') {
+  projects.push({
+    name: 'webkit',
+    use: { ...devices['Desktop Safari'] },
+  });
+}
+
 module.exports = defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -19,16 +37,7 @@ module.exports = defineConfig({
     ignoreHTTPSErrors: true,
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-  ],
+  projects,
 
   webServer: {
     command: frontendCommand,

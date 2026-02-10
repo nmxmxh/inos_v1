@@ -271,9 +271,15 @@ func jsMeshConnectToPeer(this js.Value, args []js.Value) interface{} {
 	if coord == nil {
 		return js.ValueOf(map[string]interface{}{"error": "mesh not initialized"})
 	}
+
+	address := ""
+	if len(args) > 1 && args[1].Type() == js.TypeString {
+		address = args[1].String()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := coord.ConnectToPeer(ctx, args[0].String()); err != nil {
+	if err := coord.ConnectToPeer(ctx, args[0].String(), address); err != nil {
 		return js.ValueOf(map[string]interface{}{"error": err.Error()})
 	}
 	return js.ValueOf(map[string]interface{}{"success": true})

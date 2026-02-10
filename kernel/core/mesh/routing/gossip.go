@@ -174,8 +174,13 @@ type MerkleSyncState struct {
 	InProgress bool
 }
 
-// Merkle depth limit to prevent stack overflow attacks
-const MaxMerkleSyncDepth = 32
+// Merkle depth limit to prevent stack overflow attacks.
+// Batch caps bound anti-entropy resource usage during high divergence.
+const (
+	MaxMerkleSyncDepth  = 32
+	maxMerkleSyncBatch  = 2048
+	maxGossipFutureSkew = 2 * time.Minute
+)
 
 func getShortID(id string) string {
 	if len(id) <= 8 {
@@ -227,15 +232,9 @@ func NewGossipManager(nodeID string, transport common.Transport, logger *slog.Lo
 	}
 
 	// Initialize rate limiter
-	gossip.limiterStore = store.NewMemoryStore(time.Minute)
-	gossip.limiter, _ = limiter.NewTokenBucket(
-		limiter.Config{
-			Rate:     int64(config.RateLimit.MessagesPerSecond),
-			Duration: time.Second,
-			Burst:    int64(config.RateLimit.BurstSize),
-		},
-		gossip.limiterStore,
-	)
+	if err := gossip.rebuildRateLimiter(); err != nil {
+		return nil, fmt.Errorf("failed to initialize rate limiter: %w", err)
+	}
 
 	// Initialize metrics
 	gossip.metrics.StartTime = time.Now()
@@ -333,6 +332,9 @@ func (g *GossipManager) Start() error {
 	if g.running.Load() {
 		return errors.New("gossip manager already running")
 	}
+	if err := g.rebuildRateLimiter(); err != nil {
+		return fmt.Errorf("failed to configure rate limiter: %w", err)
+	}
 
 	g.running.Store(true)
 	g.logger.Info("starting gossip manager")
@@ -422,6 +424,54 @@ func (g *GossipManager) AnnouncePeerCapability(capability *common.PeerCapability
 // ReceiveMessage processes an incoming gossip message
 func (g *GossipManager) ReceiveMessage(sender string, msg *common.GossipMessage) error {
 	start := time.Now()
+	if msg == nil {
+		return errors.New("nil message")
+	}
+	if msg.Sender == "" {
+		msg.Sender = sender
+	}
+	if sender != "" && msg.Sender != "" && sender != msg.Sender {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("sender mismatch")
+	}
+	if msg.Type == "" {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("message type is required")
+	}
+	if msg.Timestamp <= 0 {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("message timestamp is required")
+	}
+	now := time.Now()
+	messageTime := time.Unix(0, msg.Timestamp)
+	if messageTime.After(now.Add(maxGossipFutureSkew)) {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("message timestamp too far in the future")
+	}
+	maxMessageAge := g.seenTTL * 2
+	if maxMessageAge <= 0 {
+		maxMessageAge = 2 * time.Hour
+	}
+	if now.Sub(messageTime) > maxMessageAge {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("message too old")
+	}
+	if g.estimateMessageSize(msg) > g.config.MaxMessageSize {
+		g.metricsMu.Lock()
+		g.metrics.MessagesDropped++
+		g.metricsMu.Unlock()
+		return errors.New("message exceeds max size")
+	}
 
 	// Update metrics
 	g.metricsMu.Lock()
@@ -887,6 +937,9 @@ func (g *GossipManager) reconcileMerkleTrees(peerID string, ourRoot, theirRoot [
 		return
 	}
 
+	missingHashes = normalizeIDBatch(missingHashes, maxMerkleSyncBatch)
+	extraHashes = normalizeIDBatch(extraHashes, maxMerkleSyncBatch)
+
 	if len(missingHashes) > 0 {
 		g.requestMessagesByHash(peerID, missingHashes)
 	}
@@ -927,16 +980,19 @@ func (g *GossipManager) reconcileMerkleTreesSimplified(peerID string) {
 		}
 	}
 
-	if len(missing) > 0 {
-		g.requestMessagesByHash(peerID, missing)
-	}
-
 	// Send messages they're missing
 	var toSend []string
 	for h := range ourSet {
 		if !theirSet[h] {
 			toSend = append(toSend, h)
 		}
+	}
+
+	missing = normalizeIDBatch(missing, maxMerkleSyncBatch)
+	toSend = normalizeIDBatch(toSend, maxMerkleSyncBatch)
+
+	if len(missing) > 0 {
+		g.requestMessagesByHash(peerID, missing)
 	}
 
 	if len(toSend) > 0 {
@@ -1180,6 +1236,7 @@ func (g *GossipManager) requestMissingMessages(peerID string, messageIDs []strin
 	}
 	g.seenMu.RUnlock()
 
+	missing = normalizeIDBatch(missing, maxMerkleSyncBatch)
 	if len(missing) == 0 {
 		return
 	}
@@ -1202,6 +1259,11 @@ func (g *GossipManager) requestMissingMessages(peerID string, messageIDs []strin
 
 // requestMessagesByHash requests messages by their hash
 func (g *GossipManager) requestMessagesByHash(peerID string, hashes []string) {
+	hashes = normalizeIDBatch(hashes, maxMerkleSyncBatch)
+	if len(hashes) == 0 {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -1218,6 +1280,11 @@ func (g *GossipManager) requestMessagesByHash(peerID string, hashes []string) {
 
 // sendMessagesByHash sends messages by their hash
 func (g *GossipManager) sendMessagesByHash(peerID string, hashes []string) {
+	hashes = normalizeIDBatch(hashes, maxMerkleSyncBatch)
+	if len(hashes) == 0 {
+		return
+	}
+
 	g.messagesMu.RLock()
 	messages := make([]*common.GossipMessage, 0, len(hashes))
 	for _, hash := range hashes {
@@ -1306,6 +1373,73 @@ func (g *GossipManager) checkRateLimit(peerID string) bool {
 
 	// Use the library's Allow method with peerID as key
 	return g.limiter.Allow(peerID)
+}
+
+func (g *GossipManager) rebuildRateLimiter() error {
+	g.rateMu.Lock()
+	defer g.rateMu.Unlock()
+
+	rate := int64(g.config.RateLimit.MessagesPerSecond)
+	burst := int64(g.config.RateLimit.BurstSize)
+	if rate <= 0 {
+		rate = 1
+	}
+	if burst <= 0 {
+		burst = 1
+	}
+
+	g.limiterStore = store.NewMemoryStore(time.Minute)
+	tb, err := limiter.NewTokenBucket(
+		limiter.Config{
+			Rate:     rate,
+			Duration: time.Second,
+			Burst:    burst,
+		},
+		g.limiterStore,
+	)
+	if err != nil {
+		return err
+	}
+	g.limiter = tb
+	return nil
+}
+
+func (g *GossipManager) estimateMessageSize(msg *common.GossipMessage) int {
+	size := len(msg.ID) + len(msg.Type) + len(msg.Sender) + len(msg.PublicKey) + len(msg.Signature) + 64
+	if msg.Payload == nil {
+		return size
+	}
+
+	payloadBytes, err := json.Marshal(msg.Payload)
+	if err != nil {
+		return size + len(fmt.Sprintf("%v", msg.Payload))
+	}
+	return size + len(payloadBytes)
+}
+
+func normalizeIDBatch(ids []string, max int) []string {
+	if len(ids) == 0 || max <= 0 {
+		return nil
+	}
+
+	unique := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, exists := unique[id]; exists {
+			continue
+		}
+		unique[id] = struct{}{}
+		out = append(out, id)
+	}
+
+	sort.Strings(out)
+	if len(out) > max {
+		return out[:max]
+	}
+	return out
 }
 
 // computeMessageID computes a unique ID for a message

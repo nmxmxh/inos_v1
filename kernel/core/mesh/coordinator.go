@@ -1,8 +1,11 @@
 package mesh
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +17,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/andybalholm/brotli"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/common"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/internal"
 	"github.com/nmxmxh/inos_v1/kernel/core/mesh/optimization"
@@ -174,6 +178,11 @@ const (
 	BreakerHalfOpen
 )
 
+const (
+	meshCompressionMinBytes    = 1024
+	meshBrotliCompressionLevel = 4
+)
+
 // DefaultCoordinatorConfig returns production defaults
 func DefaultCoordinatorConfig() CoordinatorConfig {
 	config := CoordinatorConfig{
@@ -290,6 +299,13 @@ func (m *MeshCoordinator) ReplaceTransport(tr Transport) {
 		return
 	}
 	m.transport = tr
+
+	if injector, ok := tr.(interface {
+		InjectSignalingChannel(url string, ch transport.SignalingChannel)
+	}); ok && m.gossipSignaling != nil {
+		injector.InjectSignalingChannel("gossip://mesh", m.gossipSignaling)
+	}
+
 	m.dht = routing.NewDHT(m.nodeID, tr, m.logger)
 	m.reputation = routing.NewReputationManager(3*24*time.Hour, nil, m.logger)
 
@@ -567,7 +583,8 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 
 	// 4. Send chunk to selected peers in parallel
 	var wg sync.WaitGroup
-	errors := make(chan error, len(selected))
+	sendErrors := make(chan error, len(selected))
+	successfulPeers := make(chan string, len(selected))
 
 	for _, peer := range selected {
 		wg.Add(1)
@@ -575,13 +592,16 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 			defer wg.Done()
 
 			if err := m.sendChunkToPeer(ctx, p.ID, chunkHash, data); err != nil {
-				errors <- fmt.Errorf("peer %s: %w", getShortID(p.ID), err)
+				sendErrors <- fmt.Errorf("peer %s: %w", getShortID(p.ID), err)
+				return
 			}
+			successfulPeers <- p.ID
 		}(peer)
 	}
 
 	wg.Wait()
-	close(errors)
+	close(sendErrors)
+	close(successfulPeers)
 
 	// 5. Store in local DHT
 	if err := m.dht.Store(chunkHash, m.nodeID, 3600); err != nil {
@@ -592,27 +612,65 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 	m.gossip.AnnounceChunk(chunkHash)
 
 	// 7. Store locally
+	localStored := false
+	var localStoreErr error
 	if m.storage != nil {
 		if err := m.storage.StoreChunk(ctx, chunkHash, data); err != nil {
 			m.logger.Warn("failed to store chunk locally", "error", err)
+			localStoreErr = err
+		} else {
+			localStored = true
 		}
 	}
 
-	m.localChunksMu.Lock()
-	m.localChunks[chunkHash] = struct{}{}
-	m.localChunksMu.Unlock()
-
-	// 8. Update chunk cache with all peers that received it
-	peerIDs := make([]string, len(selected))
-	for i, peer := range selected {
-		peerIDs[i] = peer.ID
+	if localStored {
+		m.localChunksMu.Lock()
+		m.localChunks[chunkHash] = struct{}{}
+		m.localChunksMu.Unlock()
 	}
-	m.chunkCache.Put(chunkHash, peerIDs, 1.0)
+
+	// 8. Update chunk cache with peers that actually received it
+	deliveredPeerIDs := make([]string, 0, len(selected))
+	for peerID := range successfulPeers {
+		deliveredPeerIDs = append(deliveredPeerIDs, peerID)
+	}
+
+	var firstSendErr error
+	failedSends := 0
+	for err := range sendErrors {
+		failedSends++
+		if firstSendErr == nil {
+			firstSendErr = err
+		}
+		m.logger.Warn("failed to replicate chunk to peer", "chunk", getShortID(chunkHash), "error", err)
+	}
+
+	if len(deliveredPeerIDs) > 0 {
+		m.chunkCache.Put(chunkHash, deliveredPeerIDs, 1.0)
+	}
+
+	deliveredReplicas := len(deliveredPeerIDs)
+	if localStored {
+		deliveredReplicas++
+	}
+
+	if deliveredReplicas == 0 {
+		if firstSendErr != nil {
+			return 0, fmt.Errorf("chunk distribution failed: %w", firstSendErr)
+		}
+		if localStoreErr != nil {
+			return 0, fmt.Errorf("chunk distribution failed: %w", localStoreErr)
+		}
+		return 0, errors.New("chunk distribution failed: no replicas delivered")
+	}
+
 	m.emitChunkDiscoveredEvent(chunkHash, m.nodeID, p2p.ChunkPriority_high)
 
 	m.logger.Info("chunk distributed",
 		"chunk", getShortID(chunkHash),
-		"replicas", replicas,
+		"requested_replicas", replicas,
+		"delivered_replicas", deliveredReplicas,
+		"failed_sends", failedSends,
 		"duration", time.Since(start))
 
 	// 9. Signal chunk distribution complete
@@ -620,7 +678,7 @@ func (m *MeshCoordinator) DistributeChunk(ctx context.Context, chunkHash string,
 		m.bridge.SignalEpoch(sab.IDX_DELEGATED_CHUNK_EPOCH)
 	}
 
-	return replicas, nil
+	return deliveredReplicas, nil
 }
 
 func (m *MeshCoordinator) selectBestPeerForJob() (string, float32) {
@@ -960,11 +1018,46 @@ func (m *MeshCoordinator) scorePeers(peers []PeerInfo) []PeerInfo {
 // ========== HELPER METHODS ==========
 
 func (m *MeshCoordinator) sendChunkToPeer(ctx context.Context, peerID, chunkHash string, data []byte) error {
-	return m.transport.SendMessage(ctx, peerID, map[string]interface{}{
-		"type":       "chunk_store",
-		"chunk_hash": chunkHash,
-		"data":       data,
-	})
+	payload, err := m.encodePayloadForWire(data, meshCompressionMinBytes, meshBrotliCompressionLevel)
+	if err != nil {
+		return fmt.Errorf("failed to encode chunk payload: %w", err)
+	}
+
+	req := map[string]interface{}{
+		"chunk_hash":  chunkHash,
+		"data":        payload.Data,
+		"raw_size":    payload.RawSize,
+		"wire_size":   payload.WireSize,
+		"compression": payload.Compression,
+	}
+
+	var resp struct {
+		Stored bool `json:"stored"`
+		Size   int  `json:"size"`
+	}
+
+	if err := m.transport.SendRPC(ctx, peerID, "chunk.store", req, &resp); err != nil {
+		// Backward-compatible fallback for older peers.
+		m.logger.Debug("chunk.store RPC failed, falling back to legacy chunk_store payload",
+			"peer", getShortID(peerID),
+			"error", err,
+		)
+		return m.transport.SendMessage(ctx, peerID, map[string]interface{}{
+			"type":       "chunk_store",
+			"chunk_hash": chunkHash,
+			"data":       data,
+		})
+	}
+
+	if !resp.Stored {
+		return errors.New("peer rejected chunk.store")
+	}
+
+	if resp.Size > 0 && resp.Size != len(data) {
+		return fmt.Errorf("peer reported unexpected stored size: got=%d want=%d", resp.Size, len(data))
+	}
+
+	return nil
 }
 
 func (m *MeshCoordinator) fetchFromPeer(ctx context.Context, chunkHash string, peer *PeerCapability) ([]byte, error) {
@@ -973,8 +1066,11 @@ func (m *MeshCoordinator) fetchFromPeer(ctx context.Context, chunkHash string, p
 	}
 
 	var result struct {
-		Data []byte `json:"data"`
-		Size int    `json:"size"`
+		Data        []byte `json:"data"`
+		Size        int    `json:"size"`
+		RawSize     int    `json:"raw_size"`
+		WireSize    int    `json:"wire_size"`
+		Compression string `json:"compression"`
 	}
 
 	err := m.transport.SendRPC(ctx, peer.PeerID, "chunk.fetch", map[string]string{
@@ -986,11 +1082,23 @@ func (m *MeshCoordinator) fetchFromPeer(ctx context.Context, chunkHash string, p
 		return nil, err
 	}
 
-	if len(result.Data) == 0 {
-		return nil, errors.New("empty response from peer")
+	expectedRawSize := result.RawSize
+	if expectedRawSize == 0 {
+		expectedRawSize = result.Size
+	}
+	decoded, err := m.decodePayloadFromWire(result.Data, result.Compression, expectedRawSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode chunk payload from peer %s: %w", getShortID(peer.PeerID), err)
 	}
 
-	return result.Data, nil
+	if len(decoded) == 0 {
+		return nil, errors.New("empty response from peer")
+	}
+	if result.Size > 0 && len(decoded) != result.Size {
+		return nil, fmt.Errorf("peer returned size mismatch: declared=%d decoded=%d", result.Size, len(decoded))
+	}
+
+	return decoded, nil
 }
 
 func (m *MeshCoordinator) fetchPeerCapabilities(_ context.Context, peerIDs []string) ([]*PeerCapability, error) {
@@ -1355,9 +1463,21 @@ func (m *MeshCoordinator) registerGossipHandlers() {
 	})
 
 	m.gossip.RegisterHandler("webrtc.signaling", func(msg *common.GossipMessage) error {
-		if m.gossipSignaling != nil {
-			m.gossipSignaling.HandleIncoming(msg.Payload)
+		if m.gossipSignaling == nil {
+			return nil
 		}
+
+		// Drop targeted signaling that isn't for this node to avoid mesh-wide offer/answer processing.
+		if payload, ok := msg.Payload.(map[string]interface{}); ok {
+			targetID, _ := payload["target_id"].(string)
+			if targetID != "" && targetID != m.nodeID {
+				return nil
+			}
+			m.gossipSignaling.HandleIncoming(payload)
+			return nil
+		}
+
+		m.gossipSignaling.HandleIncoming(msg.Payload)
 		return nil
 	})
 }
@@ -1380,7 +1500,7 @@ func (m *MeshCoordinator) recordFetchFailure(_ string, peerID string, _ error) {
 	m.updateCircuitBreaker(peerID, false)
 }
 
-func (m *MeshCoordinator) recordRPCFailure(_ string, peerID string, _ error) {
+func (m *MeshCoordinator) recordRPCFailure(peerID string, _ string, _ error) {
 	m.reputation.Report(peerID, false, 0)
 }
 
@@ -1532,18 +1652,136 @@ func (m *MeshCoordinator) DelegateCompute(ctx context.Context, operation string,
 		return nil, fmt.Errorf("failed to unpack response resource: %w", err)
 	}
 
-	// Verification (Simplified for now - should re-hash)
+	resultData, err := m.resolveResourceData(res)
+	if err != nil {
+		m.updateCircuitBreaker(bestPeer, false)
+		return nil, fmt.Errorf("failed to resolve delegated resource payload: %w", err)
+	}
+
+	digest, _ := res.Digest()
+	if len(digest) == 0 {
+		m.updateCircuitBreaker(bestPeer, false)
+		return nil, errors.New("delegation response missing digest")
+	}
+	computedDigest := m.computeResourceDigest(resultData)
+	if string(digest) != computedDigest {
+		m.updateCircuitBreaker(bestPeer, false)
+		return nil, fmt.Errorf("delegation digest mismatch: expected=%s computed=%s", string(digest), computedDigest)
+	}
+
 	m.logger.Info("compute delegation successful", "peer", getShortID(bestPeer), "latency", resp.LatencyMs)
 	m.updateCircuitBreaker(bestPeer, true)
-	digest, _ := res.Digest()
 	m.emitDelegationResponseEvent(p2p.DelegateResponse_Status_success, req.ID, digest, res.RawSize(), resp.LatencyMs, "")
 
-	// Return data (inline for now)
-	return res.Inline()
+	return resultData, nil
 }
 
 func (m *MeshCoordinator) registerRPCHandlers() {
 	m.registerAttestationHandler()
+	m.transport.RegisterRPCHandler("chunk.store", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
+		if m.storage == nil {
+			return nil, errors.New("storage provider not configured")
+		}
+
+		var req struct {
+			ChunkHash   string `json:"chunk_hash"`
+			Data        []byte `json:"data"`
+			RawSize     int    `json:"raw_size"`
+			WireSize    int    `json:"wire_size"`
+			Compression string `json:"compression"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("failed to decode chunk.store request: %w", err)
+		}
+		if req.ChunkHash == "" {
+			return nil, errors.New("missing chunk_hash")
+		}
+
+		expectedRawSize := req.RawSize
+		if expectedRawSize == 0 {
+			expectedRawSize = len(req.Data)
+		}
+		decoded, err := m.decodePayloadFromWire(req.Data, req.Compression, expectedRawSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode chunk.store payload: %w", err)
+		}
+
+		if err := m.storage.StoreChunk(ctx, req.ChunkHash, decoded); err != nil {
+			return nil, fmt.Errorf("failed to store chunk: %w", err)
+		}
+
+		m.localChunksMu.Lock()
+		m.localChunks[req.ChunkHash] = struct{}{}
+		m.localChunksMu.Unlock()
+		_ = m.dht.Store(req.ChunkHash, m.nodeID, 3600)
+
+		m.logger.Debug("stored chunk from peer",
+			"peer", getShortID(peerID),
+			"chunk", getShortID(req.ChunkHash),
+			"raw_size", len(decoded),
+			"wire_size", len(req.Data),
+			"compression", req.Compression,
+		)
+
+		return map[string]interface{}{
+			"stored":      true,
+			"size":        len(decoded),
+			"raw_size":    len(decoded),
+			"wire_size":   len(req.Data),
+			"compression": req.Compression,
+		}, nil
+	})
+
+	m.transport.RegisterRPCHandler("chunk.fetch", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
+		if m.storage == nil {
+			return nil, errors.New("storage provider not configured")
+		}
+
+		var req struct {
+			ChunkHash string `json:"chunk_hash"`
+		}
+		if err := json.Unmarshal(args, &req); err != nil {
+			return nil, fmt.Errorf("failed to decode chunk.fetch request: %w", err)
+		}
+		if req.ChunkHash == "" {
+			return nil, errors.New("missing chunk_hash")
+		}
+
+		has, err := m.storage.HasChunk(ctx, req.ChunkHash)
+		if err != nil {
+			return nil, fmt.Errorf("chunk lookup failed: %w", err)
+		}
+		if !has {
+			return nil, errors.New("chunk not found")
+		}
+
+		data, err := m.storage.FetchChunk(ctx, req.ChunkHash)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch chunk: %w", err)
+		}
+
+		payload, err := m.encodePayloadForWire(data, meshCompressionMinBytes, meshBrotliCompressionLevel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode chunk.fetch payload: %w", err)
+		}
+
+		m.logger.Debug("served chunk to peer",
+			"peer", getShortID(peerID),
+			"chunk", getShortID(req.ChunkHash),
+			"raw_size", len(data),
+			"wire_size", payload.WireSize,
+			"compression", payload.Compression,
+		)
+
+		return map[string]interface{}{
+			"data":        payload.Data,
+			"size":        len(data),
+			"raw_size":    payload.RawSize,
+			"wire_size":   payload.WireSize,
+			"compression": payload.Compression,
+		}, nil
+	})
+
 	m.transport.RegisterRPCHandler("mesh.DelegateCompute", func(ctx context.Context, peerID string, args json.RawMessage) (interface{}, error) {
 		if m.dispatcher == nil {
 			return nil, errors.New("local dispatcher not initialized")
@@ -1562,7 +1800,7 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 			return nil, fmt.Errorf("failed to unpack resource: %w", err)
 		}
 
-		digest, _ := res.Digest()
+		inputDigest, _ := res.Digest()
 		var data []byte
 
 		// 2. Resolve data from Resource (SABRef > Storage)
@@ -1573,15 +1811,31 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 			if err != nil {
 				return nil, fmt.Errorf("failed to read from sabRef: %w", err)
 			}
+			data, err = m.decodePayloadFromWire(data, resourceCompressionToString(res.Compression()), int(res.RawSize()))
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode sabRef resource payload: %w", err)
+			}
+		} else if res.Which() == system.Resource_Which_inline {
+			wirePayload, err := res.Inline()
+			if err != nil {
+				return nil, fmt.Errorf("failed to read inline resource: %w", err)
+			}
+			data, err = m.decodePayloadFromWire(wirePayload, resourceCompressionToString(res.Compression()), int(res.RawSize()))
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode inline resource payload: %w", err)
+			}
 		} else if m.storage != nil {
+			if len(inputDigest) == 0 {
+				return DelegationResponse{Status: "input_missing"}, nil
+			}
 			// Check if we have the input chunk
-			has, err := m.storage.HasChunk(ctx, string(digest))
+			has, err := m.storage.HasChunk(ctx, string(inputDigest))
 			if err != nil || !has {
 				return DelegationResponse{Status: "input_missing"}, nil
 			}
 
 			// Fetch data
-			data, err = m.storage.FetchChunk(ctx, string(digest))
+			data, err = m.storage.FetchChunk(ctx, string(inputDigest))
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch input chunk: %w", err)
 			}
@@ -1602,8 +1856,9 @@ func (m *MeshCoordinator) registerRPCHandlers() {
 			return DelegationResponse{Status: "failed", Error: result.Error}, nil
 		}
 
-		// 5. Pack Result with verification digest
-		resOutBytes, err := m.packResource(req.ID, string(digest), result.Data)
+		// 5. Pack Result with content-address digest
+		outputDigest := m.computeResourceDigest(result.Data)
+		resOutBytes, err := m.packResource(req.ID, outputDigest, result.Data)
 		if err != nil {
 			return nil, fmt.Errorf("failed to pack result resource: %w", err)
 		}
@@ -1705,6 +1960,9 @@ func (r *DelegateRequest) FromCapnp(req p2p.DelegateRequest) error {
 		digest, _ := res.Digest()
 		_ = root.SetDigest(digest)
 		root.SetRawSize(res.RawSize())
+		root.SetWireSize(res.WireSize())
+		root.SetCompression(res.Compression())
+		root.SetEncryption(res.Encryption())
 
 		switch res.Which() {
 		case system.Resource_Which_inline:
@@ -1781,6 +2039,9 @@ func (r *DelegationResponse) FromCapnp(res p2p.DelegateResponse) error {
 		digest, _ := resObj.Digest()
 		_ = root.SetDigest(digest)
 		root.SetRawSize(resObj.RawSize())
+		root.SetWireSize(resObj.WireSize())
+		root.SetCompression(resObj.Compression())
+		root.SetEncryption(resObj.Encryption())
 
 		switch resObj.Which() {
 		case system.Resource_Which_inline:
@@ -1816,12 +2077,18 @@ func (m *MeshCoordinator) packResource(id, digest string, data []byte) ([]byte, 
 	}
 
 	res.SetId(id)
+	if digest == "" {
+		digest = m.computeResourceDigest(data)
+	}
 	res.SetDigest([]byte(digest))
 	res.SetRawSize(uint32(len(data)))
+	res.SetEncryption(system.Resource_Encryption_none)
 
 	// 1. Try to use SABRef if data is in bridge
 	if m.bridge != nil {
 		if offset, ok := m.bridge.GetAddress(data); ok {
+			res.SetWireSize(uint32(len(data)))
+			res.SetCompression(system.Resource_Compression_none)
 			ref, err := res.NewSabRef()
 			if err == nil {
 				ref.SetOffset(offset)
@@ -1831,8 +2098,14 @@ func (m *MeshCoordinator) packResource(id, digest string, data []byte) ([]byte, 
 		}
 	}
 
-	// 2. Fallback: Inline data
-	res.SetInline(data)
+	// 2. Fallback: Inline data (Brotli-enabled for wire transfer)
+	payload, err := m.encodePayloadForWire(data, meshCompressionMinBytes, meshBrotliCompressionLevel)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode resource payload: %w", err)
+	}
+	res.SetWireSize(uint32(payload.WireSize))
+	res.SetCompression(resourceCompressionFromString(payload.Compression))
+	res.SetInline(payload.Data)
 
 	bytes, err := msg.Marshal()
 	if err != nil {
@@ -1850,6 +2123,116 @@ func (m *MeshCoordinator) unpackResource(data []byte) (system.Resource, error) {
 	}
 
 	return system.ReadRootResource(msg)
+}
+
+func (m *MeshCoordinator) resolveResourceData(res system.Resource) ([]byte, error) {
+	compression := resourceCompressionToString(res.Compression())
+	rawSize := int(res.RawSize())
+
+	switch res.Which() {
+	case system.Resource_Which_sabRef:
+		if m.bridge == nil {
+			return nil, errors.New("resource references SAB but bridge is unavailable")
+		}
+		ref, _ := res.SabRef()
+		wireData, err := m.bridge.ReadRaw(ref.Offset(), ref.Size())
+		if err != nil {
+			return nil, fmt.Errorf("failed to read resource sabRef payload: %w", err)
+		}
+		return m.decodePayloadFromWire(wireData, compression, rawSize)
+	case system.Resource_Which_inline:
+		wireData, err := res.Inline()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read resource inline payload: %w", err)
+		}
+		return m.decodePayloadFromWire(wireData, compression, rawSize)
+	default:
+		return nil, fmt.Errorf("unsupported resource payload type: %v", res.Which())
+	}
+}
+
+type wirePayload struct {
+	Data        []byte
+	RawSize     int
+	WireSize    int
+	Compression string
+}
+
+func (m *MeshCoordinator) encodePayloadForWire(data []byte, minCompressBytes int, level int) (wirePayload, error) {
+	payload := wirePayload{
+		Data:        data,
+		RawSize:     len(data),
+		WireSize:    len(data),
+		Compression: "none",
+	}
+
+	if len(data) < minCompressBytes {
+		return payload, nil
+	}
+
+	var compressed bytes.Buffer
+	w := brotli.NewWriterLevel(&compressed, level)
+	if _, err := w.Write(data); err != nil {
+		_ = w.Close()
+		return payload, err
+	}
+	if err := w.Close(); err != nil {
+		return payload, err
+	}
+
+	if compressed.Len() >= len(data) {
+		return payload, nil
+	}
+
+	payload.Data = append([]byte(nil), compressed.Bytes()...)
+	payload.WireSize = len(payload.Data)
+	payload.Compression = "brotli"
+	return payload, nil
+}
+
+func (m *MeshCoordinator) decodePayloadFromWire(data []byte, compression string, rawSize int) ([]byte, error) {
+	switch compression {
+	case "", "none":
+		if rawSize > 0 && len(data) != rawSize {
+			return nil, fmt.Errorf("uncompressed payload size mismatch: expected=%d got=%d", rawSize, len(data))
+		}
+		return data, nil
+	case "brotli":
+		reader := brotli.NewReader(bytes.NewReader(data))
+		decoded, err := io.ReadAll(reader)
+		if err != nil {
+			return nil, fmt.Errorf("brotli decompression failed: %w", err)
+		}
+		if rawSize > 0 && len(decoded) != rawSize {
+			return nil, fmt.Errorf("brotli payload size mismatch: expected=%d got=%d", rawSize, len(decoded))
+		}
+		return decoded, nil
+	default:
+		return nil, fmt.Errorf("unsupported compression algorithm: %s", compression)
+	}
+}
+
+func resourceCompressionToString(compression system.Resource_Compression) string {
+	switch compression {
+	case system.Resource_Compression_brotli:
+		return "brotli"
+	default:
+		return "none"
+	}
+}
+
+func resourceCompressionFromString(compression string) system.Resource_Compression {
+	switch compression {
+	case "brotli":
+		return system.Resource_Compression_brotli
+	default:
+		return system.Resource_Compression_none
+	}
+}
+
+func (m *MeshCoordinator) computeResourceDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func minInt(a, b int) int {

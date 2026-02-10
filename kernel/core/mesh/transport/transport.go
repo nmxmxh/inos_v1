@@ -41,6 +41,7 @@ type WebRTCTransport struct {
 	// WebSocket signaling
 	signalingURL    string
 	signaling       map[string]SignalingChannel
+	signalingLoops  map[string]struct{}
 	signalingMu     sync.RWMutex
 	signalingStatus atomic.Value // "connected", "connecting", "disconnected"
 
@@ -250,6 +251,7 @@ func NewWebRTCTransport(nodeID string, config TransportConfig, logger *slog.Logg
 		messageQueue:    make(chan QueuedMessage, 1000),
 		shutdown:        make(chan struct{}),
 		signaling:       make(map[string]SignalingChannel),
+		signalingLoops:  make(map[string]struct{}),
 		config:          config,
 		logger:          logger.With("component", "transport", "node_id", getShortID(nodeID)),
 		startTime:       time.Now(),
@@ -303,6 +305,7 @@ func (t *WebRTCTransport) Start(ctx context.Context) error {
 	go t.metricsCollector()
 
 	t.started.Store(true)
+	t.startInjectedSignalingReceivers()
 	t.healthMu.Lock()
 	t.health.Status = "running"
 	t.healthMu.Unlock()
@@ -330,11 +333,82 @@ func (t *WebRTCTransport) ensureSignaling() error {
 }
 
 func (t *WebRTCTransport) signalingServerList() []string {
-	if len(t.config.SignalingServers) > 0 {
-		return t.config.SignalingServers
+	t.signalingMu.RLock()
+	servers := append([]string(nil), t.config.SignalingServers...)
+	wsURL := t.config.WebSocketURL
+	t.signalingMu.RUnlock()
+
+	servers = dedupeStrings(servers)
+
+	// If only gossip signaling is configured and a WebSocket bootstrap URL exists,
+	// keep both so peer-provided bootstrap can coexist with mesh-native signaling.
+	if wsURL != "" && !containsString(servers, wsURL) {
+		servers = append(servers, wsURL)
 	}
-	if t.config.WebSocketURL != "" {
-		return []string{t.config.WebSocketURL}
+
+	if len(servers) > 0 {
+		return servers
+	}
+	if wsURL != "" {
+		return []string{wsURL}
+	}
+	return nil
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return values
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func containsString(values []string, target string) bool {
+	for _, v := range values {
+		if v == target {
+			return true
+		}
+	}
+	return false
+}
+
+// AddSignalingServer registers a runtime bootstrap endpoint.
+// This keeps decentralized gossip signaling as primary while allowing
+// peer-provided rendezvous addresses for first contact.
+func (t *WebRTCTransport) AddSignalingServer(server string) error {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return errors.New("signaling server URL is required")
+	}
+	if !strings.HasPrefix(server, "gossip://") &&
+		!strings.HasPrefix(server, "ws://") &&
+		!strings.HasPrefix(server, "wss://") {
+		return fmt.Errorf("unsupported signaling server scheme: %s", server)
+	}
+
+	t.signalingMu.Lock()
+	if !containsString(t.config.SignalingServers, server) {
+		t.config.SignalingServers = append([]string{server}, t.config.SignalingServers...)
+	}
+	if (strings.HasPrefix(server, "ws://") || strings.HasPrefix(server, "wss://")) &&
+		t.config.WebSocketURL == "" {
+		t.config.WebSocketURL = server
+	}
+	t.signalingMu.Unlock()
+
+	// Attempt immediate dial if transport is already running.
+	if t.started.Load() {
+		if err := t.connectSignaling(); err != nil {
+			t.logger.Debug("runtime signaling bootstrap dial failed", "server", server, "error", err)
+		}
 	}
 	return nil
 }
@@ -354,8 +428,39 @@ func (t *WebRTCTransport) InjectSignalingChannel(url string, ch SignalingChannel
 
 	// If already started, start the receiver loop for this channel
 	if t.started.Load() {
-		go t.receiveSignalingMessages(ch, url)
+		t.startSignalingReceiver(url, ch)
 	}
+}
+
+func (t *WebRTCTransport) startInjectedSignalingReceivers() {
+	t.signalingMu.RLock()
+	channels := make(map[string]SignalingChannel, len(t.signaling))
+	for url, ch := range t.signaling {
+		channels[url] = ch
+	}
+	t.signalingMu.RUnlock()
+
+	for url, ch := range channels {
+		if ch != nil && ch.IsConnected() {
+			t.startSignalingReceiver(url, ch)
+		}
+	}
+}
+
+func (t *WebRTCTransport) startSignalingReceiver(url string, ch SignalingChannel) {
+	if ch == nil {
+		return
+	}
+
+	t.signalingMu.Lock()
+	if _, exists := t.signalingLoops[url]; exists {
+		t.signalingMu.Unlock()
+		return
+	}
+	t.signalingLoops[url] = struct{}{}
+	t.signalingMu.Unlock()
+
+	go t.receiveSignalingMessages(ch, url)
 }
 
 func (t *WebRTCTransport) notifyPeerEvent(peerID string, connected bool) {
@@ -385,6 +490,7 @@ func (t *WebRTCTransport) Stop() error {
 		}
 	}
 	t.signaling = make(map[string]SignalingChannel)
+	t.signalingLoops = make(map[string]struct{})
 	t.signalingStatus.Store("disconnected")
 	t.signalingMu.Unlock()
 
@@ -878,7 +984,7 @@ func (t *WebRTCTransport) Broadcast(topic string, message interface{}) error {
 			}
 
 			if err := t.SendMessage(ctx, pid, broadcastMsg); err != nil {
-				errs <- fmt.Errorf("failed to broadcast to %s: %w", pid[:8], err)
+				errs <- fmt.Errorf("failed to broadcast to %s: %w", getShortID(pid), err)
 			}
 		}(peerID)
 	}
@@ -1023,12 +1129,17 @@ func (t *WebRTCTransport) GetStats() map[string]interface{} {
 	health := t.GetHealth()
 
 	return map[string]interface{}{
-		"node_id":         t.nodeID,
-		"uptime":          t.startTime.Format(time.RFC3339),
-		"connected_peers": t.GetConnectedPeers(),
-		"total_peers":     len(t.connections),
-		"metrics":         metrics,
-		"health":          health,
+		"node_id":            t.nodeID,
+		"uptime":             t.startTime.Format(time.RFC3339),
+		"connected_peers":    t.GetConnectedPeers(),
+		"total_peers":        len(t.connections),
+		"active_connections": metrics.ActiveConnections,
+		"bytes_sent":         metrics.BytesSent,
+		"bytes_received":     metrics.BytesReceived,
+		"messages_sent":      metrics.MessagesSent,
+		"messages_received":  metrics.MessagesReceived,
+		"metrics":            metrics,
+		"health":             health,
 		"config": map[string]interface{}{
 			"webrtc_enabled":  t.config.WebRTCEnabled,
 			"ice_servers":     len(t.config.ICEServers),
@@ -1092,7 +1203,7 @@ func (t *WebRTCTransport) connectSignaling() error {
 				t.signalingMu.RUnlock()
 				if exists && ch != nil {
 					t.signalingStatus.Store("connected")
-					// already has a receiver if started via InjectSignalingChannel
+					t.startSignalingReceiver(url, ch)
 					atomic.AddInt32(&successCount, 1)
 					select {
 					case success <- struct{}{}:
@@ -1133,7 +1244,7 @@ func (t *WebRTCTransport) connectSignaling() error {
 			t.logger.Info("connected to signaling server", "server", url)
 
 			// Start receiving signaling messages for THIS connection
-			go t.receiveSignalingMessages(conn, url)
+			t.startSignalingReceiver(url, conn)
 
 			// Announce ourselves to THIS connection
 			_ = conn.Send(map[string]interface{}{
@@ -1281,6 +1392,7 @@ func (t *WebRTCTransport) receiveSignalingMessages(s SignalingChannel, url strin
 		if current, exists := t.signaling[url]; exists && current == s {
 			delete(t.signaling, url)
 		}
+		delete(t.signalingLoops, url)
 
 		if len(t.signaling) == 0 {
 			t.signalingStatus.Store("disconnected")
@@ -1307,6 +1419,14 @@ func (t *WebRTCTransport) receiveSignalingMessages(s SignalingChannel, url strin
 				t.logger.Error("failed to read signaling message", "server", url, "error", err)
 				return
 			}
+			if t.config.MaxMessageSize > 0 && len(message) > t.config.MaxMessageSize {
+				t.logger.Warn("dropping oversized signaling message",
+					"server", url,
+					"size", len(message),
+					"max", t.config.MaxMessageSize,
+				)
+				continue
+			}
 
 			t.logger.Debug("received signaling data", "server", url, "len", len(message))
 			t.handleSignalingMessage(message)
@@ -1316,6 +1436,11 @@ func (t *WebRTCTransport) receiveSignalingMessages(s SignalingChannel, url strin
 
 // handleSignalingMessage processes signaling server messages
 func (t *WebRTCTransport) handleSignalingMessage(message []byte) {
+	if t.config.MaxMessageSize > 0 && len(message) > t.config.MaxMessageSize {
+		t.logger.Warn("dropping oversized signaling message", "size", len(message), "max", t.config.MaxMessageSize)
+		return
+	}
+
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
 		t.logger.Error("failed to unmarshal signaling message", "error", err)
@@ -1323,7 +1448,35 @@ func (t *WebRTCTransport) handleSignalingMessage(message []byte) {
 	}
 
 	msgType, _ := msg["type"].(string)
+	switch msgType {
+	case "webrtc_offer", "webrtc_answer", "ice_candidate", "peer_discovery", "ping", "pong":
+	default:
+		t.logger.Debug("ignoring unknown signaling message type", "type", msgType)
+		return
+	}
+
 	senderID, _ := msg["peer_id"].(string)
+	targetID, _ := msg["target_id"].(string)
+	if senderID == t.nodeID && senderID != "" {
+		return
+	}
+
+	switch msgType {
+	case "webrtc_offer", "webrtc_answer", "ice_candidate":
+		if targetID == "" {
+			t.logger.Debug("dropping signaling message with missing target_id", "type", msgType, "from", getShortID(senderID))
+			return
+		}
+		if targetID != t.nodeID {
+			t.logger.Debug("ignoring signaling message not targeted to this node", "type", msgType, "from", getShortID(senderID), "target", getShortID(targetID))
+			return
+		}
+	case "ping":
+		if targetID != "" && targetID != t.nodeID {
+			return
+		}
+	}
+
 	t.logger.Info("signaling message received", "type", msgType, "from", getShortID(senderID))
 
 	switch msgType {
@@ -1341,6 +1494,8 @@ func (t *WebRTCTransport) handleSignalingMessage(message []byte) {
 			"type":    "pong",
 			"peer_id": t.nodeID,
 		})
+	case "pong":
+		return
 	}
 }
 
@@ -1518,9 +1673,16 @@ func (t *WebRTCTransport) handleICECandidate(senderID string, msg map[string]int
 func (t *WebRTCTransport) handlePeerDiscovery(msg map[string]interface{}) {
 	if peerID, ok := msg["peer_id"].(string); ok {
 		if peerID != "" && peerID != t.nodeID {
+			now := time.Now()
 			t.connMu.Lock()
-			if _, exists := t.connections[peerID]; !exists {
-				t.connections[peerID] = &PeerConnection{PeerID: peerID, Connected: false}
+			if conn, exists := t.connections[peerID]; exists {
+				conn.LastContact = now
+			} else {
+				t.connections[peerID] = &PeerConnection{
+					PeerID:      peerID,
+					Connected:   false,
+					LastContact: now,
+				}
 			}
 			t.connMu.Unlock()
 		}
@@ -1539,7 +1701,8 @@ func (t *WebRTCTransport) handlePeerDiscovery(msg map[string]interface{}) {
 
 			if peerID != "" && peerID != t.nodeID {
 				// Store peer info for later connection
-				t.logger.Debug("discovered peer", "peer", peerID[:8])
+				t.logger.Debug("discovered peer", "peer", getShortID(peerID))
+				now := time.Now()
 
 				// Parse capabilities if available
 				if capabilities != "" {
@@ -1548,15 +1711,29 @@ func (t *WebRTCTransport) handlePeerDiscovery(msg map[string]interface{}) {
 						t.connMu.Lock()
 						if conn, exists := t.connections[peerID]; exists {
 							conn.Capability = &cap
+							conn.LastContact = now
 						} else {
 							t.connections[peerID] = &PeerConnection{
-								PeerID:     peerID,
-								Capability: &cap,
-								Connected:  false,
+								PeerID:      peerID,
+								Capability:  &cap,
+								Connected:   false,
+								LastContact: now,
 							}
 						}
 						t.connMu.Unlock()
 					}
+				} else {
+					t.connMu.Lock()
+					if conn, exists := t.connections[peerID]; exists {
+						conn.LastContact = now
+					} else {
+						t.connections[peerID] = &PeerConnection{
+							PeerID:      peerID,
+							Connected:   false,
+							LastContact: now,
+						}
+					}
+					t.connMu.Unlock()
 				}
 			}
 		}
@@ -1565,8 +1742,17 @@ func (t *WebRTCTransport) handlePeerDiscovery(msg map[string]interface{}) {
 
 // handleIncomingMessage processes incoming messages from peers
 func (t *WebRTCTransport) handleIncomingMessage(peerID string, data []byte) {
+	if t.config.MaxMessageSize > 0 && len(data) > t.config.MaxMessageSize {
+		t.metricsMu.Lock()
+		t.metrics.FailedMessages++
+		t.metricsMu.Unlock()
+		t.logger.Warn("dropping oversized peer message", "peer", getShortID(peerID), "size", len(data), "max", t.config.MaxMessageSize)
+		return
+	}
+
 	// Update metrics
 	t.recordMessageReceived(len(data))
+	t.touchPeer(peerID)
 
 	// Parse Envelope
 	env := &common.Envelope{}
@@ -1595,6 +1781,8 @@ func (t *WebRTCTransport) handleIncomingMessage(peerID string, data []byte) {
 	switch env.Type {
 	case "rpc_request":
 		t.handleRPCRequest(peerID, env.Payload)
+	case "json_payload":
+		t.handleJSONPayload(peerID, env.Payload)
 	case "ping":
 		// Respond to ping
 		t.SendMessage(context.Background(), peerID, &common.Envelope{
@@ -1616,7 +1804,34 @@ func (t *WebRTCTransport) handleIncomingMessage(peerID string, data []byte) {
 			t.connMu.Unlock()
 		}
 	case "chunk_request":
-		t.logger.Debug("received chunk request", "peer", peerID[:8])
+		t.logger.Debug("received chunk request", "peer", getShortID(peerID))
+	}
+}
+
+func (t *WebRTCTransport) handleJSONPayload(peerID string, payload []byte) {
+	var msg map[string]interface{}
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		t.logger.Error("failed to decode json_payload envelope", "peer", getShortID(peerID), "error", err)
+		return
+	}
+
+	msgType, _ := msg["type"].(string)
+	switch msgType {
+	case "chunk_store":
+		t.handlerMu.RLock()
+		handler, exists := t.rpcHandlers["chunk.store"]
+		t.handlerMu.RUnlock()
+		if !exists {
+			t.logger.Warn("received legacy chunk_store payload but no chunk.store handler registered")
+			return
+		}
+
+		params, _ := json.Marshal(msg)
+		if _, err := handler(context.Background(), peerID, json.RawMessage(params)); err != nil {
+			t.logger.Warn("failed to handle legacy chunk_store payload", "peer", getShortID(peerID), "error", err)
+		}
+	default:
+		t.logger.Debug("ignoring unknown json_payload", "peer", getShortID(peerID), "type", msgType)
 	}
 }
 
@@ -1667,9 +1882,11 @@ func (t *WebRTCTransport) handleRPCRequest(peerID string, data []byte) {
 func (t *WebRTCTransport) getPeerWebSocketURL(peerID string) (string, error) {
 	// In production, this would query a signaling server or DHT
 	// For now, use a simple pattern based on peer ID
+	t.signalingMu.RLock()
 	baseURL := t.config.WebSocketURL
+	t.signalingMu.RUnlock()
 	if baseURL == "" {
-		baseURL = "wss://relay.inos.ai/ws"
+		return "", errors.New("no WebSocket bootstrap URL configured; provide connect address or signaling server")
 	}
 
 	u, err := url.Parse(baseURL)
@@ -1754,7 +1971,7 @@ func (t *WebRTCTransport) sendKeepAlives() {
 			}
 
 			if err := t.SendMessage(ctx, pid, pingMsg); err != nil {
-				t.logger.Debug("keep-alive failed", "peer", pid[:8], "error", err)
+				t.logger.Debug("keep-alive failed", "peer", getShortID(pid), "error", err)
 			}
 		}(peerID)
 	}
@@ -1762,22 +1979,58 @@ func (t *WebRTCTransport) sendKeepAlives() {
 
 // cleanupStaleConnections removes stale connections
 func (t *WebRTCTransport) cleanupStaleConnections() {
-	t.connMu.Lock()
-	defer t.connMu.Unlock()
+	staleThreshold := 2 * t.config.KeepAliveInterval
+	if staleThreshold <= 0 {
+		staleThreshold = 1 * time.Minute
+	}
 
+	t.connMu.Lock()
 	now := time.Now()
+	disconnectedPeers := make([]string, 0)
+
 	for peerID, conn := range t.connections {
-		if !conn.Connected {
+		if conn == nil {
+			delete(t.connections, peerID)
 			continue
 		}
 
-		// Check last contact
-		if now.Sub(conn.LastContact) > 2*t.config.KeepAliveInterval {
-			t.logger.Debug("cleaning up stale connection", "peer", peerID[:8])
-			if conn.Connection != nil {
-				conn.Connection.Close()
+		age := now.Sub(conn.LastContact)
+		if conn.Connected {
+			if age <= staleThreshold {
+				continue
 			}
-			conn.Connected = false
+
+			t.logger.Debug("cleaning up stale connection", "peer", getShortID(peerID))
+			if conn.Connection != nil {
+				_ = conn.Connection.Close()
+			}
+			delete(t.connections, peerID)
+			disconnectedPeers = append(disconnectedPeers, peerID)
+			continue
+		}
+
+		if conn.LastContact.IsZero() || age <= staleThreshold {
+			continue
+		}
+
+		// Churn cleanup: remove long-idle discovered peers that never connected.
+		t.logger.Debug("pruning stale discovered peer", "peer", getShortID(peerID))
+		delete(t.connections, peerID)
+	}
+	t.connMu.Unlock()
+
+	if len(disconnectedPeers) > 0 {
+		t.pcMu.Lock()
+		for _, peerID := range disconnectedPeers {
+			if pc, exists := t.peerConnections[peerID]; exists {
+				_ = pc.Close()
+				delete(t.peerConnections, peerID)
+			}
+		}
+		t.pcMu.Unlock()
+
+		for _, peerID := range disconnectedPeers {
+			t.notifyPeerEvent(peerID, false)
 		}
 	}
 }
@@ -1901,6 +2154,18 @@ func (t *WebRTCTransport) updatePeerLatency(peerID string, latency time.Duration
 	t.connMu.Lock()
 	if conn, exists := t.connections[peerID]; exists {
 		conn.Latency = latency
+		conn.LastContact = time.Now()
+	}
+	t.connMu.Unlock()
+}
+
+func (t *WebRTCTransport) touchPeer(peerID string) {
+	if peerID == "" {
+		return
+	}
+	t.connMu.Lock()
+	if conn, exists := t.connections[peerID]; exists {
+		conn.LastContact = time.Now()
 	}
 	t.connMu.Unlock()
 }

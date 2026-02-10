@@ -2,6 +2,7 @@ const http = require('http');
 const WebSocket = require('ws');
 
 const port = Number(process.env.INOS_SIGNALING_PORT || process.env.SIGNALING_PORT || 8787);
+const host = process.env.INOS_SIGNALING_HOST || '127.0.0.1';
 const path = process.env.INOS_SIGNALING_PATH || '/ws';
 const heartbeatIntervalMs = Number(process.env.INOS_SIGNALING_HEARTBEAT_MS || 25000);
 
@@ -132,8 +133,8 @@ const heartbeat = setInterval(() => {
   });
 }, heartbeatIntervalMs);
 
-server.listen(port, () => {
-  console.log(`[Signaling] Listening on ws://localhost:${port}${path}`);
+server.listen(port, host, () => {
+  console.log(`[Signaling] Listening on ws://${host}:${port}${path}`);
 });
 
 process.on('SIGINT', () => {
